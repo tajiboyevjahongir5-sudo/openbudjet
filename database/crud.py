@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from database.models import User, ProjectSettings, VotesHistory, Withdrawals, VoteStatus, WithdrawalStatus
+from database.models import User, ProjectSettings, VotesHistory, Withdrawals, VoteStatus, WithdrawalStatus, OpenBudgetProject
 
 # --- Foydalanuvchilar bilan ishlash ---
 
@@ -72,8 +72,6 @@ async def get_project_settings(db: AsyncSession) -> ProjectSettings:
     settings = result.scalar_one_or_none()
     if not settings:
         settings = ProjectSettings(
-            active_project_id="12345",
-            project_url="https://openbudget.uz/boards/initiatives/31/details?initiativeId=12345",
             referral_price=1500.0,
             min_withdrawal=5000.0
         )
@@ -84,16 +82,10 @@ async def get_project_settings(db: AsyncSession) -> ProjectSettings:
 
 async def update_project_settings(
     db: AsyncSession,
-    active_project_id: str | None = None,
-    project_url: str | None = None,
     referral_price: float | None = None,
     min_withdrawal: float | None = None
 ) -> ProjectSettings:
     settings = await get_project_settings(db)
-    if active_project_id is not None:
-        settings.active_project_id = active_project_id
-    if project_url is not None:
-        settings.project_url = project_url
     if referral_price is not None:
         settings.referral_price = referral_price
     if min_withdrawal is not None:
@@ -271,3 +263,72 @@ async def get_all_user_ids(db: AsyncSession) -> list[int]:
     """Barcha foydalanuvchilarning telegram ID larini qaytaradi"""
     result = await db.execute(select(User.telegram_id))
     return [row[0] for row in result.all()]
+
+# --- Open Budget Loyihalari bilan ishlash ---
+
+async def get_active_project(db: AsyncSession) -> OpenBudgetProject | None:
+    """Faol bo'lgan Open Budget loyihasini qaytaradi (faqat bittasi faol bo'la oladi)"""
+    result = await db.execute(select(OpenBudgetProject).where(OpenBudgetProject.is_active == True))
+    return result.scalar_one_or_none()
+
+async def get_all_projects(db: AsyncSession) -> list[OpenBudgetProject]:
+    """Barcha qo'shilgan loyihalar ro'yxatini qaytaradi"""
+    result = await db.execute(select(OpenBudgetProject).order_by(OpenBudgetProject.id.asc()))
+    return list(result.scalars().all())
+
+async def add_project(db: AsyncSession, project_id: str, project_url: str) -> OpenBudgetProject:
+    """Yangi loyiha qo'shadi. Agar birorta ham loyiha bo'lmasa, uni avtomat faol qiladi."""
+    # Avval loyiha mavjudligini tekshiramiz
+    existing = await db.execute(select(OpenBudgetProject).where(OpenBudgetProject.project_id == project_id))
+    project = existing.scalar_one_or_none()
+    if project:
+        project.project_url = project_url
+        await db.commit()
+        await db.refresh(project)
+        return project
+        
+    # Boshqa loyihalar borligini tekshiramiz
+    all_projects = await get_all_projects(db)
+    is_active = len(all_projects) == 0  # Agar birinchi loyiha bo'lsa, faol bo'ladi
+    
+    project = OpenBudgetProject(
+        project_id=project_id,
+        project_url=project_url,
+        is_active=is_active
+    )
+    db.add(project)
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+async def delete_project(db: AsyncSession, project_id: str) -> bool:
+    """Loyihani o'chiradi. Agar o'chirilayotgan loyiha faol bo'lgan bo'lsa, boshqa biror loyihani faol qilmaydi."""
+    result = await db.execute(select(OpenBudgetProject).where(OpenBudgetProject.project_id == project_id))
+    project = result.scalar_one_or_none()
+    if project:
+        await db.delete(project)
+        await db.commit()
+        return True
+    return False
+
+async def activate_project(db: AsyncSession, project_id: str) -> OpenBudgetProject | None:
+    """Tanlangan loyihani faollashtiradi va qolgan barcha loyihalarni faolsizlantiradi (Faqat 1ta faol cheklovi)"""
+    # Avval barcha loyihalarni faolsizlantiramiz
+    await db.execute(update(OpenBudgetProject).values(is_active=False))
+    
+    # Tanlanganini faollashtiramiz
+    result = await db.execute(select(OpenBudgetProject).where(OpenBudgetProject.project_id == project_id))
+    project = result.scalar_one_or_none()
+    if project:
+        project.is_active = True
+        await db.commit()
+        await db.refresh(project)
+        return project
+    else:
+        await db.commit()
+    return None
+
+async def deactivate_all_projects(db: AsyncSession):
+    """Barcha loyihalarni faolsizlantiradi"""
+    await db.execute(update(OpenBudgetProject).values(is_active=False))
+    await db.commit()

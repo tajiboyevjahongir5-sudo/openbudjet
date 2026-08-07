@@ -30,7 +30,7 @@ def get_admin_menu() -> ReplyKeyboardMarkup:
     """Adminlar uchun boshqaruv paneli menyusi (Reply Keyboard)"""
     keyboard = [
         [
-            KeyboardButton(text="✏️ Loyihani o'zgartirish", style="primary"), 
+            KeyboardButton(text="📂 Loyihalar", style="primary"), 
             KeyboardButton(text="💰 Mukofot narxi", style="primary")
         ],
         [

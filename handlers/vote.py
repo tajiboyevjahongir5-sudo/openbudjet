@@ -33,6 +33,13 @@ def clean_phone_number(phone: str) -> str:
 async def start_voting(message: Message, state: FSMContext):
     """Ovoz berish FSM oqimini boshlash"""
     await state.clear()
+    
+    async with async_session() as db:
+        active_project = await crud.get_active_project(db)
+        if not active_project:
+            await message.answer("❌ Hozircha botga faol Open Budget loyihasi ulanmagan. Iltimos, keyinroq qayta urinib ko'ring.")
+            return
+
     await state.set_state(VoteStates.WAITING_FOR_PHONE)
     await message.answer(
         "🗳️ **Ovoz berish bo'limi**\n\n"
@@ -46,6 +53,14 @@ async def start_voting(message: Message, state: FSMContext):
 async def process_menu_vote(callback: CallbackQuery, state: FSMContext):
     """Inline menyudan ovoz berish FSM oqimini boshlash"""
     await state.clear()
+    
+    async with async_session() as db:
+        active_project = await crud.get_active_project(db)
+        if not active_project:
+            await callback.message.answer("❌ Hozircha botga faol Open Budget loyihasi ulanmagan. Iltimos, keyinroq qayta urinib ko'ring.")
+            await callback.answer()
+            return
+
     await state.set_state(VoteStates.WAITING_FOR_PHONE)
     await callback.message.answer(
         "🗳️ **Ovoz berish bo'limi**\n\n"
@@ -84,8 +99,11 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
     telegram_id = message.from_user.id
 
     async with async_session() as db:
-        project_settings = await crud.get_project_settings(db)
-        project_id = project_settings.active_project_id
+        active_project = await crud.get_active_project(db)
+        if not active_project:
+            await message.answer("❌ Hozircha botga faol Open Budget loyihasi ulanmagan. Iltimos, keyinroq qayta urinib ko'ring.")
+            return
+        project_id = active_project.project_id
 
         already_voted = await crud.check_phone_voted(db, clean_phone, project_id)
         if already_voted:

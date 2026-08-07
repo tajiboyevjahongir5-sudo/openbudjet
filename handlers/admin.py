@@ -9,9 +9,10 @@ from aiogram.types import Message, CallbackQuery, TelegramObject, BufferedInputF
 from config import settings
 from database.session import async_session
 from database import crud
-from database.models import WithdrawalStatus
+from database.models import WithdrawalStatus, OpenBudgetProject
+from sqlalchemy import select
 from states.user_states import AdminStates
-from keyboards import reply
+from keyboards import reply, inline
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -44,17 +45,30 @@ async def cmd_admin(message: Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
-# --- 1. Havolani o'zgartirish bosqichlari ---
+# --- Helper to show projects list ---
 
-@router.message(F.text == "✏️ Loyihani o'zgartirish")
-async def admin_change_link(message: Message, state: FSMContext):
-    await state.set_state(AdminStates.WAITING_FOR_PROJECT_ID)
-    await message.answer(
-        "📝 Yangi Open Budget **Loyiha ID** raqamini kiriting:\n"
-        "(Masalan: 32541)",
-        reply_markup=reply.get_cancel_keyboard(),
-        parse_mode="Markdown"
+async def show_projects_list(message_or_callback, state: FSMContext):
+    await state.clear()
+    async with async_session() as db:
+        projects = await crud.get_all_projects(db)
+    
+    text = (
+        "📂 **Open Budget loyihalari ro'yxati**\n\n"
+        "Quyidagi loyihalardan birini tanlab faollashtirishingiz, faolsizlantirishingiz yoki o'chirishingiz mumkin. "
+        "Yoki yangi loyiha qo'shishingiz mumkin:\n\n"
+        "*(Eslatma: Bir vaqtda faqat 1 ta loyiha faol bo'la oladi)*"
     )
+    if isinstance(message_or_callback, Message):
+        await message_or_callback.answer(text, reply_markup=inline.get_admin_projects_list_keyboard(projects), parse_mode="Markdown")
+    else:
+        await message_or_callback.message.edit_text(text, reply_markup=inline.get_admin_projects_list_keyboard(projects), parse_mode="Markdown")
+
+# --- 1. Loyihalar boshqaruvi handlers ---
+
+@router.message(F.text == "📂 Loyihalar")
+async def admin_projects_list_message(message: Message, state: FSMContext):
+    """Admin '📂 Loyihalar' tugmasini bosganda loyihalar ro'yxatini chiqaradi"""
+    await show_projects_list(message, state)
 
 @router.message(AdminStates.WAITING_FOR_PROJECT_ID, F.text)
 async def process_admin_project_id(message: Message, state: FSMContext):
@@ -89,20 +103,77 @@ async def process_admin_project_url(message: Message, state: FSMContext):
     project_id = data.get("project_id")
 
     async with async_session() as db:
-        await crud.update_project_settings(
+        await crud.add_project(
             db=db,
-            active_project_id=project_id,
+            project_id=project_id,
             project_url=project_url
         )
 
     await state.clear()
     await message.answer(
-        f"✅ Loyiha ma'lumotlari muvaffaqiyatli yangilandi!\n\n"
+        f"✅ Yangi loyiha muvaffaqiyatli qo'shildi!\n\n"
         f"📌 Loyiha ID: `{project_id}`\n"
         f"🔗 Havola: {project_url}",
         reply_markup=reply.get_admin_menu(),
         parse_mode="Markdown"
     )
+
+@router.callback_query(F.data.startswith("admin_proj_view_"))
+async def process_admin_project_view(callback: CallbackQuery):
+    """Loyiha tafsilotlarini ko'rish va boshqarish"""
+    project_id = callback.data.split("_")[3]
+    async with async_session() as db:
+        result = await db.execute(select(OpenBudgetProject).where(OpenBudgetProject.project_id == project_id))
+        project = result.scalar_one_or_none()
+
+    if not project:
+        await callback.answer("❌ Loyiha topilmadi.", show_alert=True)
+        return
+
+    status_text = "🟢 Faol (Ishga tushirilgan)" if project.is_active else "🔴 Faolsiz (O'chirilgan)"
+    text = (
+        f"📂 **Loyiha tafsilotlari**\n\n"
+        f"📌 **Loyiha ID:** `{project.project_id}`\n"
+        f"🔗 **Havola:** {project.project_url}\n"
+        f"⚡ **Holati:** {status_text}\n\n"
+        f"Quyidagi amallardan birini tanlang:"
+    )
+    await callback.message.edit_text(text, reply_markup=inline.get_project_manage_keyboard(project), parse_mode="Markdown")
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("admin_proj_activate_"))
+async def process_admin_project_activate(callback: CallbackQuery):
+    """Loyihani faollashtirish (boshqa barcha loyihalarni faolsizlantiradi)"""
+    project_id = callback.data.split("_")[3]
+    async with async_session() as db:
+        await crud.activate_project(db, project_id)
+    await callback.answer("🟢 Loyiha faollashtirildi!", show_alert=True)
+    await process_admin_project_view(callback)
+
+@router.callback_query(F.data.startswith("admin_proj_deactivate_"))
+async def process_admin_project_deactivate(callback: CallbackQuery):
+    """Loyihani faolsizlantirish (barcha loyihalarni faolsizlantiradi)"""
+    async with async_session() as db:
+        await crud.deactivate_all_projects(db)
+    await callback.answer("🔴 Loyiha faolsizlantirildi!", show_alert=True)
+    await process_admin_project_view(callback)
+
+@router.callback_query(F.data == "admin_proj_deactivate_all")
+async def process_admin_project_deactivate_all(callback: CallbackQuery, state: FSMContext):
+    """Barcha loyihalarni faolsizlantirish"""
+    async with async_session() as db:
+        await crud.deactivate_all_projects(db)
+    await callback.answer("🔴 Barcha loyihalar faolsizlantirildi!", show_alert=True)
+    await show_projects_list(callback, state)
+
+@router.callback_query(F.data.startswith("admin_proj_delete_"))
+async def process_admin_project_delete(callback: CallbackQuery, state: FSMContext):
+    """Loyihani o'chirish"""
+    project_id = callback.data.split("_")[3]
+    async with async_session() as db:
+        await crud.delete_project(db, project_id)
+    await callback.answer("🗑️ Loyiha o'chirildi!", show_alert=True)
+    await show_projects_list(callback, state)
 
 # --- 2. Referal mukofot narxini o'zgartirish ---
 
@@ -187,8 +258,8 @@ async def process_admin_min_withdraw(message: Message, state: FSMContext):
 @router.message(F.text == "📈 Statistika")
 async def admin_statistics(message: Message):
     async with async_session() as db:
-        settings_row = await crud.get_project_settings(db)
-        active_project_id = settings_row.active_project_id
+        active_project = await crud.get_active_project(db)
+        active_project_id = active_project.project_id if active_project else "ulanish_mavjud_emas"
         
         stats = await crud.get_admin_stats(db, active_project_id)
 
@@ -364,16 +435,10 @@ async def process_reject_withdraw(callback: CallbackQuery):
 
 # --- Admin inline menyu callback query handlers ---
 
-@router.callback_query(F.data == "admin_change_project")
-async def admin_change_link_callback(callback: CallbackQuery, state: FSMContext):
-    """Inline menyudan loyihani o'zgartirish oqimini boshlash"""
-    await state.set_state(AdminStates.WAITING_FOR_PROJECT_ID)
-    await callback.message.answer(
-        "📝 Yangi Open Budget **Loyiha ID** raqamini kiriting:\n"
-        "(Masalan: 32541)",
-        reply_markup=reply.get_cancel_keyboard(),
-        parse_mode="Markdown"
-    )
+@router.callback_query(F.data == "admin_proj_list")
+async def admin_projects_list_callback(callback: CallbackQuery, state: FSMContext):
+    """Inline orqali loyihalar ro'yxatiga qaytish"""
+    await show_projects_list(callback, state)
     await callback.answer()
 
 @router.callback_query(F.data == "admin_change_price")
@@ -404,8 +469,8 @@ async def admin_change_min_withdraw_callback(callback: CallbackQuery, state: FSM
 async def admin_statistics_callback(callback: CallbackQuery):
     """Inline menyudan statistikalarni ko'rish"""
     async with async_session() as db:
-        settings_row = await crud.get_project_settings(db)
-        active_project_id = settings_row.active_project_id
+        active_project = await crud.get_active_project(db)
+        active_project_id = active_project.project_id if active_project else "ulanish_mavjud_emas"
         stats = await crud.get_admin_stats(db, active_project_id)
 
     history_lines = []

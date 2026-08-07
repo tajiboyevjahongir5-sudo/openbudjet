@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime
-from sqlalchemy import BigInteger, String, Float, Integer, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import BigInteger, String, Float, Integer, DateTime, ForeignKey, Enum as SQLEnum, Boolean
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
@@ -31,10 +31,16 @@ class ProjectSettings(Base):
     __tablename__ = "project_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    active_project_id: Mapped[str] = mapped_column(String(50), nullable=False)
-    project_url: Mapped[str] = mapped_column(String(500), nullable=False)
     referral_price: Mapped[float] = mapped_column(Float, default=0.0)
     min_withdrawal: Mapped[float] = mapped_column(Float, default=0.0)
+
+class OpenBudgetProject(Base):
+    __tablename__ = "openbudget_projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    project_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    project_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
 
 class VotesHistory(Base):
     __tablename__ = "votes_history"
