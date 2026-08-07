@@ -16,6 +16,7 @@ from database.session import engine
 from database import crud
 from database.session import async_session
 from handlers import user, vote, admin
+from middlewares import ThrottlingMiddleware
 
 # Logger sozlamalari
 logging.basicConfig(
@@ -35,6 +36,10 @@ dp = Dispatcher(storage=MemoryStorage())
 dp.include_router(user.router)
 dp.include_router(vote.router)
 dp.include_router(admin.router)
+
+# Anti-flood (Throttling) middleware ulash
+dp.message.middleware(ThrottlingMiddleware(time_limit=1.0))
+dp.callback_query.middleware(ThrottlingMiddleware(time_limit=1.0))
 
 # HTML shablonlari uchun Jinja2Templates sozlash (mutlaq yo'l orqali)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
