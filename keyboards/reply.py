@@ -28,7 +28,7 @@ def get_admin_menu() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="🔗 Havolani o'zgartirish"), KeyboardButton(text="💵 Referal narxi")],
         [KeyboardButton(text="💳 Min. Yechish"), KeyboardButton(text="📊 Statistika")],
-        [KeyboardButton(text="⬅️ Asosiy menyu")]
+        [KeyboardButton(text="📋 Hisobot"), KeyboardButton(text="⬅️ Asosiy menyu")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,

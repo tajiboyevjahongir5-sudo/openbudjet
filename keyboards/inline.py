@@ -27,3 +27,10 @@ def get_captcha_keyboard(session_id: str, web_url: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🧩 Captchani yechish", web_app=WebAppInfo(url=url))]
         ]
     )
+
+def get_admin_projects_keyboard(projects: list[str]) -> InlineKeyboardMarkup:
+    """Hisobot yuklab olish uchun loyihalar ro'yxatini inline tugma shaklida chiqarish"""
+    buttons = []
+    for p in projects:
+        buttons.append([InlineKeyboardButton(text=f"Loyiha: {p}", callback_data=f"admin_report_{p}")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

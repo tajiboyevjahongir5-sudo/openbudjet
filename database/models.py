@@ -21,6 +21,7 @@ class User(Base):
 
     telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    full_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     balance: Mapped[float] = mapped_column(Float, default=0.0)
     invited_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.telegram_id"), nullable=True)
     total_referrals: Mapped[int] = mapped_column(Integer, default=0)

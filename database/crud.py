@@ -13,6 +13,7 @@ async def get_or_create_user(
     db: AsyncSession, 
     telegram_id: int, 
     username: str | None = None, 
+    full_name: str | None = None,
     invited_by: int | None = None
 ) -> tuple[User, bool]:
     """
@@ -21,9 +22,15 @@ async def get_or_create_user(
     """
     user = await get_user(db, telegram_id)
     if user:
-        # Username yangilangan bo'lsa, bazada ham yangilab qo'yamiz
+        # Malumotlar yangilangan bo'lsa, bazada ham yangilab qo'yamiz
+        updated = False
         if username and user.username != username:
             user.username = username
+            updated = True
+        if full_name and user.full_name != full_name:
+            user.full_name = full_name
+            updated = True
+        if updated:
             await db.commit()
         return user, False
 
@@ -37,6 +44,7 @@ async def get_or_create_user(
     new_user = User(
         telegram_id=telegram_id,
         username=username,
+        full_name=full_name,
         invited_by=valid_invited_by,
         balance=0.0,
         total_referrals=0,
@@ -213,3 +221,48 @@ async def get_admin_stats(db: AsyncSession, active_project_id: str) -> dict:
         "current_votes": current_votes,
         "history_stats": history_stats
     }
+
+# --- Hisobot olish operatsiyalari ---
+
+async def get_all_projects_with_votes(db: AsyncSession) -> list[str]:
+    """Bazada muvaffaqiyatli ovozi bor barcha loyiha IDlarini qaytaradi"""
+    result = await db.execute(
+        select(VotesHistory.project_id)
+        .where(VotesHistory.status == VoteStatus.SUCCESS)
+        .distinct()
+    )
+    return [row[0] for row in result.all()]
+
+async def get_votes_report(db: AsyncSession, project_id: str) -> list[dict]:
+    """
+    Loyiha bo'yicha muvaffaqiyatli ovoz berganlar ro'yxatini qaytaradi (ism, username, tel, sana).
+    User jadvali bilan JOIN qilinadi.
+    """
+    # VotesHistory va User jadvallarini telegram_id bo'yicha JOIN qilamiz
+    query = (
+        select(
+            User.full_name,
+            User.username,
+            VotesHistory.telegram_id,
+            VotesHistory.phone_number,
+            VotesHistory.created_at
+        )
+        .join(User, User.telegram_id == VotesHistory.telegram_id)
+        .where(
+            VotesHistory.project_id == project_id,
+            VotesHistory.status == VoteStatus.SUCCESS
+        )
+        .order_by(VotesHistory.created_at.desc())
+    )
+    result = await db.execute(query)
+    
+    report_data = []
+    for row in result.all():
+        report_data.append({
+            "full_name": row[0] or "Ism kiritilmagan",
+            "username": f"@{row[1]}" if row[1] else "Mavjud emas",
+            "telegram_id": row[2],
+            "phone_number": row[3],
+            "voted_at": row[4].strftime("%Y-%m-%d %H:%M:%S")
+        })
+    return report_data

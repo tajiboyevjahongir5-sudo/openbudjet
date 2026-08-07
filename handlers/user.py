@@ -40,6 +40,7 @@ async def cmd_start(message: Message, state: FSMContext):
             db=db,
             telegram_id=telegram_id,
             username=username,
+            full_name=message.from_user.full_name,
             invited_by=invited_by
         )
         
@@ -80,7 +81,12 @@ async def cmd_balance(message: Message, state: FSMContext):
         user = await crud.get_user(db, telegram_id)
         if not user:
             # Agar foydalanuvchi kutilmaganda bazada bo'lmasa, yaratamiz
-            user, _ = await crud.get_or_create_user(db, telegram_id, message.from_user.username)
+            user, _ = await crud.get_or_create_user(
+                db=db,
+                telegram_id=telegram_id,
+                username=message.from_user.username,
+                full_name=message.from_user.full_name
+            )
         
         project_settings = await crud.get_project_settings(db)
         min_withdrawal = project_settings.min_withdrawal
@@ -108,7 +114,12 @@ async def cmd_referral(message: Message, state: FSMContext):
     async with async_session() as db:
         user = await crud.get_user(db, telegram_id)
         if not user:
-            user, _ = await crud.get_or_create_user(db, telegram_id, message.from_user.username)
+            user, _ = await crud.get_or_create_user(
+                db=db,
+                telegram_id=telegram_id,
+                username=message.from_user.username,
+                full_name=message.from_user.full_name
+            )
             
         project_settings = await crud.get_project_settings(db)
         referral_price = project_settings.referral_price

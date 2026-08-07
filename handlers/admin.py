@@ -1,8 +1,10 @@
+import io
+import csv
 import logging
 from aiogram import Router, F
 from aiogram.filters import Command, BaseFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery, TelegramObject
+from aiogram.types import Message, CallbackQuery, TelegramObject, BufferedInputFile
 
 from config import settings
 from database.session import async_session
@@ -239,6 +241,96 @@ async def process_approve_withdraw(callback: CallbackQuery):
         await callback.bot.send_message(chat_id=withdrawal.telegram_id, text=user_message, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Tasdiqlanganlik haqida foydalanuvchiga (ID: {withdrawal.telegram_id}) xabar yuborishda xatolik: {e}")
+
+# --- 📋 Hisobot chiqarish handlers ---
+
+@router.message(F.text == "📋 Hisobot")
+async def admin_report_select(message: Message):
+    """Admin '📋 Hisobot' tugmasini bosganda ovozi bor loyihalar ro'yxatini inline tugma shaklida chiqaradi"""
+    async with async_session() as db:
+        projects = await crud.get_all_projects_with_votes(db)
+
+    if not projects:
+        await message.answer("❌ Hozircha bot orqali muvaffaqiyatli ovoz berilgan loyihalar mavjud emas.")
+        return
+
+    # Loyihalar ro'yxatini inline klaviatura shaklida chiqaramiz
+    from keyboards import inline
+    await message.answer(
+        "📋 **Hisobot yuklab olish uchun loyihani tanlang:**",
+        reply_markup=inline.get_admin_projects_keyboard(projects),
+        parse_mode="Markdown"
+    )
+
+@router.callback_query(F.data.startswith("admin_report_"))
+async def process_admin_report_download(callback: CallbackQuery):
+    """Tanlangan loyiha bo'yicha CSV hisobot faylini yaratib jo'natadi"""
+    project_id = callback.data.split("_")[2]
+    
+    # Yuklanmoqda xabarini ko'rsatish
+    await callback.message.answer("🔄 Hisobot fayli tayyorlanmoqda, kuting...")
+    
+    async with async_session() as db:
+        report_data = await crud.get_votes_report(db, project_id)
+
+    if not report_data:
+        await callback.message.answer(f"❌ Loyiha `{project_id}` bo'yicha muvaffaqiyatli ovozlar topilmadi.")
+        await callback.answer()
+        return
+
+    # CSV faylini xotirada (in-memory) yaratamiz
+    output = io.StringIO()
+    # Excel milliy harflarni (o', g') to'g'ri o'qishi uchun UTF-8 BOM yozamiz
+    output.write('\ufeff')
+    
+    writer = csv.writer(output, delimiter=',')
+    # Sarlavha qatori
+    writer.writerow([
+        "Ism Familiya", 
+        "Telegram Username", 
+        "Telegram ID", 
+        "Ovoz Berilgan Telefon Raqami", 
+        "Ovoz Berilgan Sana va Vaqt"
+    ])
+    
+    # Ma'lumotlarni yozamiz
+    for row in report_data:
+        writer.writerow([
+            row["full_name"],
+            row["username"],
+            row["telegram_id"],
+            row["phone_number"],
+            row["voted_at"]
+        ])
+    
+    # CSV kontentini baytlarga o'giramiz
+    csv_bytes = output.getvalue().encode('utf-8')
+    output.close()
+
+    # Telegram orqali fayl jo'natamiz
+    file_input = BufferedInputFile(
+        file=csv_bytes,
+        filename=f"hisobot_loyiha_{project_id}.csv"
+    )
+
+    caption_text = (
+        f"📋 **Loyiha bo'yicha hisobot tayyor!**\n\n"
+        f"📌 Loyiha ID: `{project_id}`\n"
+        f"👥 Muvaffaqiyatli ovozlar soni: **{len(report_data)} ta**\n"
+        f"📂 Hujjat formati: Excel/CSV"
+    )
+
+    try:
+        await callback.message.answer_document(
+            document=file_input,
+            caption=caption_text,
+            parse_mode="Markdown"
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Hisobot faylini yuborishda xatolik: {e}", exc_info=True)
+        await callback.message.answer("❌ Hisobot faylini yuborishda xatolik yuz berdi.")
+        await callback.answer()
 
 @router.callback_query(F.data.startswith("reject_"))
 async def process_reject_withdraw(callback: CallbackQuery):
