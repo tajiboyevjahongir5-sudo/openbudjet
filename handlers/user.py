@@ -61,9 +61,7 @@ async def cmd_start(message: Message, state: FSMContext):
             f"Qayta tashrifingizdan xursandmiz. Quyidagi menyudan foydalaning 👇"
         )
 
-    # Foydalanuvchiga pastki menyuni ham, yozuv ichidagi rangli inline menyuni ham chiqaramiz
-    await message.answer("Bosh menyu yuklandi.", reply_markup=reply.get_user_menu())
-    await message.answer(welcome_text, reply_markup=inline.get_user_inline_menu())
+    await message.answer(welcome_text, reply_markup=reply.get_user_menu())
 
 @router.message(F.text == "❌ Jarayonni bekor qilish")
 async def process_cancel(message: Message, state: FSMContext):

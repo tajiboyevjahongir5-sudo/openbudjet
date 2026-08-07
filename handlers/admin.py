@@ -40,7 +40,7 @@ async def cmd_admin(message: Message, state: FSMContext):
     await message.answer(
         "🛠️ **Admin boshqaruv paneliga xush kelibsiz!**\n\n"
         "Quyidagi tugmalar orqali bot sozlamalarini boshqarishingiz mumkin:",
-        reply_markup=inline.get_admin_inline_menu(),
+        reply_markup=reply.get_admin_menu(),
         parse_mode="Markdown"
     )
 
