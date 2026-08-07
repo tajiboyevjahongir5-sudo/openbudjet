@@ -94,12 +94,14 @@ async def cmd_balance(message: Message, state: FSMContext):
         min_withdrawal = project_settings.min_withdrawal
 
     text = (
-        f"💰 **Sizning balansingiz:**\n\n"
-        f"💵 Mablag': {user.balance} so'm\n"
-        f"👥 Taklif qilgan odamlaringiz: {user.total_referrals} ta\n\n"
-        f"📌 Minimal yechib olish summasi: {min_withdrawal} so'm"
+        f"👤 <b>Ism:</b> {message.from_user.full_name}\n"
+        f"<tg-emoji emoji-id='5471983050186938952'>🆔</tg-emoji> <b>ID:</b> <code>{telegram_id}</code>\n"
+        f"<tg-emoji emoji-id='5471971711481666499'>💳</tg-emoji> <b>Hamyon balansi:</b> {user.balance} so'm\n"
+        f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"
+        f"📌 Minimal yechib olish summasi: {min_withdrawal} so'm\n\n"
+        f"Quyidagi variantlardan birini tanlang <tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji>"
     )
-    await message.answer(text, reply_markup=inline.get_withdrawal_keyboard())
+    await message.answer(text, reply_markup=inline.get_withdrawal_keyboard(), parse_mode="HTML")
 
 @router.message(F.text == "📣 Do'stlarni taklif qilish")
 async def cmd_referral(message: Message, state: FSMContext):
@@ -127,13 +129,12 @@ async def cmd_referral(message: Message, state: FSMContext):
         referral_price = project_settings.referral_price
 
     text = (
-        f"🔗 **Sizning referal havolangiz:**\n"
-        f"`{ref_link}`\n\n"
-        f"👥 Muvaffaqiyatli taklif qilganlar soni: {user.total_referrals} ta\n"
-        f"💵 Har bir taklif qilgan odamingiz muvaffaqiyatli ovoz bersa, balansizga **{referral_price} so'm** qo'shiladi!"
+        f"<tg-emoji emoji-id='5471987512674727448'>🎁</tg-emoji> <b>Sizning referal havolangiz:</b>\n"
+        f"<code>{ref_link}</code>\n\n"
+        f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> Taklif qilgan a'zolaringiz: <b>{user.total_referrals} ta</b>\n"
+        f"💵 Do'stingiz muvaffaqiyatli ovoz bersa, balansingizga <b>{referral_price} so'm</b> qo'shiladi!"
     )
-    # MarkdownV2 yoki HTML ga mos ravishda formatlash
-    await message.answer(text, parse_mode="Markdown")
+    await message.answer(text, parse_mode="HTML")
 
 @router.callback_query(F.data == "withdraw_money")
 async def process_withdraw_request(callback: CallbackQuery, state: FSMContext):
@@ -261,12 +262,14 @@ async def process_menu_balance(callback: CallbackQuery, state: FSMContext):
         min_withdrawal = project_settings.min_withdrawal
 
     text = (
-        f"💰 **Sizning balansingiz:**\n\n"
-        f"💵 Mablag': {user.balance} so'm\n"
-        f"👥 Taklif qilgan odamlaringiz: {user.total_referrals} ta\n\n"
-        f"📌 Minimal yechib olish summasi: {min_withdrawal} so'm"
+        f"👤 <b>Ism:</b> {callback.from_user.full_name}\n"
+        f"<tg-emoji emoji-id='5471983050186938952'>🆔</tg-emoji> <b>ID:</b> <code>{telegram_id}</code>\n"
+        f"<tg-emoji emoji-id='5471971711481666499'>💳</tg-emoji> <b>Hamyon balansi:</b> {user.balance} so'm\n"
+        f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"
+        f"📌 Minimal yechib olish summasi: {min_withdrawal} so'm\n\n"
+        f"Quyidagi variantlardan birini tanlang <tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji>"
     )
-    await callback.message.answer(text, reply_markup=inline.get_withdrawal_keyboard())
+    await callback.message.answer(text, reply_markup=inline.get_withdrawal_keyboard(), parse_mode="HTML")
     await callback.answer()
 
 @router.callback_query(F.data == "menu_referral")
@@ -293,10 +296,10 @@ async def process_menu_referral(callback: CallbackQuery, state: FSMContext):
         referral_price = project_settings.referral_price
 
     text = (
-        f"🔗 **Sizning referal havolangiz:**\n"
-        f"`{ref_link}`\n\n"
-        f"👥 Muvaffaqiyatli taklif qilganlar soni: {user.total_referrals} ta\n"
-        f"💵 Har bir taklif qilgan odamingiz muvaffaqiyatli ovoz bersa, balansizga **{referral_price} so'm** qo'shiladi!"
+        f"<tg-emoji emoji-id='5471987512674727448'>🎁</tg-emoji> <b>Sizning referal havolangiz:</b>\n"
+        f"<code>{ref_link}</code>\n\n"
+        f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> Taklif qilgan a'zolaringiz: <b>{user.total_referrals} ta</b>\n"
+        f"💵 Do'stingiz muvaffaqiyatli ovoz bersa, balansingizga <b>{referral_price} so'm</b> qo'shiladi!"
     )
-    await callback.message.answer(text, parse_mode="Markdown")
+    await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
