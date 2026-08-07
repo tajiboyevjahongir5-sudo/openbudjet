@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     BOT_TOKEN: str
 
     # Database URL: default sifatida SQLite ga ulanadi, PostgreSQL ga oson almashtirish mumkin
-    DATABASE_URL: str = "sqlite+aiosqlite:///c:/Users/user/Downloads/open_budget_bot/database.db"
+    DATABASE_URL: str = "sqlite+aiosqlite:///database.db"
 
     # Admin Telegram ID-lari (vergul bilan ajratilgan matn: "1234567,7654321")
     ADMIN_IDS_RAW: str = ""
