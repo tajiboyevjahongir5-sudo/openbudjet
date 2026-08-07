@@ -170,9 +170,13 @@ async def process_admin_project_deactivate_all(callback: CallbackQuery, state: F
 async def process_admin_project_delete(callback: CallbackQuery, state: FSMContext):
     """Loyihani o'chirish"""
     project_id = callback.data.split("_")[3]
+    
+    # O'chirishdan oldin srazi hisobot faylini tayyorlab yuboramiz
+    await send_project_report(callback, project_id, is_delete=True)
+    
     async with async_session() as db:
         await crud.delete_project(db, project_id)
-    await callback.answer("🗑️ Loyiha o'chirildi!", show_alert=True)
+    await callback.answer("🗑️ Loyiha o'chirildi va hisoboti yuborildi!", show_alert=True)
     await show_projects_list(callback, state)
 
 # --- 2. Referal mukofot narxini o'zgartirish ---
@@ -333,29 +337,37 @@ async def admin_report_select(message: Message):
         parse_mode="Markdown"
     )
 
-@router.callback_query(F.data.startswith("admin_report_"))
-async def process_admin_report_download(callback: CallbackQuery):
-    """Tanlangan loyiha bo'yicha CSV hisobot faylini yaratib jo'natadi"""
-    project_id = callback.data.split("_")[2]
-    
-    # Yuklanmoqda xabarini ko'rsatish
-    await callback.message.answer("🔄 Hisobot fayli tayyorlanmoqda, kuting...")
+async def send_project_report(message_or_callback, project_id: str, is_delete: bool = False):
+    """Loyiha bo'yicha CSV hisobotini yaratib adminga jo'natadi"""
+    waiting_txt = "🔄 O'chirishdan oldin hisobot fayli tayyorlanmoqda..." if is_delete else "🔄 Hisobot fayli tayyorlanmoqda, kuting..."
+    waiting_msg = None
+    if isinstance(message_or_callback, Message):
+        waiting_msg = await message_or_callback.answer(waiting_txt)
+    else:
+        waiting_msg = await message_or_callback.message.answer(waiting_txt)
     
     async with async_session() as db:
         report_data = await crud.get_votes_report(db, project_id)
 
     if not report_data:
-        await callback.message.answer(f"❌ Loyiha `{project_id}` bo'yicha muvaffaqiyatli ovozlar topilmadi.")
-        await callback.answer()
+        msg = f"ℹ️ Loyiha `{project_id}` bo'yicha hech qanday muvaffaqiyatli ovozlar topilmadi (hisobot fayli bo'sh)."
+        if waiting_msg:
+            try:
+                await waiting_msg.edit_text(msg)
+            except Exception:
+                pass
+        else:
+            if isinstance(message_or_callback, Message):
+                await message_or_callback.answer(msg)
+            else:
+                await message_or_callback.message.answer(msg)
         return
 
     # CSV faylini xotirada (in-memory) yaratamiz
     output = io.StringIO()
-    # Excel milliy harflarni (o', g') to'g'ri o'qishi uchun UTF-8 BOM yozamiz
     output.write('\ufeff')
     
     writer = csv.writer(output, delimiter=',')
-    # Sarlavha qatori
     writer.writerow([
         "Ism Familiya", 
         "Telegram Username", 
@@ -364,7 +376,6 @@ async def process_admin_report_download(callback: CallbackQuery):
         "Ovoz Berilgan Sana va Vaqt"
     ])
     
-    # Ma'lumotlarni yozamiz
     for row in report_data:
         writer.writerow([
             row["full_name"],
@@ -374,34 +385,48 @@ async def process_admin_report_download(callback: CallbackQuery):
             row["voted_at"]
         ])
     
-    # CSV kontentini baytlarga o'giramiz
     csv_bytes = output.getvalue().encode('utf-8')
     output.close()
 
-    # Telegram orqali fayl jo'natamiz
     file_input = BufferedInputFile(
         file=csv_bytes,
         filename=f"hisobot_loyiha_{project_id}.csv"
     )
 
-    caption_text = (
-        f"📋 **Loyiha bo'yicha hisobot tayyor!**\n\n"
-        f"📌 Loyiha ID: `{project_id}`\n"
-        f"👥 Muvaffaqiyatli ovozlar soni: **{len(report_data)} ta**\n"
-        f"📂 Hujjat formati: Excel/CSV"
-    )
+    if is_delete:
+        caption_text = (
+            f"🗑️ **Loyiha o'chirilishi munosabati bilan hisobot!**\n\n"
+            f"📌 O'chirilgan Loyiha ID: `{project_id}`\n"
+            f"👥 Jami to'plangan ovozlar soni: **{len(report_data)} ta**\n"
+            f"⚠️ Ma'lumotlaringiz yo'qolmasligi uchun ushbu faylni saqlab qo'ying."
+        )
+    else:
+        caption_text = (
+            f"📋 **Loyiha bo'yicha hisobot tayyor!**\n\n"
+            f"📌 Loyiha ID: `{project_id}`\n"
+            f"👥 Muvaffaqiyatli ovozlar soni: **{len(report_data)} ta**\n"
+            f"📂 Hujjat formati: Excel/CSV"
+        )
 
     try:
-        await callback.message.answer_document(
-            document=file_input,
-            caption=caption_text,
-            parse_mode="Markdown"
-        )
-        await callback.answer()
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer_document(document=file_input, caption=caption_text, parse_mode="Markdown")
+        else:
+            await message_or_callback.message.answer_document(document=file_input, caption=caption_text, parse_mode="Markdown")
     except Exception as e:
-        logger.error(f"Hisobot faylini yuborishda xatolik: {e}", exc_info=True)
-        await callback.message.answer("❌ Hisobot faylini yuborishda xatolik yuz berdi.")
-        await callback.answer()
+        logger.error(f"Hisobot yuborishda xato: {e}")
+        
+    try:
+        await waiting_msg.delete()
+    except Exception:
+        pass
+
+@router.callback_query(F.data.startswith("admin_report_"))
+async def process_admin_report_download(callback: CallbackQuery):
+    """Tanlangan loyiha bo'yicha CSV hisobot faylini yaratib jo'natadi"""
+    project_id = callback.data.split("_")[2]
+    await send_project_report(callback, project_id, is_delete=False)
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("reject_"))
 async def process_reject_withdraw(callback: CallbackQuery):
