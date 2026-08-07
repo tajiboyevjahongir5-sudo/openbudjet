@@ -125,4 +125,5 @@ async def telegram_webhook(request: Request):
 # FastAPI ilovasini ishga tushirish
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host=settings.HOST, port=settings.PORT, reload=True)
+    # Double-import va Router xatoligini oldini olish uchun reload=False qilinadi
+    uvicorn.run("main:app", host=settings.HOST, port=settings.PORT, reload=False)
