@@ -156,7 +156,7 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
                     status=VoteStatus.FAILED
                 )
             await message.answer(
-                f"❌ Xatolik yuz berdi:\n`{error_msg}`\n\n"
+                f"❌ Xatolik yuz berdi:\n{error_msg}\n\n"
                 f"Iltimos, qayta urunib ko'ring yoki boshqa raqam kiriting:",
                 reply_markup=reply.get_phone_keyboard(),
                 parse_mode="Markdown"
@@ -207,7 +207,7 @@ async def process_captcha_result(message: Message, state: FSMContext):
 
         if not success:
             await message.answer(
-                f"❌ Captcha to'g'ri, lekin SMS yuborishda xato yuz berdi:\n`{error_msg}`\n\n"
+                f"❌ Captcha to'g'ri, lekin SMS yuborishda xato yuz berdi:\n{error_msg}\n\n"
                 f"Qayta urinib ko'ring yoki bekor qiling.",
                 reply_markup=reply.get_cancel_keyboard(),
                 parse_mode="Markdown"
