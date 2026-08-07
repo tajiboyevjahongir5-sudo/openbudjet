@@ -1,0 +1,16 @@
+# Python kesh fayllari
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Mahalliy ma'lumotlar bazasi va maxfiy sozlamalar
+database.db
+.env
+
+# Muhit va IDE sozlamalari
+.vscode/
+.idea/
+.venv/
+env/
+venv/
