@@ -63,7 +63,7 @@ async def cmd_start(message: Message, state: FSMContext):
 
     await message.answer(welcome_text, reply_markup=reply.get_user_menu())
 
-@router.message(F.text == "❌ Bekor qilish")
+@router.message(F.text == "❌ Jarayonni bekor qilish")
 async def process_cancel(message: Message, state: FSMContext):
     """FSM holatlarini bekor qilish va asosiy menyuga qaytish"""
     current_state = await state.get_state()
@@ -71,7 +71,7 @@ async def process_cancel(message: Message, state: FSMContext):
         await state.clear()
     await message.answer("Jarayon bekor qilindi.", reply_markup=reply.get_user_menu())
 
-@router.message(F.text == "💰 Hisobim")
+@router.message(F.text == "💎 Mening hisobim")
 async def cmd_balance(message: Message, state: FSMContext):
     """Foydalanuvchi balansini ko'rsatish"""
     await state.clear()
@@ -99,7 +99,7 @@ async def cmd_balance(message: Message, state: FSMContext):
     )
     await message.answer(text, reply_markup=inline.get_withdrawal_keyboard())
 
-@router.message(F.text == "🔗 Referal")
+@router.message(F.text == "📣 Do'stlarni taklif qilish")
 async def cmd_referral(message: Message, state: FSMContext):
     """Foydalanuvchining shaxsiy referal havolasini chiqarish"""
     await state.clear()

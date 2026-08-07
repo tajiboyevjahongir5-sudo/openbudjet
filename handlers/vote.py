@@ -29,7 +29,7 @@ def clean_phone_number(phone: str) -> str:
         digits = f"998{digits[2:]}"
     return digits
 
-@router.message(F.text == "🗳️ Ovoz berish")
+@router.message(F.text == "⚡ Ovoz berish")
 async def start_voting(message: Message, state: FSMContext):
     """Ovoz berish FSM oqimini boshlash"""
     await state.clear()
@@ -50,7 +50,7 @@ async def process_phone_contact(message: Message, state: FSMContext):
 @router.message(VoteStates.WAITING_FOR_PHONE, F.text)
 async def process_phone_text(message: Message, state: FSMContext):
     phone = message.text.strip()
-    if phone == "❌ Bekor qilish":
+    if phone == "❌ Jarayonni bekor qilish":
         await state.clear()
         await message.answer("Jarayon bekor qilindi.", reply_markup=reply.get_user_menu())
         return
@@ -219,7 +219,7 @@ async def process_sms_code(message: Message, state: FSMContext):
     """SMS kodini tekshirish va muvaffaqiyatli bo'lsa foydalanuvchilarni mukofotlash"""
     code = message.text.strip()
     
-    if code == "❌ Bekor qilish":
+    if code == "❌ Jarayonni bekor qilish":
         await state.clear()
         await message.answer("Jarayon bekor qilindi.", reply_markup=reply.get_user_menu())
         return

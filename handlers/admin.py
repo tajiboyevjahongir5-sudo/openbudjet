@@ -28,12 +28,12 @@ router.message.filter(IsAdmin())
 router.callback_query.filter(IsAdmin())
 
 @router.message(Command("admin"))
-@router.message(F.text == "⬅️ Asosiy menyu")
+@router.message(F.text == "🔙 Asosiy menyu")
 async def cmd_admin(message: Message, state: FSMContext):
     """Admin panelini ochish yoki foydalanuvchi rejimiga qaytish"""
     await state.clear()
     
-    if message.text == "⬅️ Asosiy menyu":
+    if message.text == "🔙 Asosiy menyu":
         await message.answer("Asosiy menyuga qaytdingiz.", reply_markup=reply.get_user_menu())
         return
 
@@ -46,7 +46,7 @@ async def cmd_admin(message: Message, state: FSMContext):
 
 # --- 1. Havolani o'zgartirish bosqichlari ---
 
-@router.message(F.text == "🔗 Havolani o'zgartirish")
+@router.message(F.text == "✏️ Loyihani o'zgartirish")
 async def admin_change_link(message: Message, state: FSMContext):
     await state.set_state(AdminStates.WAITING_FOR_PROJECT_ID)
     await message.answer(
@@ -59,7 +59,7 @@ async def admin_change_link(message: Message, state: FSMContext):
 @router.message(AdminStates.WAITING_FOR_PROJECT_ID, F.text)
 async def process_admin_project_id(message: Message, state: FSMContext):
     project_id = message.text.strip()
-    if project_id == "❌ Bekor qilish":
+    if project_id == "❌ Jarayonni bekor qilish":
         await state.clear()
         await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
         return
@@ -76,7 +76,7 @@ async def process_admin_project_id(message: Message, state: FSMContext):
 @router.message(AdminStates.WAITING_FOR_PROJECT_URL, F.text)
 async def process_admin_project_url(message: Message, state: FSMContext):
     project_url = message.text.strip()
-    if project_url == "❌ Bekor qilish":
+    if project_url == "❌ Jarayonni bekor qilish":
         await state.clear()
         await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
         return
@@ -106,7 +106,7 @@ async def process_admin_project_url(message: Message, state: FSMContext):
 
 # --- 2. Referal mukofot narxini o'zgartirish ---
 
-@router.message(F.text == "💵 Referal narxi")
+@router.message(F.text == "💰 Mukofot narxi")
 async def admin_change_price(message: Message, state: FSMContext):
     await state.set_state(AdminStates.WAITING_FOR_REFERRAL_PRICE)
     await message.answer(
@@ -119,7 +119,7 @@ async def admin_change_price(message: Message, state: FSMContext):
 @router.message(AdminStates.WAITING_FOR_REFERRAL_PRICE, F.text)
 async def process_admin_price(message: Message, state: FSMContext):
     price_text = message.text.strip()
-    if price_text == "❌ Bekor qilish":
+    if price_text == "❌ Jarayonni bekor qilish":
         await state.clear()
         await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
         return
@@ -145,7 +145,7 @@ async def process_admin_price(message: Message, state: FSMContext):
 
 # --- 3. Minimal pul yechish chegarasini o'zgartirish ---
 
-@router.message(F.text == "💳 Min. Yechish")
+@router.message(F.text == "💸 Min. Pul yechish")
 async def admin_change_min_withdraw(message: Message, state: FSMContext):
     await state.set_state(AdminStates.WAITING_FOR_MIN_WITHDRAWAL)
     await message.answer(
@@ -158,7 +158,7 @@ async def admin_change_min_withdraw(message: Message, state: FSMContext):
 @router.message(AdminStates.WAITING_FOR_MIN_WITHDRAWAL, F.text)
 async def process_admin_min_withdraw(message: Message, state: FSMContext):
     min_text = message.text.strip()
-    if min_text == "❌ Bekor qilish":
+    if min_text == "❌ Jarayonni bekor qilish":
         await state.clear()
         await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
         return
@@ -184,7 +184,7 @@ async def process_admin_min_withdraw(message: Message, state: FSMContext):
 
 # --- 4. Statistikalarni ko'rish ---
 
-@router.message(F.text == "📊 Statistika")
+@router.message(F.text == "📈 Statistika")
 async def admin_statistics(message: Message):
     async with async_session() as db:
         settings_row = await crud.get_project_settings(db)
@@ -244,7 +244,7 @@ async def process_approve_withdraw(callback: CallbackQuery):
 
 # --- 📋 Hisobot chiqarish handlers ---
 
-@router.message(F.text == "📋 Hisobot")
+@router.message(F.text == "📊 Batafsil Hisobot")
 async def admin_report_select(message: Message):
     """Admin '📋 Hisobot' tugmasini bosganda ovozi bor loyihalar ro'yxatini inline tugma shaklida chiqaradi"""
     async with async_session() as db:

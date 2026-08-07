@@ -1,10 +1,10 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 def get_user_menu() -> ReplyKeyboardMarkup:
-    """Foydalanuvchilar uchun asosiy menyu"""
+    """Foydalanuvchilar uchun zamonaviy asosiy menyu"""
     keyboard = [
-        [KeyboardButton(text="🗳️ Ovoz berish")],
-        [KeyboardButton(text="💰 Hisobim"), KeyboardButton(text="🔗 Referal")]
+        [KeyboardButton(text="⚡ Ovoz berish")],
+        [KeyboardButton(text="💎 Mening hisobim"), KeyboardButton(text="📣 Do'stlarni taklif qilish")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
@@ -15,8 +15,8 @@ def get_user_menu() -> ReplyKeyboardMarkup:
 def get_phone_keyboard() -> ReplyKeyboardMarkup:
     """Ovoz berishda telefon raqamini olish uchun tugma"""
     keyboard = [
-        [KeyboardButton(text="📱 Kontaktni ulashish", request_contact=True)],
-        [KeyboardButton(text="❌ Bekor qilish")]
+        [KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True)],
+        [KeyboardButton(text="❌ Jarayonni bekor qilish")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
@@ -24,11 +24,11 @@ def get_phone_keyboard() -> ReplyKeyboardMarkup:
     )
 
 def get_admin_menu() -> ReplyKeyboardMarkup:
-    """Adminlar uchun boshqaruv paneli menyusi"""
+    """Adminlar uchun zamonaviy boshqaruv paneli menyusi"""
     keyboard = [
-        [KeyboardButton(text="🔗 Havolani o'zgartirish"), KeyboardButton(text="💵 Referal narxi")],
-        [KeyboardButton(text="💳 Min. Yechish"), KeyboardButton(text="📊 Statistika")],
-        [KeyboardButton(text="📋 Hisobot"), KeyboardButton(text="⬅️ Asosiy menyu")]
+        [KeyboardButton(text="✏️ Loyihani o'zgartirish"), KeyboardButton(text="💰 Mukofot narxi")],
+        [KeyboardButton(text="💸 Min. Pul yechish"), KeyboardButton(text="📈 Statistika")],
+        [KeyboardButton(text="📊 Batafsil Hisobot"), KeyboardButton(text="🔙 Asosiy menyu")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
@@ -36,9 +36,9 @@ def get_admin_menu() -> ReplyKeyboardMarkup:
     )
 
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
-    """Bekor qilish (FSM jarayonidan chiqish) tugmasi"""
+    """Bekor qilish tugmasi"""
     keyboard = [
-        [KeyboardButton(text="❌ Bekor qilish")]
+        [KeyboardButton(text="❌ Jarayonni bekor qilish")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
