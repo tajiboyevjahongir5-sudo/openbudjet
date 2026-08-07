@@ -36,8 +36,9 @@ dp.include_router(user.router)
 dp.include_router(vote.router)
 dp.include_router(admin.router)
 
-# HTML shablonlari uchun Jinja2Templates sozlash
-templates = Jinja2Templates(directory="templates")
+# HTML shablonlari uchun Jinja2Templates sozlash (mutlaq yo'l orqali)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 async def init_db():
     """Ma'lumotlar bazasi jadvallarini yaratish va birlamchi sozlamalarni kiritish"""
