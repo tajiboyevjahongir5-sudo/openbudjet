@@ -230,16 +230,13 @@
                 webapp.HapticFeedback.notificationOccurred('success');
             }
 
-            // WebApp orqali botga natija yuborish
-            setTimeout(() => {
-                const result = {
-                    status: "success",
-                    captcha_code: "puzzle_ok_" + Math.floor(Math.random() * 10000),
-                    session_id: sessionId
-                };
-                // Telegram botga ma'lumotni jo'natib veb-oynani yopamiz
-                webapp.sendData(JSON.stringify(result));
-            }, 1000);
+            // WebApp orqali botga natija yuborish (srazi yuboriladi va oyna darhol yopiladi)
+            const result = {
+                status: "success",
+                captcha_code: "puzzle_ok_" + Math.floor(Math.random() * 10000),
+                session_id: sessionId
+            };
+            webapp.sendData(JSON.stringify(result));
 
         } else {
             // Noto'g'ri bo'lsa, qaytarib yuboramiz
