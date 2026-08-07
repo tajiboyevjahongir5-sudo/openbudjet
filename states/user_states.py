@@ -13,3 +13,4 @@ class AdminStates(StatesGroup):
     WAITING_FOR_PROJECT_URL = State()     # Loyiha havolasini o'zgartirish
     WAITING_FOR_REFERRAL_PRICE = State()  # Har bir taklif/ovoz uchun mukofot miqdorini o'zgartirish
     WAITING_FOR_MIN_WITHDRAWAL = State()  # Minimal pul yechish chegarasini o'zgartirish
+    WAITING_FOR_AD_TEXT = State()         # Reklama matnini qabul qilish holati

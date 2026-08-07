@@ -443,3 +443,59 @@ async def admin_report_select_callback(callback: CallbackQuery):
         parse_mode="Markdown"
     )
     await callback.answer()
+
+# --- 📣 Reklama yuborish handlers ---
+
+@router.message(F.text == "📣 Reklama yuborish")
+async def admin_broadcast_start(message: Message, state: FSMContext):
+    """Barcha a'zolarga reklama yuborish jarayonini boshlash"""
+    await state.set_state(AdminStates.WAITING_FOR_AD_TEXT)
+    await message.answer(
+        "📣 **Barcha foydalanuvchilarga reklama yuborish bo'limi**\n\n"
+        "Iltimos, yubormoqchi bo'lgan reklama xabaringizni kiriting:\n"
+        "Bu oddiy matn, rasm, video, audio yoki hujjat bo'lishi mumkin. Bot o'sha xabarni qanday bo'lsa, shundayligicha barcha a'zolarga nusxalab jo'natadi.",
+        reply_markup=reply.get_cancel_keyboard(),
+        parse_mode="Markdown"
+    )
+
+@router.message(AdminStates.WAITING_FOR_AD_TEXT)
+async def process_admin_broadcast(message: Message, state: FSMContext):
+    """Kiritilgan reklama xabarini barcha foydalanuvchilarga yuborish"""
+    if message.text == "❌ Jarayonni bekor qilish":
+        await state.clear()
+        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
+        return
+
+    await state.clear()
+    status_msg = await message.answer("⏳ Reklama yuborilishi boshlandi, kuting...")
+    
+    async with async_session() as db:
+        user_ids = await crud.get_all_user_ids(db)
+    
+    if not user_ids:
+        await status_msg.edit_text("❌ Botda foydalanuvchilar topilmadi.")
+        return
+    
+    success_count = 0
+    failed_count = 0
+    
+    # Barcha foydalanuvchilarga xabarni nusxalaymiz (formatting, rasmlar, knopkalari bilan birga ketadi)
+    for user_id in user_ids:
+        try:
+            await message.copy_to(chat_id=user_id)
+            success_count += 1
+        except Exception:
+            failed_count += 1
+    
+    await status_msg.answer(
+        f"✅ **Reklama yuborish yakunlandi!**\n\n"
+        f"🎉 Muvaffaqiyatli yuborildi: **{success_count} ta** foydalanuvchiga\n"
+        f"❌ Yuborib bo'lmadi: **{failed_count} ta** (botni bloklaganlar)",
+        reply_markup=reply.get_admin_menu(),
+        parse_mode="Markdown"
+    )
+    
+    try:
+        await status_msg.delete()
+    except Exception:
+        pass

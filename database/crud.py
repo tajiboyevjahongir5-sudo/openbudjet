@@ -266,3 +266,8 @@ async def get_votes_report(db: AsyncSession, project_id: str) -> list[dict]:
             "voted_at": row[4].strftime("%Y-%m-%d %H:%M:%S")
         })
     return report_data
+
+async def get_all_user_ids(db: AsyncSession) -> list[int]:
+    """Barcha foydalanuvchilarning telegram ID larini qaytaradi"""
+    result = await db.execute(select(User.telegram_id))
+    return [row[0] for row in result.all()]
