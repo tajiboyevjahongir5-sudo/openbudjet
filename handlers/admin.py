@@ -40,7 +40,7 @@ async def cmd_admin(message: Message, state: FSMContext):
     await message.answer(
         "🛠️ **Admin boshqaruv paneliga xush kelibsiz!**\n\n"
         "Quyidagi tugmalar orqali bot sozlamalarini boshqarishingiz mumkin:",
-        reply_markup=reply.get_admin_menu(),
+        reply_markup=inline.get_admin_inline_menu(),
         parse_mode="Markdown"
     )
 
@@ -361,3 +361,85 @@ async def process_reject_withdraw(callback: CallbackQuery):
         await callback.bot.send_message(chat_id=withdrawal.telegram_id, text=user_message, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Rad etilganlik haqida foydalanuvchiga (ID: {withdrawal.telegram_id}) xabar yuborishda xatolik: {e}")
+
+# --- Admin inline menyu callback query handlers ---
+
+@router.callback_query(F.data == "admin_change_project")
+async def admin_change_link_callback(callback: CallbackQuery, state: FSMContext):
+    """Inline menyudan loyihani o'zgartirish oqimini boshlash"""
+    await state.set_state(AdminStates.WAITING_FOR_PROJECT_ID)
+    await callback.message.answer(
+        "📝 Yangi Open Budget **Loyiha ID** raqamini kiriting:\n"
+        "(Masalan: 32541)",
+        reply_markup=reply.get_cancel_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_change_price")
+async def admin_change_price_callback(callback: CallbackQuery, state: FSMContext):
+    """Inline menyudan referal narxini o'zgartirish oqimini boshlash"""
+    await state.set_state(AdminStates.WAITING_FOR_REFERRAL_PRICE)
+    await callback.message.answer(
+        "💵 Har bir muvaffaqiyatli ovoz/taklif uchun beriladigan yangi summa qiymatini kiriting (so'mda):\n"
+        "(Faqat raqam kiriting, masalan: 2000)",
+        reply_markup=reply.get_cancel_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_change_min")
+async def admin_change_min_withdraw_callback(callback: CallbackQuery, state: FSMContext):
+    """Inline menyudan minimal yechish summasini o'zgartirish oqimini boshlash"""
+    await state.set_state(AdminStates.WAITING_FOR_MIN_WITHDRAWAL)
+    await callback.message.answer(
+        "💳 Minimal pul yechib olish chegarasini kiriting (so'mda):\n"
+        "(Faqat raqam kiriting, masalan: 10000)",
+        reply_markup=reply.get_cancel_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_view_stats")
+async def admin_statistics_callback(callback: CallbackQuery):
+    """Inline menyudan statistikalarni ko'rish"""
+    async with async_session() as db:
+        settings_row = await crud.get_project_settings(db)
+        active_project_id = settings_row.active_project_id
+        stats = await crud.get_admin_stats(db, active_project_id)
+
+    history_lines = []
+    for h in stats["history_stats"]:
+        status_star = "⭐️" if h["project_id"] == active_project_id else "•"
+        history_lines.append(f"{status_star} Loyiha `{h['project_id']}`: {h['votes_count']} ta ovoz")
+    
+    history_text = "\n".join(history_lines) if history_lines else "Tarixiy ovozlar mavjud emas."
+
+    stats_text = (
+        f"📊 **Bot Statistikasi:**\n\n"
+        f"👥 Botdagi jami a'zolar: **{stats['total_users']} ta**\n"
+        f"🗳️ Joriy loyihadagi ovozlar (`{active_project_id}`): **{stats['current_votes']} ta**\n\n"
+        f"📈 **Tarixiy ovozlar ro'yxati (Loyihalar bo'yicha):**\n"
+        f"{history_text}"
+    )
+    await callback.message.answer(stats_text, reply_markup=reply.get_admin_menu(), parse_mode="Markdown")
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_select_report")
+async def admin_report_select_callback(callback: CallbackQuery):
+    """Inline menyudan hisoboti bor loyihalar ro'yxatini yuklash"""
+    async with async_session() as db:
+        projects = await crud.get_all_projects_with_votes(db)
+
+    if not projects:
+        await callback.message.answer("❌ Hozircha bot orqali muvaffaqiyatli ovoz berilgan loyihalar mavjud emas.")
+        await callback.answer()
+        return
+
+    from keyboards import inline
+    await callback.message.answer(
+        "📋 **Hisobot yuklab olish uchun loyihani tanlang:**",
+        reply_markup=inline.get_admin_projects_keyboard(projects),
+        parse_mode="Markdown"
+    )
+    await callback.answer()

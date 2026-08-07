@@ -3,7 +3,7 @@ import json
 import logging
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import StateFilter
 
 from config import settings
@@ -41,6 +41,20 @@ async def start_voting(message: Message, state: FSMContext):
         reply_markup=reply.get_phone_keyboard(),
         parse_mode="Markdown"
     )
+
+@router.callback_query(F.data == "menu_vote")
+async def process_menu_vote(callback: CallbackQuery, state: FSMContext):
+    """Inline menyudan ovoz berish FSM oqimini boshlash"""
+    await state.clear()
+    await state.set_state(VoteStates.WAITING_FOR_PHONE)
+    await callback.message.answer(
+        "🗳️ **Ovoz berish bo'limi**\n\n"
+        "Iltimos, pastdagi tugma orqali kontaktingizni yuboring yoki telefon raqamingizni kiriting:\n"
+        "(Masalan: +998901234567)",
+        reply_markup=reply.get_phone_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
 
 @router.message(VoteStates.WAITING_FOR_PHONE, F.contact)
 async def process_phone_contact(message: Message, state: FSMContext):

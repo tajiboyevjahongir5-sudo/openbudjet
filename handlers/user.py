@@ -61,7 +61,9 @@ async def cmd_start(message: Message, state: FSMContext):
             f"Qayta tashrifingizdan xursandmiz. Quyidagi menyudan foydalaning 👇"
         )
 
-    await message.answer(welcome_text, reply_markup=reply.get_user_menu())
+    # Foydalanuvchiga pastki menyuni ham, yozuv ichidagi rangli inline menyuni ham chiqaramiz
+    await message.answer("Bosh menyu yuklandi.", reply_markup=reply.get_user_menu())
+    await message.answer(welcome_text, reply_markup=inline.get_user_inline_menu())
 
 @router.message(F.text == "❌ Jarayonni bekor qilish")
 async def process_cancel(message: Message, state: FSMContext):
@@ -236,3 +238,65 @@ async def process_card_input(message: Message, state: FSMContext):
             )
         except Exception as e:
             logger.error(f"Adminga (ID: {admin_id}) xabar yuborishda xatolik: {e}")
+
+# --- Inline menyu callback query handlers ---
+
+@router.callback_query(F.data == "menu_balance")
+async def process_menu_balance(callback: CallbackQuery, state: FSMContext):
+    """Inline menyudan hisobni ko'rish"""
+    await state.clear()
+    telegram_id = callback.from_user.id
+    
+    async with async_session() as db:
+        user = await crud.get_user(db, telegram_id)
+        if not user:
+            user, _ = await crud.get_or_create_user(
+                db=db,
+                telegram_id=telegram_id,
+                username=callback.from_user.username,
+                full_name=callback.from_user.full_name
+            )
+        
+        project_settings = await crud.get_project_settings(db)
+        min_withdrawal = project_settings.min_withdrawal
+
+    text = (
+        f"💰 **Sizning balansingiz:**\n\n"
+        f"💵 Mablag': {user.balance} so'm\n"
+        f"👥 Taklif qilgan odamlaringiz: {user.total_referrals} ta\n\n"
+        f"📌 Minimal yechib olish summasi: {min_withdrawal} so'm"
+    )
+    await callback.message.answer(text, reply_markup=inline.get_withdrawal_keyboard())
+    await callback.answer()
+
+@router.callback_query(F.data == "menu_referral")
+async def process_menu_referral(callback: CallbackQuery, state: FSMContext):
+    """Inline menyudan referal havolani ko'rish"""
+    await state.clear()
+    telegram_id = callback.from_user.id
+    
+    bot_info = await callback.bot.get_me()
+    bot_username = bot_info.username
+    ref_link = f"https://t.me/{bot_username}?start={telegram_id}"
+    
+    async with async_session() as db:
+        user = await crud.get_user(db, telegram_id)
+        if not user:
+            user, _ = await crud.get_or_create_user(
+                db=db,
+                telegram_id=telegram_id,
+                username=callback.from_user.username,
+                full_name=callback.from_user.full_name
+            )
+            
+        project_settings = await crud.get_project_settings(db)
+        referral_price = project_settings.referral_price
+
+    text = (
+        f"🔗 **Sizning referal havolangiz:**\n"
+        f"`{ref_link}`\n\n"
+        f"👥 Muvaffaqiyatli taklif qilganlar soni: {user.total_referrals} ta\n"
+        f"💵 Har bir taklif qilgan odamingiz muvaffaqiyatli ovoz bersa, balansizga **{referral_price} so'm** qo'shiladi!"
+    )
+    await callback.message.answer(text, parse_mode="Markdown")
+    await callback.answer()
