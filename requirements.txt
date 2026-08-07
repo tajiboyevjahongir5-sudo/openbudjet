@@ -1,0 +1,9 @@
+aiogram>=3.0.0
+fastapi
+uvicorn
+sqlalchemy[asyncio]>=2.0.0
+pydantic-settings
+aiohttp
+asyncpg
+aiosqlite
+jinja2
