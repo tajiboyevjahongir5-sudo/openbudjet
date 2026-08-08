@@ -30,6 +30,9 @@ def get_withdraw_action_keyboard(withdraw_id: int) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"approve_{withdraw_id}", style="success"),
                 InlineKeyboardButton(text="❌ Rad etish", callback_data=f"reject_{withdraw_id}", style="danger")
+            ],
+            [
+                InlineKeyboardButton(text="👁️ Karta raqamini ko'rish", callback_data=f"reveal_card_{withdraw_id}", style="primary")
             ]
         ]
     )

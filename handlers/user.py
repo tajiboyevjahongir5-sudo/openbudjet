@@ -218,12 +218,15 @@ async def process_card_input(message: Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
-    # Adminlarga darhol bildirishnoma yuborish
+    # Karta raqamini maskalaymiz: faqat oxirgi 4 raqam ko'rinadi
+    masked_card = f"{'*' * 4} {'*' * 4} {'*' * 4} {clean_card[-4:]}"
+
+    # Adminlarga darhol bildirishnoma yuborish (maskalangan karta bilan)
     admin_message_text = (
         f"🚨 **Yangi pul yechish so'rovi!**\n\n"
         f"👤 **Foydalanuvchi:** {username} (ID: `{telegram_id}`)\n"
         f"👥 **Taklif qilgan odamlari soni:** `{total_referrals}` ta\n"
-        f"💳 **Karta raqami:** `{card_number}`\n"
+        f"💳 **Karta raqami:** `{masked_card}`\n"
         f"💰 **Summa:** `{amount_to_withdraw}` so'm"
     )
 

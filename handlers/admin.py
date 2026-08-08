@@ -121,7 +121,7 @@ async def process_admin_project_url(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("admin_proj_view_"))
 async def process_admin_project_view(callback: CallbackQuery):
     """Loyiha tafsilotlarini ko'rish va boshqarish"""
-    project_id = callback.data.split("_")[3]
+    project_id = callback.data.replace("admin_proj_view_", "", 1)
     async with async_session() as db:
         result = await db.execute(select(OpenBudgetProject).where(OpenBudgetProject.project_id == project_id))
         project = result.scalar_one_or_none()
@@ -144,7 +144,7 @@ async def process_admin_project_view(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("admin_proj_activate_"))
 async def process_admin_project_activate(callback: CallbackQuery):
     """Loyihani faollashtirish (boshqa barcha loyihalarni faolsizlantiradi)"""
-    project_id = callback.data.split("_")[3]
+    project_id = callback.data.replace("admin_proj_activate_", "", 1)
     async with async_session() as db:
         await crud.activate_project(db, project_id)
     await callback.answer("🟢 Loyiha faollashtirildi!", show_alert=True)
@@ -169,7 +169,7 @@ async def process_admin_project_deactivate_all(callback: CallbackQuery, state: F
 @router.callback_query(F.data.startswith("admin_proj_delete_"))
 async def process_admin_project_delete(callback: CallbackQuery, state: FSMContext):
     """Loyihani o'chirish"""
-    project_id = callback.data.split("_")[3]
+    project_id = callback.data.replace("admin_proj_delete_", "", 1)
     
     # O'chirishdan oldin srazi hisobot faylini tayyorlab yuboramiz
     await send_project_report(callback, project_id, is_delete=True)
@@ -463,7 +463,7 @@ async def send_project_report(message_or_callback, project_id: str, is_delete: b
 @router.callback_query(F.data.startswith("admin_report_"))
 async def process_admin_report_download(callback: CallbackQuery):
     """Tanlangan loyiha bo'yicha CSV hisobot faylini yaratib jo'natadi"""
-    project_id = callback.data.split("_")[2]
+    project_id = callback.data.replace("admin_report_", "", 1)
     await send_project_report(callback, project_id, is_delete=False)
     await callback.answer()
 
@@ -496,6 +496,31 @@ async def process_reject_withdraw(callback: CallbackQuery):
         await callback.bot.send_message(chat_id=withdrawal.telegram_id, text=user_message, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Rad etilganlik haqida foydalanuvchiga (ID: {withdrawal.telegram_id}) xabar yuborishda xatolik: {e}")
+
+@router.callback_query(F.data.startswith("reveal_card_"))
+async def process_reveal_card(callback: CallbackQuery):
+    """Faqat admin uchun: to'liq karta raqamini xususiy xabar sifatida yuborish"""
+    withdraw_id = int(callback.data.replace("reveal_card_", "", 1))
+    async with async_session() as db:
+        withdrawal = await crud.get_withdrawal(db, withdraw_id)
+    
+    if not withdrawal:
+        await callback.answer("❌ So'rov topilmadi.", show_alert=True)
+        return
+
+    # To'liq raqamni faqat callback yuborgan adminga shaxsiy xabar bilan yuboramiz
+    full_card = withdrawal.card_number
+    formatted = f"{full_card[:4]} {full_card[4:8]} {full_card[8:12]} {full_card[12:16]}"
+    try:
+        await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text=f"💳 **To'liq karta raqami (So'rov #{withdraw_id}):**\n`{formatted}`",
+            parse_mode="Markdown"
+        )
+        await callback.answer("💳 Karta raqami shaxsiy xabar sifatida yuborildi.", show_alert=True)
+    except Exception as e:
+        logger.error(f"Karta raqamini yuborishda xato: {e}")
+        await callback.answer("❌ Xabar yuborishda xato yuz berdi.", show_alert=True)
 
 # --- Admin inline menyu callback query handlers ---
 

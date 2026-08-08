@@ -7,7 +7,6 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
 from sqlalchemy import text
 
@@ -16,6 +15,7 @@ from database.models import Base
 from database.session import engine
 from database import crud
 from database.session import async_session
+from database.fsm_storage import PostgresStorage
 from handlers import user, vote, admin
 from middlewares import ThrottlingMiddleware
 
@@ -31,7 +31,7 @@ bot = Bot(
     token=settings.BOT_TOKEN,
     default=DefaultBotProperties(parse_mode="HTML")
 )
-dp = Dispatcher(storage=MemoryStorage())
+dp = Dispatcher(storage=PostgresStorage())
 
 # Routerlarni ulash
 dp.include_router(user.router)
@@ -52,13 +52,24 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
-        # PostgreSQL uchun voter_reward ustunini avtomatik qo'shish (agar u mavjud bo'lmasa)
-        try:
-            if "postgresql" in engine.url.drivername:
-                await conn.execute(text("ALTER TABLE project_settings ADD COLUMN IF NOT EXISTS voter_reward FLOAT DEFAULT 0.0;"))
-                logger.info("voter_reward ustuni PostgreSQL bazasiga muvaffaqiyatli tekshirildi/qo'shildi.")
-        except Exception as e:
-            logger.warning(f"PostgreSQL bazasini migratsiya qilishda ogohlantirish: {e}")
+        # PostgreSQL uchun avtomatik migratsiyalar (mavjud bazalar uchun)
+        if "postgresql" in engine.url.drivername:
+            migrations = [
+                # voter_reward ustuni (alohida mukofot tizimi)
+                "ALTER TABLE project_settings ADD COLUMN IF NOT EXISTS voter_reward FLOAT DEFAULT 0.0;",
+                # FSM holatlari jadvali (restart barqarorligi uchun)
+                """CREATE TABLE IF NOT EXISTS fsm_states (
+                    key VARCHAR(255) PRIMARY KEY,
+                    state VARCHAR(255),
+                    data TEXT DEFAULT '{}'
+                );""",
+            ]
+            for sql in migrations:
+                try:
+                    await conn.execute(text(sql))
+                except Exception as e:
+                    logger.warning(f"Migratsiya ogohlantirishida: {e}")
+            logger.info("PostgreSQL avtomatik migratsiyalar bajarildi.")
     
     async with async_session() as db:
         await crud.get_project_settings(db)
