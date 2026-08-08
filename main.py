@@ -9,6 +9,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
+from sqlalchemy import text
 
 from config import settings
 from database.models import Base
@@ -50,6 +51,14 @@ async def init_db():
     logger.info("Ma'lumotlar bazasi jadvallari tekshirilmoqda/yaratilmoqda...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        
+        # PostgreSQL uchun voter_reward ustunini avtomatik qo'shish (agar u mavjud bo'lmasa)
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE project_settings ADD COLUMN IF NOT EXISTS voter_reward FLOAT DEFAULT 0.0;"))
+                logger.info("voter_reward ustuni PostgreSQL bazasiga muvaffaqiyatli tekshirildi/qo'shildi.")
+        except Exception as e:
+            logger.warning(f"PostgreSQL bazasini migratsiya qilishda ogohlantirish: {e}")
     
     async with async_session() as db:
         await crud.get_project_settings(db)
