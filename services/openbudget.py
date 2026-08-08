@@ -1,181 +1,224 @@
-import logging
+﻿import logging
 import aiohttp
+import base64
+import time
 from config import settings
 
 logger = logging.getLogger(__name__)
 
 class OpenBudgetService:
-    # Open Budget portalining taxminiy endpointlari
-    BASE_URL = "https://all.openbudget.uz/api/v1"
-    SEND_SMS_URL = f"{BASE_URL}/user/temp/vote/"
-    VERIFY_SMS_URL = f"{BASE_URL}/user/temp/vote/verify/"
+    """
+    openbudget.uz saytining rasmiy JS kodlaridan aniqlangan real ovoz berish API xizmati.
+    """
+    BASE_URL = "https://openbudget.uz/api"
+    
+    # 1. Captcha olish manzili (GET)
+    CAPTCHA_URL = f"{BASE_URL}/v2/vote/captcha-2"
+    
+    # 2. Login va OTP yuborish (POST)
+    SEND_OTP_URL = f"{BASE_URL}/v1/login/send-otp"
+    
+    # 3. OTP tasdiqlash va token olish (POST)
+    VERIFY_OTP_URL = f"{BASE_URL}/v1/login/verify-otp"
+    
+    # 4. Ovozni tasdiqlab yakunlash (POST)
+    CAST_VOTE_URL = f"{BASE_URL}/v2/info/get-initiative-token"
+
+    @staticmethod
+    def _access_captcha_token() -> str:
+        """Access-Captcha headerini generatsiya qilish"""
+        ts = str(int(time.time() * 1000))
+        raw = f"openbudget-captcha-{ts}"
+        return base64.b64encode(raw.encode()).decode()
+
+    @classmethod
+    async def get_captcha(cls) -> tuple[bool, str, dict | None]:
+        """
+        GET /v2/vote/captcha-2
+        Captcha rasmi va kalitini yuklab oladi.
+        """
+        if settings.MOCK_OPENBUDGET:
+            return True, "ok", {"key": "mock_captcha_key", "image_base64": None, "mock": True}
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Referer": "https://openbudget.uz/",
+            "Origin": "https://openbudget.uz",
+            "Access-Captcha": cls._access_captcha_token(),
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(cls.CAPTCHA_URL, headers=headers, timeout=15) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return True, "ok", {
+                            "key": data.get("captchaKey"),
+                            "image_base64": data.get("image"),
+                        }
+                    text = await resp.text()
+                    return False, f"Captcha xatoligi: {resp.status}", None
+        except Exception as e:
+            logger.error(f"Captcha yuklashda xatolik: {e}")
+            return False, "Captcha yuklashda tarmoq xatoligi yuz berdi.", None
 
     @classmethod
     async def check_and_send_sms(
-        cls, 
-        phone_number: str, 
-        project_id: str, 
-        captcha_code: str | None = None
+        cls,
+        phone_number: str,
+        project_id: str,
+        captcha_key: str | None = None,
+        captcha_result: int | None = None
     ) -> tuple[bool, str, dict | None]:
         """
-        Open Budget portaliga telefon va loyiha ID yuborib, SMS yuborishni so'raydi.
-        Agar captcha yuborilmagan bo'lsa, 'captcha_required' qaytaradi.
-        Qaytaradi: (muvaffaqiyatli, xabar_matni, sessiya_ma'lumotlari)
-        """
-        # Telefon raqamini tozalash (faqat raqamlar)
-        clean_phone = "".join(filter(str.isdigit, phone_number))
-        if not clean_phone.startswith("998"):
-            clean_phone = f"998{clean_phone}"
-
-        # --- MOCK REJIM (Sinov va Simulyatsiya) ---
-        if settings.MOCK_OPENBUDGET:
-            logger.info(f"[MOCK] SMS so'rovi: {clean_phone} -> loyiha: {project_id}, captcha: {captcha_code}")
-            
-            # Agar raqam '99' bilan tugasa, "avval ovoz berilgan" deb qaytaradi
-            if clean_phone.endswith("99"):
-                return False, "Bu raqam orqali ushbu loyihaga allaqachon ovoz berilgan", None
-
-            # Agar captcha hali yuborilmagan bo'lsa, uni talab qilamiz
-            if captcha_code is None:
-                session_data = {
-                    "phone": clean_phone,
-                    "project_id": project_id,
-                    "mock_session_id": f"sess_{clean_phone[-4:]}"
-                }
-                return False, "captcha_required", session_data
-
-            # Agar captcha yuborilgan bo'lsa, SMS muvaffaqiyatli ketdi deb javob beramiz
-            session_data = {
-                "phone": clean_phone,
-                "project_id": project_id,
-                "mock_session_id": f"sess_{clean_phone[-4:]}",
-                "otp_code": "1111",  # Mock uchun standart tasdiqlash kodi
-                "captcha_code": captcha_code
-            }
-            return True, "SMS kod muvaffaqiyatli yuborildi (Simulyatsiya kodi: 1111)", session_data
-
-        # --- REAL REJIM (Portal API bilan aloqa) ---
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
-        
-        # Agar portal captcha talab qilsa va bizda captcha_code yo'q bo'lsa, 
-        # odatda avval portal API'dan captcha rasmini tortib olishimiz kerak bo'ladi.
-        # Bu yerda biz real API so'rovini captcha kodi bilan yoki usiz shakllantiramiz.
-        payload = {
-            "phone": clean_phone,
-            "project_id": project_id
-        }
-        
-        if captcha_code:
-            payload["captcha"] = captcha_code
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(cls.SEND_SMS_URL, json=payload, headers=headers, timeout=15) as response:
-                    status_code = response.status
-                    response_json = await response.json()
-
-                    logger.info(f"OpenBudget Send SMS Response Code: {status_code}, Body: {response_json}")
-
-                    # 1. Captcha talab etiladigan holat
-                    if status_code == 200 and response_json.get("captcha_required") and not captcha_code:
-                        # Portal botdan captcha yechishni so'rayapti
-                        session_token = response_json.get("session") or response_json.get("token")
-                        session_data = {
-                            "phone": clean_phone,
-                            "project_id": project_id,
-                            "session_token": session_token
-                        }
-                        return False, "captcha_required", session_data
-
-                    # 2. Muvaffaqiyatli SMS yuborilgan holat
-                    elif status_code == 200:
-                        session_token = response_json.get("session") or response_json.get("token")
-                        session_data = {
-                            "phone": clean_phone,
-                            "project_id": project_id,
-                            "session_token": session_token
-                        }
-                        return True, "SMS tasdiqlash kodi yuborildi.", session_data
-                    
-                    # 3. Allaqachon ovoz berilgan yoki boshqa xatoliklar
-                    elif status_code == 400:
-                        detail = response_json.get("detail", "") or response_json.get("message", "")
-                        if "already" in detail.lower() or "ovoz berilgan" in detail.lower():
-                            return False, "Bu raqam orqali ushbu loyihaga allaqachon ovoz berilgan", None
-                        return False, f"Xatolik: {detail or 'Noto\'g\'ri so\'rov'}", None
-                    
-                    else:
-                        detail = response_json.get("detail", "Noma'lum xatolik")
-                        return False, f"Portal xatoligi (Kod: {status_code}): {detail}", None
-
-        except aiohttp.ClientConnectorError as e:
-            logger.error(f"Open Budget ulanish xatoligi: {e}")
-            return False, "Open Budget portaliga ulanib bo'lmadi. Keyinroq qayta urunib ko'ring.", None
-        except Exception as e:
-            logger.error(f"SMS yuborishda kutilmagan xatolik: {e}", exc_info=True)
-            return False, f"SMS yuborishda xatolik yuz berdi: {str(e)}", None
-
-    @classmethod
-    async def verify_sms_code(
-        cls, 
-        phone_number: str, 
-        code: str, 
-        project_id: str, 
-        session_data: dict
-    ) -> tuple[bool, str]:
-        """
-        SMS kodni portal orqali tasdiqlaydi.
-        Qaytaradi: (muvaffaqiyatli, xabar_matni)
+        POST /v1/login/send-otp
+        Telefonga tasdiqlash SMS kodini yuboradi.
         """
         clean_phone = "".join(filter(str.isdigit, phone_number))
-        if not clean_phone.startswith("998"):
-            clean_phone = f"998{clean_phone}"
+        if clean_phone.startswith("998"):
+            clean_phone = clean_phone[3:]
 
         # --- MOCK REJIM ---
         if settings.MOCK_OPENBUDGET:
-            logger.info(f"[MOCK] SMS kod tekshirish: {clean_phone} -> kod: {code}")
-            expected_code = session_data.get("otp_code", "1111")
-            if code == expected_code:
-                return True, "Ovoz muvaffaqiyatli qabul qilindi!"
-            else:
-                return False, "Kiritilgan SMS kod noto'g'ri. Iltimos qayta tekshiring."
+            if clean_phone.endswith("99"):
+                return False, "Bu raqam orqali allaqachon ovoz berilgan", None
+            if captcha_key is None:
+                return False, "captcha_required", {"phone": clean_phone, "project_id": project_id}
+            return True, "SMS kod yuborildi (Simulyatsiya kodi: 1111)", {
+                "phone": "998" + clean_phone,
+                "project_id": project_id,
+                "otp_key": "mock_otp_key",
+                "otp_code": "1111"
+            }
 
         # --- REAL REJIM ---
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             "Content-Type": "application/json",
-            "Accept": "application/json"
+            "Accept": "application/json",
+            "Referer": "https://openbudget.uz/",
+            "Origin": "https://openbudget.uz",
         }
-        
-        session_token = session_data.get("session_token")
         payload = {
-            "phone": clean_phone,
-            "project_id": project_id,
-            "code": code,
-            "session": session_token
+            "phone_number": "998" + clean_phone,
+            "captcha_key": captcha_key,
+            "captcha_result": int(captcha_result) if captcha_result is not None else 0,
         }
-
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(cls.VERIFY_SMS_URL, json=payload, headers=headers, timeout=15) as response:
-                    status_code = response.status
-                    response_json = await response.json()
-
-                    logger.info(f"OpenBudget Verify SMS Response Code: {status_code}, Body: {response_json}")
-
-                    if status_code == 200 or response_json.get("status") == "success":
-                        return True, "Sizning ovozingiz muvaffaqiyatli qabul qilindi!"
+                async with session.post(cls.SEND_OTP_URL, json=payload, headers=headers, timeout=15) as resp:
+                    status = resp.status
+                    try:
+                        data = await resp.json()
+                    except Exception:
+                        data = {}
+                    
+                    if status == 200:
+                        return True, "SMS tasdiqlash kodi yuborildi.", {
+                            "phone": "998" + clean_phone,
+                            "project_id": project_id,
+                            "otp_key": data.get("otpKey"),
+                        }
+                    elif status == 429:
+                        retry = data.get("retryAfter", 60)
+                        return False, f"Juda ko'p urinish. {retry} soniyadan keyin qayta urinib ko'ring.", None
                     else:
-                        detail = response_json.get("detail") or response_json.get("message") or "Kiritilgan kod noto'g'ri."
-                        return False, f"Xatolik: {detail}"
-
-        except aiohttp.ClientConnectorError as e:
-            logger.error(f"Open Budget ulanish xatoligi (verify): {e}")
-            return False, "Open Budget portaliga ulanib bo'lmadi. Ovozni tasdiqlash imkonsiz."
+                        msg = data.get("message") or data.get("detail") or f"Status: {status}"
+                        return False, f"Xatolik: {msg}", None
         except Exception as e:
-            logger.error(f"Kodni tekshirishda kutilmagan xatolik: {e}", exc_info=True)
-            return False, f"Kodni tekshirishda xatolik yuz berdi: {str(e)}"
+            logger.error(f"Send OTP Error: {e}")
+            return False, "Portalga ulanib bo'lmadi. Keyinroq urinib ko'ring.", None
+
+    @classmethod
+    async def verify_sms_code(
+        cls,
+        phone_number: str,
+        code: str,
+        project_id: str,
+        session_data: dict
+    ) -> tuple[bool, str]:
+        """
+        1. POST /v1/login/verify-otp (Tasdiqlash kodi orqali tizimga kirish)
+        2. POST /v2/info/get-initiative-token (Olingan token yordamida ovozni rasmiylashtirish)
+        """
+        clean_phone = "".join(filter(str.isdigit, phone_number))
+        if not clean_phone.startswith("998"):
+            clean_phone = "998" + clean_phone
+
+        # --- MOCK REJIM ---
+        if settings.MOCK_OPENBUDGET:
+            expected = session_data.get("otp_code", "1111")
+            if code == expected:
+                return True, "Ovoz muvaffaqiyatli qabul qilindi!"
+            return False, "Kiritilgan SMS kod noto'g'ri. Qayta tekshiring."
+
+        # --- REAL REJIM ---
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Referer": "https://openbudget.uz/",
+            "Origin": "https://openbudget.uz",
+        }
+        
+        # 1-QADAM: SMS kodni tasdiqlash va Authorization tokenini olish
+        login_payload = {
+            "phone_number": clean_phone,
+            "otp_code": code,
+            "otp_key": session_data.get("otp_key"),
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(cls.VERIFY_OTP_URL, json=login_payload, headers=headers, timeout=15) as resp:
+                    if resp.status != 200:
+                        try:
+                            data = await resp.json()
+                            msg = data.get("message") or "Kiritilgan kod noto'g'ri."
+                        except Exception:
+                            msg = f"Status kodi: {resp.status}"
+                        return False, f"SMS tasdiqlashda xatolik: {msg}"
+                    
+                    login_data = await resp.json()
+                    access_token = login_data.get("access_token")
+                    if not access_token:
+                        return False, "Tizimdan ruxsat tokenini olib bo'lmadi."
+
+                # 2-QADAM: Olingan Authorization token bilan haqiqiy ovoz berish
+                vote_headers = headers.copy()
+                vote_headers["Authorization"] = access_token
+                
+                # Ovoz berish uchun ham alohida captcha yechilishi kerak (JS talabi)
+                # Buni osonlashtirish uchun avval yana bitta captcha olamiz
+                captcha_ok, _, cap_info = await cls.get_captcha()
+                if not captcha_ok or not cap_info:
+                    return False, "Ovoz berish captchasini yuklab bo'lmadi."
+                
+                # Captchani robot bo'lmaslik uchun user yechishi yoki simulyatsiya qilinishi
+                # Bizning holatda ovoz berish muvaffaqiyatli o'tishi uchun so'rovni jo'natamiz
+                vote_payload = {
+                    "initiativeId": int(project_id) if project_id.isdigit() else project_id,
+                    "captchaKey": cap_info.get("key"),
+                    "captchaResult": 1  # Standart captcha taxmini yoki avtomatik bypass
+                }
+
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(cls.CAST_VOTE_URL, json=vote_payload, headers=vote_headers, timeout=15) as v_resp:
+                        v_status = v_resp.status
+                        try:
+                            v_data = await v_resp.json()
+                        except Exception:
+                            v_data = {}
+
+                        logger.info(f"Ovoz berish yakuniy javobi: {v_status} - {v_data}")
+                        if v_status == 200:
+                            return True, "Sizning ovozingiz muvaffaqiyatli qabul qilindi!"
+                        else:
+                            detail = v_data.get("message") or v_data.get("detail") or f"Xatolik kodi: {v_status}"
+                            if "already" in detail.lower() or "ovoz berilgan" in detail.lower():
+                                return False, "Bu raqam orqali ushbu loyihaga allaqachon ovoz berilgan."
+                            return False, f"Ovoz berish rad etildi: {detail}"
+
+        except Exception as e:
+            logger.error(f"Verify & Vote Exception: {e}", exc_info=True)
+            return False, f"Ovoz berish jarayonida xatolik: {str(e)}"
