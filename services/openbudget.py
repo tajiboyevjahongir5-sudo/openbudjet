@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import aiohttp
 import base64
 import time
@@ -10,19 +10,36 @@ class OpenBudgetService:
     """
     openbudget.uz saytining rasmiy JS kodlaridan aniqlangan real ovoz berish API xizmati.
     """
-    BASE_URL = "https://openbudget.uz/api"
-    
+    @classmethod
+    def _get_url(cls, path: str) -> str:
+        """Proksi URL mavjud bo'lsa undan foydalanadi, aks holda real saytdan"""
+        base = settings.CLOUDFLARE_PROXY_URL.rstrip('/') if settings.CLOUDFLARE_PROXY_URL else "https://openbudget.uz/api"
+        # Cloudflare workerga so'rovlar /api prefiksiz boradi, chunki targetUrl da uni o'zimiz qo'shamiz
+        if settings.CLOUDFLARE_PROXY_URL:
+            # Masalan: /v2/vote/captcha-2
+            return f"{base}{path}"
+        else:
+            return f"{base}{path}"
+
     # 1. Captcha olish manzili (GET)
-    CAPTCHA_URL = f"{BASE_URL}/v2/vote/captcha-2"
+    @classmethod
+    def captcha_url(cls) -> str:
+        return cls._get_url("/v2/vote/captcha-2")
     
     # 2. Login va OTP yuborish (POST)
-    SEND_OTP_URL = f"{BASE_URL}/v1/login/send-otp"
+    @classmethod
+    def send_otp_url(cls) -> str:
+        return cls._get_url("/v1/login/send-otp")
     
     # 3. OTP tasdiqlash va token olish (POST)
-    VERIFY_OTP_URL = f"{BASE_URL}/v1/login/verify-otp"
+    @classmethod
+    def verify_otp_url(cls) -> str:
+        return cls._get_url("/v1/login/verify-otp")
     
     # 4. Ovozni tasdiqlab yakunlash (POST)
-    CAST_VOTE_URL = f"{BASE_URL}/v2/info/get-initiative-token"
+    @classmethod
+    def cast_vote_url(cls) -> str:
+        return cls._get_url("/v2/info/get-initiative-token")
 
     @staticmethod
     def _access_captcha_token() -> str:
@@ -49,7 +66,7 @@ class OpenBudgetService:
         }
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(cls.CAPTCHA_URL, headers=headers, timeout=15) as resp:
+                async with session.get(cls.captcha_url(), headers=headers, timeout=15) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         return True, "ok", {
@@ -106,7 +123,7 @@ class OpenBudgetService:
         }
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(cls.SEND_OTP_URL, json=payload, headers=headers, timeout=15) as resp:
+                async with session.post(cls.send_otp_url(), json=payload, headers=headers, timeout=15) as resp:
                     status = resp.status
                     try:
                         data = await resp.json()
@@ -170,7 +187,7 @@ class OpenBudgetService:
         
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(cls.VERIFY_OTP_URL, json=login_payload, headers=headers, timeout=15) as resp:
+                async with session.post(cls.verify_otp_url(), json=login_payload, headers=headers, timeout=15) as resp:
                     if resp.status != 200:
                         try:
                             data = await resp.json()
@@ -203,7 +220,7 @@ class OpenBudgetService:
                 }
 
                 async with aiohttp.ClientSession() as session:
-                    async with session.post(cls.CAST_VOTE_URL, json=vote_payload, headers=vote_headers, timeout=15) as v_resp:
+                    async with session.post(cls.cast_vote_url(), json=vote_payload, headers=vote_headers, timeout=15) as v_resp:
                         v_status = v_resp.status
                         try:
                             v_data = await v_resp.json()
