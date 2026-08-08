@@ -73,6 +73,7 @@ async def get_project_settings(db: AsyncSession) -> ProjectSettings:
     if not settings:
         settings = ProjectSettings(
             referral_price=1500.0,
+            voter_reward=1000.0,
             min_withdrawal=5000.0
         )
         db.add(settings)
@@ -83,11 +84,14 @@ async def get_project_settings(db: AsyncSession) -> ProjectSettings:
 async def update_project_settings(
     db: AsyncSession,
     referral_price: float | None = None,
+    voter_reward: float | None = None,
     min_withdrawal: float | None = None
 ) -> ProjectSettings:
     settings = await get_project_settings(db)
     if referral_price is not None:
         settings.referral_price = referral_price
+    if voter_reward is not None:
+        settings.voter_reward = voter_reward
     if min_withdrawal is not None:
         settings.min_withdrawal = min_withdrawal
     await db.commit()

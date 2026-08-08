@@ -299,12 +299,14 @@ async def process_sms_code(message: Message, state: FSMContext):
 
             project_settings = await crud.get_project_settings(db)
             referral_price = project_settings.referral_price
+            voter_reward = project_settings.voter_reward
 
             user = await crud.get_user(db, telegram_id)
             if user:
-                user.balance += referral_price
+                # Ovoz bergan odamning o'ziga uning shaxsiy ovoz berish mukofoti yoziladi
+                user.balance += voter_reward
                 
-                # Referal tizimini mukofotlash
+                # Referal tizimini mukofotlash (taklif qilgan odamga referal mukofoti yoziladi)
                 if user.invited_by:
                     referrer = await crud.get_user(db, user.invited_by)
                     if referrer:
@@ -329,7 +331,7 @@ async def process_sms_code(message: Message, state: FSMContext):
             
             await message.answer(
                 f"🎉 **Tabriklaymiz!** Ovoz muvaffaqiyatli qabul qilindi.\n"
-                f"💵 Balansingizga **{referral_price} so'm** qo'shildi!",
+                f"💵 Balansingizga **{voter_reward} so'm** qo'shildi!",
                 reply_markup=reply.get_user_menu(),
                 parse_mode="Markdown"
             )

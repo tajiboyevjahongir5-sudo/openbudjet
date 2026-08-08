@@ -55,8 +55,11 @@ def get_admin_inline_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="📂 Loyihalar", callback_data="admin_proj_list", style="primary"),
-                InlineKeyboardButton(text="💰 Mukofot narxi", callback_data="admin_change_price", style="primary")
+                InlineKeyboardButton(text="📂 Loyihalar", callback_data="admin_proj_list", style="primary")
+            ],
+            [
+                InlineKeyboardButton(text="💰 Ovoz mukofoti", callback_data="admin_change_voter_reward", style="primary"),
+                InlineKeyboardButton(text="👥 Referal mukofoti", callback_data="admin_change_referral_price", style="primary")
             ],
             [
                 InlineKeyboardButton(text="💸 Min. Pul yechish", callback_data="admin_change_min", style="primary"),

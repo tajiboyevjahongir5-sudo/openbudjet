@@ -181,12 +181,51 @@ async def process_admin_project_delete(callback: CallbackQuery, state: FSMContex
 
 # --- 2. Referal mukofot narxini o'zgartirish ---
 
-@router.message(F.text == "💰 Mukofot narxi")
+@router.message(F.text == "💰 Ovoz mukofoti")
+async def admin_change_voter_reward(message: Message, state: FSMContext):
+    """Ovoz bergan foydalanuvchining o'ziga beriladigan shaxsiy mukofotni o'zgartirish"""
+    await state.set_state(AdminStates.WAITING_FOR_VOTER_REWARD)
+    await message.answer(
+        "💵 Ovoz bergan foydalanuvchining o'ziga beriladigan yangi mukofot summasini kiriting (so'mda):\n"
+        "(Faqat raqam kiriting, masalan: 1000)",
+        reply_markup=reply.get_cancel_keyboard(),
+        parse_mode="Markdown"
+    )
+
+@router.message(AdminStates.WAITING_FOR_VOTER_REWARD, F.text)
+async def process_admin_voter_reward(message: Message, state: FSMContext):
+    price_text = message.text.strip()
+    if price_text == "❌ Jarayonni bekor qilish":
+        await state.clear()
+        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
+        return
+
+    try:
+        price = float(price_text)
+        if price < 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Noto'g'ri qiymat. Iltimos, musbat raqam kiriting:")
+        return
+
+    async with async_session() as db:
+        await crud.update_project_settings(db=db, voter_reward=price)
+
+    await state.clear()
+    await message.answer(
+        f"✅ Ovoz mukofoti narxi muvaffaqiyatli o'zgartirildi!\n"
+        f"💵 Yangi narx: **{price} so'm**",
+        reply_markup=reply.get_admin_menu(),
+        parse_mode="Markdown"
+    )
+
+@router.message(F.text == "👥 Referal mukofoti")
 async def admin_change_price(message: Message, state: FSMContext):
+    """Taklif qiluvchiga (referal) beriladigan mukofotni o'zgartirish"""
     await state.set_state(AdminStates.WAITING_FOR_REFERRAL_PRICE)
     await message.answer(
-        "💵 Har bir muvaffaqiyatli ovoz/taklif uchun beriladigan yangi summa qiymatini kiriting (so'mda):\n"
-        "(Faqat raqam kiriting, masalan: 2000)",
+        "💵 Taklif qiluvchiga (referal) beriladigan yangi mukofot summasini kiriting (so'mda):\n"
+        "(Faqat raqam kiriting, masalan: 1500)",
         reply_markup=reply.get_cancel_keyboard(),
         parse_mode="Markdown"
     )
@@ -466,13 +505,25 @@ async def admin_projects_list_callback(callback: CallbackQuery, state: FSMContex
     await show_projects_list(callback, state)
     await callback.answer()
 
-@router.callback_query(F.data == "admin_change_price")
-async def admin_change_price_callback(callback: CallbackQuery, state: FSMContext):
-    """Inline menyudan referal narxini o'zgartirish oqimini boshlash"""
+@router.callback_query(F.data == "admin_change_voter_reward")
+async def admin_change_voter_reward_callback(callback: CallbackQuery, state: FSMContext):
+    """Inline menyudan ovoz mukofotini o'zgartirish"""
+    await state.set_state(AdminStates.WAITING_FOR_VOTER_REWARD)
+    await callback.message.answer(
+        "💵 Ovoz bergan foydalanuvchining o'ziga beriladigan yangi mukofot summasini kiriting (so'mda):\n"
+        "(Faqat raqam kiriting, masalan: 1000)",
+        reply_markup=reply.get_cancel_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_change_referral_price")
+async def admin_change_referral_price_callback(callback: CallbackQuery, state: FSMContext):
+    """Inline menyudan referal mukofotini o'zgartirish"""
     await state.set_state(AdminStates.WAITING_FOR_REFERRAL_PRICE)
     await callback.message.answer(
-        "💵 Har bir muvaffaqiyatli ovoz/taklif uchun beriladigan yangi summa qiymatini kiriting (so'mda):\n"
-        "(Faqat raqam kiriting, masalan: 2000)",
+        "💵 Taklif qiluvchiga (referal) beriladigan yangi mukofot summasini kiriting (so'mda):\n"
+        "(Faqat raqam kiriting, masalan: 1500)",
         reply_markup=reply.get_cancel_keyboard(),
         parse_mode="Markdown"
     )

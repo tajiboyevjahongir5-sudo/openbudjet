@@ -32,6 +32,7 @@ class ProjectSettings(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     referral_price: Mapped[float] = mapped_column(Float, default=0.0)
+    voter_reward: Mapped[float] = mapped_column(Float, default=0.0)
     min_withdrawal: Mapped[float] = mapped_column(Float, default=0.0)
 
 class OpenBudgetProject(Base):

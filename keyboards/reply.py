@@ -31,17 +31,18 @@ def get_admin_menu() -> ReplyKeyboardMarkup:
     keyboard = [
         [
             KeyboardButton(text="📂 Loyihalar", style="primary"), 
-            KeyboardButton(text="💰 Mukofot narxi", style="primary")
+            KeyboardButton(text="💰 Ovoz mukofoti", style="primary")
         ],
         [
-            KeyboardButton(text="💸 Min. Pul yechish", style="primary"), 
-            KeyboardButton(text="📈 Statistika", style="primary")
+            KeyboardButton(text="👥 Referal mukofoti", style="primary"), 
+            KeyboardButton(text="💸 Min. Pul yechish", style="primary")
         ],
         [
-            KeyboardButton(text="📊 Batafsil Hisobot", style="success"), 
-            KeyboardButton(text="📣 Reklama yuborish", style="success")
+            KeyboardButton(text="📈 Statistika", style="primary"),
+            KeyboardButton(text="📊 Batafsil Hisobot", style="success")
         ],
         [
+            KeyboardButton(text="📣 Reklama yuborish", style="success"),
             KeyboardButton(text="🔙 Asosiy menyu", style="primary")
         ]
     ]
