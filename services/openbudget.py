@@ -84,7 +84,7 @@ class OpenBudgetService:
         }
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(cls.captcha_url(), headers=headers, timeout=15) as resp:
+                async with session.get(cls.captcha_url(), headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         return True, "ok", {
@@ -141,7 +141,7 @@ class OpenBudgetService:
         }
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(cls.send_otp_url(), json=payload, headers=headers, timeout=15) as resp:
+                async with session.post(cls.send_otp_url(), json=payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
                     status = resp.status
                     try:
                         data = await resp.json()
@@ -207,7 +207,7 @@ class OpenBudgetService:
         
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(cls.verify_otp_url(), json=login_payload, headers=headers, timeout=15) as resp:
+                async with session.post(cls.verify_otp_url(), json=login_payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
                     if resp.status != 200:
                         try:
                             data = await resp.json()
@@ -241,7 +241,7 @@ class OpenBudgetService:
                 }
 
                 async with aiohttp.ClientSession() as session:
-                    async with session.post(cls.cast_vote_url(), json=vote_payload, headers=vote_headers, timeout=15) as v_resp:
+                    async with session.post(cls.cast_vote_url(), json=vote_payload, headers=vote_headers, timeout=15, proxy=settings.PROXY_URL or None) as v_resp:
                         v_status = v_resp.status
                         try:
                             v_data = await v_resp.json()

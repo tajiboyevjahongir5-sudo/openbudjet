@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Cloudflare Workers reverse proxy URL (proksisiz bepul IP rotatsiya qilish uchun)
     CLOUDFLARE_PROXY_URL: str = ""
 
+    # Standart HTTP/SOCKS5 turar-joy proksi ulanishi (masalan: http://user:pass@ip:port)
+    PROXY_URL: str = ""
+
     # FastAPI Server parametrlari
     HOST: str = "0.0.0.0"
     PORT: int = 8000
