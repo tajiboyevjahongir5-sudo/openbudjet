@@ -1,4 +1,4 @@
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 
 def get_user_menu() -> ReplyKeyboardMarkup:
     """Foydalanuvchilar uchun zamonaviy va rangli asosiy menyu (Reply Keyboard)"""
@@ -59,4 +59,17 @@ def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
         resize_keyboard=True
+    )
+
+def get_captcha_reply_keyboard(session_id: str, web_url: str) -> ReplyKeyboardMarkup:
+    """Captcha yechish uchun Web App (Reply Keyboard) - sendData ishlashi uchun Reply Keyboard shart!"""
+    url = f"{web_url}/captcha?session_id={session_id}"
+    keyboard = [
+        [KeyboardButton(text="🧩 Captchani yechish", web_app=WebAppInfo(url=url))],
+        [KeyboardButton(text="❌ Jarayonni bekor qilish")]
+    ]
+    return ReplyKeyboardMarkup(
+        keyboard=keyboard,
+        resize_keyboard=True,
+        one_time_keyboard=True
     )

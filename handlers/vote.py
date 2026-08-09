@@ -157,7 +157,7 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             await message.answer(
                 "⚠️ <b>Xavfsizlik tekshiruvi (Captcha)!</b>\n\n"
                 "Ovoz berishni davom ettirish uchun pastdagi tugmani bosing va puzl yoki captchani yeching 👇",
-                reply_markup=inline.get_captcha_keyboard(session_id, web_url),
+                reply_markup=reply.get_captcha_reply_keyboard(session_id, web_url),
                 parse_mode="HTML"
             )
             return
