@@ -312,7 +312,6 @@ async def process_sms_code(message: Message, state: FSMContext):
     success, result_msg = await OpenBudgetService.verify_sms_code(
         phone_number=phone_number,
         code=code,
-        project_id=project_id,
         session_data=session_data
     )
 
@@ -327,63 +326,196 @@ async def process_sms_code(message: Message, state: FSMContext):
         )
         return
 
-    # Ovoz muvaffaqiyatli tasdiqlandi. Balanslarni to'ldiramiz.
-    async with async_session() as db:
+    # SMS kod tasdiqlandi, endi final captcha yuklaymiz
+    access_token = result_msg  # verify_sms_code muvaffaqiyatli bo'lsa token qaytaradi
+    
+    # 2-captcha yuklash
+    cap_waiting = await message.answer("🔄 Yakuniy xavfsizlik tekshiruvi (Captcha) yuklanmoqda...")
+    success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
+    await cap_waiting.delete()
+
+    if not success_cap or not cap_data:
+        await message.answer("❌ Ovoz berish captchasini yuklab bo'lmadi. Iltimos, keyinroq qayta urinib ko'ring.")
+        return
+
+    # Foydalanuvchiga final captcha yechishni so'raymiz
+    await state.update_data(
+        access_token=access_token,
+        captcha_key=cap_data.get("key"),
+        captcha_image=cap_data.get("image_base64"),
+    )
+    await state.set_state(VoteStates.WAITING_FOR_FINAL_CAPTCHA)
+
+    web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
+    session_id = str(telegram_id)
+    
+    await message.answer(
+        "🔒 <b>SMS kod tasdiqlandi!</b>\n\n"
+        "Ovoz berishni yakunlash uchun pastdagi tugmani bosing va 2-captchani yeching 👇",
+        reply_markup=reply.get_captcha_reply_keyboard(session_id, web_url),
+        parse_mode="HTML"
+    )
+    return
+@router.message(VoteStates.WAITING_FOR_FINAL_CAPTCHA, F.web_app_data)
+async def process_final_captcha_result(message: Message, state: FSMContext):
+    """Foydalanuvchi final captchani yechganida ishlaydi (ovoz berishni yakunlash)"""
+    try:
+        raw_data = message.web_app_data.data
+        data = json.loads(raw_data)
+        
+        if data.get("status") != "success":
+            await message.answer("❌ Captcha tasdiqlanmadi. Iltimos, tugmani bosib qaytadan yeching.")
+            return
+
+        captcha_key = data.get("captcha_key") or "mock_captcha_key"
+        captcha_result_str = data.get("captcha_result")
+        
         try:
-            await crud.add_vote_history(
-                db=db,
-                telegram_id=telegram_id,
-                phone_number=phone_number,
-                project_id=project_id,
-                status=VoteStatus.SUCCESS
-            )
+            captcha_result = int(captcha_result_str) if captcha_result_str is not None else 0
+        except ValueError:
+            captcha_result = 0
 
-            project_settings = await crud.get_project_settings(db)
-            referral_price = project_settings.referral_price
-            voter_reward = project_settings.voter_reward
+        state_data = await state.get_data()
+        phone_number = state_data.get("phone_number")
+        project_id = state_data.get("project_id")
+        access_token = state_data.get("access_token")
+        telegram_id = message.from_user.id
 
-            user = await crud.get_user(db, telegram_id)
-            if user:
-                # Ovoz bergan odamning o'ziga uning shaxsiy ovoz berish mukofoti yoziladi
-                user.balance += voter_reward
+        waiting_msg = await message.answer("🔄 Ovoz berish yakunlanmoqda, kuting...")
+
+        # Ovoz berish so'rovini yuboramiz
+        success, result_msg = await OpenBudgetService.cast_vote(
+            project_id=project_id,
+            access_token=access_token,
+            captcha_key=captcha_key,
+            captcha_result=captcha_result
+        )
+        
+        await waiting_msg.delete()
+
+        if not success:
+            if result_msg == "invalid_captcha":
+                # Captcha noto'g'ri bo'lsa, qaytadan captcha ko'rsatamiz
+                await message.answer("❌ Captcha noto'g'ri yechildi. Iltimos, yangisini yechib ko'ring:")
                 
-                # Referal tizimini mukofotlash (taklif qilgan odamga referal mukofoti yoziladi)
-                if user.invited_by:
-                    referrer = await crud.get_user(db, user.invited_by)
-                    if referrer:
-                        referrer.balance += referral_price
-                        referrer.total_referrals += 1
-                        
-                        try:
-                            referrer_message_text = (
-                                f"🎉 <b>Yangi referal mukofoti!</b>\n\n"
-                                f"Siz taklif qilgan foydalanuvchi ({html.escape(str(user.username or telegram_id))}) muvaffaqiyatli ovoz berdi.\n"
-                                f"💵 Balansingizga <b>{referral_price} so'm</b> qo'shildi!"
-                            )
-                            await message.bot.send_message(
-                                chat_id=referrer.telegram_id,
-                                text=referrer_message_text,
-                                parse_mode="HTML"
-                            )
-                        except Exception as e:
-                            logger.error(f"Refererga xabar yuborishda xato (ID: {referrer.telegram_id}): {e}")
+                cap_waiting = await message.answer("🔄 Yangi captcha yuklanmoqda...")
+                success_cap, _, cap_data = await OpenBudgetService.get_captcha()
+                await cap_waiting.delete()
 
-            await db.commit()
+                if not success_cap or not cap_data:
+                    await message.answer("❌ Captcha yuklab bo'lmadi. Keyinroq qayta urinib ko'ring.")
+                    return
+
+                await state.update_data(
+                    captcha_key=cap_data.get("key"),
+                    captcha_image=cap_data.get("image_base64"),
+                )
+                web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
+                session_id = str(telegram_id)
+                await message.answer(
+                    "🧩 <b>Yangi Captcha!</b>\n\n"
+                    "Ovoz berishni yakunlash uchun pastdagi tugmani bosing 👇",
+                    reply_markup=reply.get_captcha_reply_keyboard(session_id, web_url),
+                    parse_mode="HTML"
+                )
+                return
             
-            await message.answer(
-                f"🎉 <b>Tabriklaymiz!</b> Ovoz muvaffaqiyatli qabul qilindi.\n"
-                f"💵 Balansingizga <b>{voter_reward} so'm</b> qo'shildi!",
-                reply_markup=reply.get_user_menu(),
-                parse_mode="HTML"
-            )
-            await state.clear()
+            elif result_msg == "already_voted":
+                async with async_session() as db:
+                    await crud.add_vote_history(
+                        db=db,
+                        telegram_id=telegram_id,
+                        phone_number=phone_number,
+                        project_id=project_id,
+                        status=VoteStatus.ALREADY_VOTED
+                    )
+                await message.answer(
+                    "❌ Ovoz berish rad etildi:\n<b>Bu raqam orqali ushbu loyihaga allaqachon ovoz berilgan.</b>",
+                    reply_markup=reply.get_user_menu(),
+                    parse_mode="HTML"
+                )
+                await state.clear()
+                return
 
-        except Exception as e:
-            await db.rollback()
-            logger.error(f"Ovoz yozish tranzaksiyasida xatolik: {e}", exc_info=True)
-            await message.answer(
-                "❌ Ovoz qabul qilindi, lekin ma'lumotlarni saqlashda xatolik yuz berdi.\n"
-                "Iltimos, adminlar bilan bog'laning.",
-                reply_markup=reply.get_user_menu()
-            )
-            await state.clear()
+            else:
+                # Boshqa xatoliklar (masalan: Ovoz berish boshlanmagan yoki server xatosi)
+                async with async_session() as db:
+                    await crud.add_vote_history(
+                        db=db,
+                        telegram_id=telegram_id,
+                        phone_number=phone_number,
+                        project_id=project_id,
+                        status=VoteStatus.FAILED
+                    )
+                await message.answer(
+                    f"❌ Ovoz berish yakunlanmadi:\n<b>{html.escape(result_msg)}</b>",
+                    reply_markup=reply.get_user_menu(),
+                    parse_mode="HTML"
+                )
+                await state.clear()
+                return
+
+        # --- OVOZ MUVAFFAQIYATLI QABUL QILINDI ---
+        async with async_session() as db:
+            try:
+                await crud.add_vote_history(
+                    db=db,
+                    telegram_id=telegram_id,
+                    phone_number=phone_number,
+                    project_id=project_id,
+                    status=VoteStatus.SUCCESS
+                )
+
+                project_settings = await crud.get_project_settings(db)
+                referral_price = project_settings.referral_price
+                voter_reward = project_settings.voter_reward
+
+                user = await crud.get_user(db, telegram_id)
+                if user:
+                    # Ovoz bergan odamning o'ziga mukofot
+                    user.balance += voter_reward
+                    
+                    # Taklif qilgan referalga mukofot
+                    if user.invited_by:
+                        referrer = await crud.get_user(db, user.invited_by)
+                        if referrer:
+                            referrer.balance += referral_price
+                            referrer.total_referrals += 1
+                            
+                            try:
+                                referrer_message_text = (
+                                    f"🎉 <b>Yangi referal mukofoti!</b>\n\n"
+                                    f"Siz taklif qilgan foydalanuvchi ({html.escape(str(user.username or telegram_id))}) muvaffaqiyatli ovoz berdi.\n"
+                                    f"💵 Balansingizga <b>{referral_price} so'm</b> qo'shildi!"
+                                )
+                                await message.bot.send_message(
+                                    chat_id=referrer.telegram_id,
+                                    text=referrer_message_text,
+                                    parse_mode="HTML"
+                                )
+                            except Exception as e:
+                                logger.error(f"Refererga xabar yuborishda xato: {e}")
+
+                await db.commit()
+                
+                await message.answer(
+                    f"🎉 <b>Tabriklaymiz!</b> Ovoz muvaffaqiyatli qabul qilindi.\n"
+                    f"💵 Balansingizga <b>{voter_reward} so'm</b> qo'shildi!",
+                    reply_markup=reply.get_user_menu(),
+                    parse_mode="HTML"
+                )
+                await state.clear()
+
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Ovoz yozish tranzaksiyasida xatolik: {e}", exc_info=True)
+                await message.answer(
+                    "❌ Ovoz qabul qilindi, lekin ma'lumotlarni saqlashda xatolik yuz berdi.\n"
+                    "Iltimos, adminlar bilan bog'laning.",
+                    reply_markup=reply.get_user_menu()
+                )
+                await state.clear()
+
+    except Exception as e:
+        logger.error(f"Final Captcha WebApp natijasini o'qishda xato: {e}", exc_info=True)
+        await message.answer("❌ Captcha ma'lumotlarini qabul qilishda xatolik yuz berdi. Qayta urinib ko'ring.")

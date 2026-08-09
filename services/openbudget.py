@@ -178,12 +178,11 @@ class OpenBudgetService:
         cls,
         phone_number: str,
         code: str,
-        project_id: str,
         session_data: dict
     ) -> tuple[bool, str]:
         """
-        1. POST /v1/login/verify-otp (Tasdiqlash kodi orqali tizimga kirish)
-        2. POST /v2/info/get-initiative-token (Olingan token yordamida ovozni rasmiylashtirish)
+        SMS kodni portal orqali tasdiqlab login qiladi.
+        Muvaffaqiyatli bo'lsa (True, access_token) qaytaradi.
         """
         clean_phone = "".join(filter(str.isdigit, phone_number))
         if not clean_phone.startswith("998"):
@@ -193,7 +192,7 @@ class OpenBudgetService:
         if settings.MOCK_OPENBUDGET:
             expected = session_data.get("otp_code", "1111")
             if code == expected:
-                return True, "Ovoz muvaffaqiyatli qabul qilindi!"
+                return True, "mock_access_token"
             return False, "Kiritilgan SMS kod noto'g'ri. Qayta tekshiring."
 
         # --- REAL REJIM ---
@@ -205,7 +204,6 @@ class OpenBudgetService:
             "Origin": "https://openbudget.uz",
         }
         
-        # 1-QADAM: SMS kodni tasdiqlash va Authorization tokenini olish
         login_payload = {
             "phone_number": clean_phone,
             "otp_code": code,
@@ -228,42 +226,63 @@ class OpenBudgetService:
                     access_token = login_data.get("access_token")
                     if not access_token:
                         return False, "Tizimdan ruxsat tokenini olib bo'lmadi."
-
-                # 2-QADAM: Olingan Authorization token bilan haqiqiy ovoz berish
-                vote_headers = headers.copy()
-                vote_headers["Authorization"] = access_token
-                
-                # Ovoz berish uchun ham alohida captcha yechilishi kerak (JS talabi)
-                # Buni osonlashtirish uchun avval yana bitta captcha olamiz
-                captcha_ok, _, cap_info = await cls.get_captcha()
-                if not captcha_ok or not cap_info:
-                    return False, "Ovoz berish captchasini yuklab bo'lmadi."
-                
-                # Captchani robot bo'lmaslik uchun user yechishi yoki simulyatsiya qilinishi
-                # Bizning holatda ovoz berish muvaffaqiyatli o'tishi uchun so'rovni jo'natamiz
-                vote_payload = {
-                    "initiativeId": int(project_id) if project_id.isdigit() else project_id,
-                    "captchaKey": cap_info.get("key"),
-                    "captchaResult": 1  # Standart captcha taxmini yoki avtomatik bypass
-                }
-
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(cls.cast_vote_url(), json=vote_payload, headers=vote_headers, timeout=15, proxy=settings.PROXY_URL or None) as v_resp:
-                        v_status = v_resp.status
-                        try:
-                            v_data = await v_resp.json()
-                        except Exception:
-                            v_data = {}
-
-                        logger.info(f"Ovoz berish yakuniy javobi: {v_status} - {mask_sensitive_data(v_data)}")
-                        if v_status == 200:
-                            return True, "Sizning ovozingiz muvaffaqiyatli qabul qilindi!"
-                        else:
-                            detail = v_data.get("message") or v_data.get("detail") or f"Xatolik kodi: {v_status}"
-                            if "already" in detail.lower() or "ovoz berilgan" in detail.lower():
-                                return False, "Bu raqam orqali ushbu loyihaga allaqachon ovoz berilgan."
-                            return False, f"Ovoz berish rad etildi: {detail}"
+                    return True, access_token
 
         except Exception as e:
-            logger.error(f"Verify & Vote Exception: {e}", exc_info=True)
+            logger.error(f"Verify SMS Exception: {e}", exc_info=True)
+            return False, f"SMS tasdiqlash jarayonida xatolik: {str(e)}"
+
+    @classmethod
+    async def cast_vote(
+        cls,
+        project_id: str,
+        access_token: str,
+        captcha_key: str,
+        captcha_result: int
+    ) -> tuple[bool, str]:
+        """
+        Olingan access_token va hal qilingan captcha kodi yordamida yakuniy ovozni rasmiylashtiradi.
+        """
+        # --- MOCK REJIM ---
+        if settings.MOCK_OPENBUDGET:
+            return True, "Sizning ovozingiz muvaffaqiyatli qabul qilindi!"
+
+        # --- REAL REJIM ---
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Referer": "https://openbudget.uz/",
+            "Origin": "https://openbudget.uz",
+            "Authorization": access_token
+        }
+        
+        vote_payload = {
+            "initiativeId": int(project_id) if project_id.isdigit() else project_id,
+            "captchaKey": captcha_key,
+            "captchaResult": captcha_result
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(cls.cast_vote_url(), json=vote_payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as v_resp:
+                    v_status = v_resp.status
+                    try:
+                        v_data = await v_resp.json()
+                    except Exception:
+                        v_data = {}
+
+                    logger.info(f"Ovoz berish yakuniy javobi: {v_status} - {mask_sensitive_data(v_data)}")
+                    if v_status == 200:
+                        return True, "Sizning ovozingiz muvaffaqiyatli qabul qilindi!"
+                    else:
+                        detail = v_data.get("message") or v_data.get("detail") or f"Xatolik kodi: {v_status}"
+                        if "already" in detail.lower() or "ovoz berilgan" in detail.lower():
+                            return False, "already_voted"
+                        if v_status in (410, 400) and ("captcha" in detail.lower() or "key" in detail.lower()):
+                            return False, "invalid_captcha"
+                        return False, f"Ovoz berish rad etildi: {detail}"
+
+        except Exception as e:
+            logger.error(f"Cast Vote Exception: {e}", exc_info=True)
             return False, f"Ovoz berish jarayonida xatolik: {str(e)}"

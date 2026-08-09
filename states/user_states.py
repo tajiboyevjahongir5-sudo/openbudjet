@@ -4,6 +4,7 @@ class VoteStates(StatesGroup):
     WAITING_FOR_PHONE = State()    # Telefon raqamini kiritish jarayoni
     WAITING_FOR_CAPTCHA = State()  # Captcha yechish jarayoni
     WAITING_FOR_SMS = State()      # SMS kodini kiritish jarayoni
+    WAITING_FOR_FINAL_CAPTCHA = State() # SMS dan keyingi yakuniy captcha yechish jarayoni
 
 class WithdrawStates(StatesGroup):
     WAITING_FOR_CARD = State()   # Pul yechish uchun karta raqam kiritish
