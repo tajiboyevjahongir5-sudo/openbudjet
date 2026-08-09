@@ -5,7 +5,7 @@ from datetime import datetime
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ChatJoinRequest
 
 from config import settings
 from database.session import async_session
@@ -306,3 +306,45 @@ async def process_menu_referral(callback: CallbackQuery, state: FSMContext):
     )
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
+
+@router.chat_join_request()
+async def auto_approve_channel_join(event: ChatJoinRequest):
+    """Kanal yoki guruhga qo'shilish so'rovi yuborilganda uni avtomatik tasdiqlaydi va botda foydalanuvchini ro'yxatdan o'tkazadi"""
+    user_id = event.from_user.id
+    username = event.from_user.username
+    full_name = event.from_user.full_name
+
+    try:
+        # 1. So'rovni avtomatik tasdiqlaymiz (Kanalga kirishga ruxsat berish)
+        await event.approve()
+
+        # 2. Foydalanuvchi ma'lumotlar bazasida mavjud bo'lmasa yaratamiz
+        async with async_session() as db:
+            user_obj, created = await crud.get_or_create_user(
+                db=db,
+                telegram_id=user_id,
+                username=username,
+                full_name=full_name
+            )
+            project_settings = await crud.get_project_settings(db)
+            referral_price = project_settings.referral_price
+
+        # 3. Foydalanuvchiga shaxsiy xabar yuboramiz
+        welcome_text = (
+            f"🎉 <b>Tabriklaymiz! So'rovingiz tasdiqlandi.</b>\n\n"
+            f"Siz kanalga muvaffaqiyatli qo'shildingiz. Men esa sizga loyihalarga ovoz berib "
+            f"pul ishlashda yordam beradigan rasmiy botman.\n\n"
+            f"💵 Har bir muvaffaqiyatli ovoz uchun referalingizga <b>{referral_price} so'm</b> taqdim etiladi.\n"
+            f"Boshlash uchun quyidagi menyudan foydalaning 👇"
+        )
+        await event.bot.send_message(
+            chat_id=user_id,
+            text=welcome_text,
+            reply_markup=reply.get_user_menu(),
+            parse_mode="HTML"
+        )
+        logger.info(f"ChatJoinRequest muvaffaqiyatli bajarildi. Foydalanuvchi: {user_id} ({full_name})")
+
+    except Exception as e:
+        logger.error(f"ChatJoinRequest xatoligi: {e}", exc_info=True)
+
