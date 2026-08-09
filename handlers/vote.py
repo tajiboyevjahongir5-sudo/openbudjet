@@ -128,35 +128,76 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
     await waiting_msg.delete()
 
     if not success:
-        # A) Captcha talab etiladigan holat (Gibrid usul ishga tushadi)
+        # A) Captcha talab etiladigan holat
         if error_msg == "captcha_required":
             # Real captcha ma'lumotlarini yuklaymiz
             success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
-            if success_cap and cap_data:
-                await state.update_data(
-                    captcha_key=cap_data.get("key"),
-                    captcha_image=cap_data.get("image_base64")
-                )
-            else:
-                await state.update_data(
-                    captcha_key="mock_captcha_key",
-                    captcha_image=None
-                )
+            if not success_cap or not cap_data:
+                await message.answer("❌ Captcha yuklab bo'lmadi. Qayta urinib ko'ring.")
+                return
 
-            # Web App uchun manzilni aniqlash
-            web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
-            session_id = str(telegram_id)
-            
+            captcha_key = cap_data.get("key")
+            captcha_image = cap_data.get("image_base64")
+
+            # --- 2captcha avtomatik yechish ---
+            if settings.TWOCAPTCHA_API_KEY:
+                solving_msg = await message.answer(
+                    "🤖 <b>Captcha avtomatik yechilmoqda...</b>\n"
+                    "Iltimos, 15-30 soniya kuting ⏳",
+                    parse_mode="HTML"
+                )
+                ok, err, solved_int = await OpenBudgetService.solve_captcha_auto(captcha_image)
+                await solving_msg.delete()
+
+                if ok and solved_int is not None:
+                    # Captcha yechildi — SMS yuborishga o'tamiz
+                    wait2 = await message.answer("🔄 SMS kod so'ralmoqda...")
+                    sms_ok, sms_msg, sms_data = await OpenBudgetService.check_and_send_sms(
+                        phone_number=clean_phone,
+                        project_id=project_id,
+                        captcha_key=captcha_key,
+                        captcha_result=solved_int,
+                    )
+                    await wait2.delete()
+                    if sms_ok:
+                        await state.update_data(
+                            phone_number=clean_phone,
+                            project_id=project_id,
+                            session_data=sms_data,
+                        )
+                        await state.set_state(VoteStates.WAITING_FOR_SMS)
+                        await message.answer(
+                            f"📩 <b>Muvaffaqiyatli!</b>\n\n"
+                            f"<code>{clean_phone}</code> raqamiga yuborilgan SMS tasdiqlash kodini kiriting:",
+                            reply_markup=reply.get_cancel_keyboard(),
+                            parse_mode="HTML"
+                        )
+                    else:
+                        await message.answer(
+                            f"❌ SMS yuborishda xato yuz berdi:\n<b>{html.escape(sms_msg)}</b>\n\n"
+                            "Qayta urinib ko'ring yoki bekor qiling.",
+                            reply_markup=reply.get_cancel_keyboard(),
+                            parse_mode="HTML"
+                        )
+                    return
+                else:
+                    # 2captcha xatolik — manual Web App ga o'tamiz
+                    logger.warning(f"2captcha muvaffaqiyatsiz: {err}. Manual captcha ishga tushirilmoqda.")
+
+            # --- Manual Web App (2captcha yo'q yoki ishlamadi) ---
             await state.update_data(
+                captcha_key=captcha_key,
+                captcha_image=captcha_image,
                 phone_number=clean_phone,
                 project_id=project_id,
-                session_data=session_data
+                session_data=session_data,
             )
             await state.set_state(VoteStates.WAITING_FOR_CAPTCHA)
-            
+            web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
+            session_id = str(telegram_id)
             await message.answer(
                 "⚠️ <b>Xavfsizlik tekshiruvi (Captcha)!</b>\n\n"
-                "Ovoz berishni davom ettirish uchun pastdagi tugmani bosing va puzl yoki captchani yeching 👇",
+                "Ovoz berishni davom ettirish uchun pastdagi tugmani bosing va captchani yeching 👇",
                 reply_markup=reply.get_captcha_reply_keyboard(session_id, web_url),
                 parse_mode="HTML"
             )

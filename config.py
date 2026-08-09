@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # Standart HTTP/SOCKS5 turar-joy proksi ulanishi (masalan: http://user:pass@ip:port)
     PROXY_URL: str = ""
 
+    # 2captcha.com API kaliti (avtomatik captcha yechish uchun, bo'sh bo'lsa manual Web App ishlatiladi)
+    TWOCAPTCHA_API_KEY: str = ""
+
     # FastAPI Server parametrlari
     HOST: str = "0.0.0.0"
     PORT: int = 8000
