@@ -73,6 +73,19 @@ async def admin_projects_list_message(message: Message, state: FSMContext):
     """Admin '📂 Loyihalar' tugmasini bosganda loyihalar ro'yxatini chiqaradi"""
     await show_projects_list(message, state)
 
+@router.callback_query(F.data == "admin_proj_add")
+async def process_admin_project_add_callback(callback: CallbackQuery, state: FSMContext):
+    """Loyihalar ro'yxatidagi '➕ Loyiha qo'shish' tugmasini bosganda ishlaydi"""
+    await state.clear()
+    await state.set_state(AdminStates.WAITING_FOR_PROJECT_ID)
+    await callback.message.answer(
+        "📌 Yangi loyiha qo'shish uchun <b>Loyiha ID</b> raqamini kiriting:\n"
+        "(Faqat raqamlardan iborat bo'lishi kerak, masalan: 32541)",
+        reply_markup=reply.get_cancel_keyboard(),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
 @router.message(AdminStates.WAITING_FOR_PROJECT_ID, F.text)
 async def process_admin_project_id(message: Message, state: FSMContext):
     project_id = message.text.strip()
