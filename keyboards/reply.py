@@ -39,12 +39,16 @@ def get_admin_menu() -> ReplyKeyboardMarkup:
         ],
         [
             KeyboardButton(text="📈 Statistika", style="primary"),
-            KeyboardButton(text="📊 Batafsil Hisobot", style="success")
+            KeyboardButton(text="🔒 Maxfiy kanal", style="primary")
         ],
         [
-            KeyboardButton(text="📣 Reklama yuborish", style="success"),
+            KeyboardButton(text="📊 Batafsil Hisobot", style="success"),
+            KeyboardButton(text="📣 Reklama yuborish", style="success")
+        ],
+        [
             KeyboardButton(text="🔙 Asosiy menyu", style="primary")
         ]
+
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,

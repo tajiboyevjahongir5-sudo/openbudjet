@@ -66,13 +66,15 @@ def get_admin_inline_menu() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="💸 Min. Pul yechish", callback_data="admin_change_min", style="primary"),
-                InlineKeyboardButton(text="📈 Statistika", callback_data="admin_view_stats", style="primary")
+                InlineKeyboardButton(text="🔒 Maxfiy kanal", callback_data="admin_change_channel", style="primary")
             ],
             [
-                InlineKeyboardButton(text="📊 Batafsil Hisobot", callback_data="admin_select_report", style="success")
+                InlineKeyboardButton(text="📈 Statistika", callback_data="admin_view_stats", style="primary"),
+                InlineKeyboardButton(text="📊 Hisobot", callback_data="admin_select_report", style="success")
             ]
         ]
     )
+
 
 def get_admin_projects_list_keyboard(projects: list[OpenBudgetProject]) -> InlineKeyboardMarkup:
     """Barcha qo'shilgan loyihalar ro'yxatini va amallarni chiqarish"""

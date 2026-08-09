@@ -34,6 +34,8 @@ class ProjectSettings(Base):
     referral_price: Mapped[float] = mapped_column(Float, default=0.0)
     voter_reward: Mapped[float] = mapped_column(Float, default=0.0)
     min_withdrawal: Mapped[float] = mapped_column(Float, default=0.0)
+    channel_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
 
 class OpenBudgetProject(Base):
     __tablename__ = "openbudget_projects"

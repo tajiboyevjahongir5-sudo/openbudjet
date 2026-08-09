@@ -16,3 +16,5 @@ class AdminStates(StatesGroup):
     WAITING_FOR_VOTER_REWARD = State()    # Ovoz bergan odamning o'ziga beriladigan mukofotni o'zgartirish
     WAITING_FOR_MIN_WITHDRAWAL = State()  # Minimal pul yechish chegarasini o'zgartirish
     WAITING_FOR_AD_TEXT = State()         # Reklama matnini qabul qilish holati
+    WAITING_FOR_CHANNEL_USERNAME = State() # Maxfiy kanal username yoki linkini kiritish
+

@@ -324,7 +324,54 @@ async def process_admin_min_withdraw(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
 
+# --- 3.5. Maxfiy kanal sozlamalarini o'zgartirish ---
+
+@router.message(F.text == "🔒 Maxfiy kanal")
+@router.callback_query(F.data == "admin_change_channel")
+async def admin_change_channel(message_or_callback, state: FSMContext):
+    await state.set_state(AdminStates.WAITING_FOR_CHANNEL_USERNAME)
+    
+    async with async_session() as db:
+        project_settings = await crud.get_project_settings(db)
+        current_channel = project_settings.channel_username or "Hozircha sozlanmagan"
+
+    text = (
+        f"🔒 <b>Maxfiy kanal sozlamalari</b>\n\n"
+        f"Joriy kanal: <code>{html.escape(str(current_channel))}</code>\n\n"
+        f"Yangi kanal username yoki to'liq taklif havolasini kiriting (masalan: <code>@mening_kanalim</code> yoki <code>https://t.me/+abcde</code>):"
+    )
+    
+    if isinstance(message_or_callback, Message):
+        await message_or_callback.answer(text, reply_markup=reply.get_cancel_keyboard(), parse_mode="HTML")
+    else:
+        await message_or_callback.message.answer(text, reply_markup=reply.get_cancel_keyboard(), parse_mode="HTML")
+        await message_or_callback.answer()
+
+@router.message(AdminStates.WAITING_FOR_CHANNEL_USERNAME, F.text)
+async def process_admin_channel_username(message: Message, state: FSMContext):
+    channel_text = message.text.strip()
+    if channel_text == "❌ Jarayonni bekor qilish":
+        await state.clear()
+        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
+        return
+
+    # Kiruvchi ma'lumotni tozalaymiz
+    if channel_text.startswith("@"):
+        channel_text = channel_text[1:]
+
+    async with async_session() as db:
+        await crud.update_project_settings(db=db, channel_username=channel_text)
+
+    await state.clear()
+    await message.answer(
+        f"✅ Maxfiy kanal muvaffaqiyatli o'zgartirildi!\n"
+        f"🔒 Yangi kanal: <code>{html.escape(channel_text)}</code>",
+        reply_markup=reply.get_admin_menu(),
+        parse_mode="HTML"
+    )
+
 # --- 4. Statistikalarni ko'rish ---
+
 
 @router.message(F.text == "📈 Statistika")
 async def admin_statistics(message: Message):

@@ -52,24 +52,31 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
-        # PostgreSQL uchun avtomatik migratsiyalar (mavjud bazalar uchun)
+        # Barcha ma'lumotlar bazalari uchun avtomatik ustun qo'shish (SQLite / PostgreSQL)
+        # SQLite da 'IF NOT EXISTS' ishlamasligi mumkin, shuning uchun 'try-except' bilan bajaramiz.
+        for sql in [
+            "ALTER TABLE project_settings ADD COLUMN voter_reward FLOAT DEFAULT 0.0;",
+            "ALTER TABLE project_settings ADD COLUMN channel_username VARCHAR(100);",
+        ]:
+            try:
+                await conn.execute(text(sql))
+            except Exception:
+                pass  # Ustun allaqachon mavjud bo'lsa xatolik yuz beradi, uni tashlab o'tamiz
+
+        # PostgreSQL uchun maxsus qo'shimcha FSM jadvali
         if "postgresql" in engine.url.drivername:
-            migrations = [
-                # voter_reward ustuni (alohida mukofot tizimi)
-                "ALTER TABLE project_settings ADD COLUMN IF NOT EXISTS voter_reward FLOAT DEFAULT 0.0;",
-                # FSM holatlari jadvali (restart barqarorligi uchun)
-                """CREATE TABLE IF NOT EXISTS fsm_states (
-                    key VARCHAR(255) PRIMARY KEY,
-                    state VARCHAR(255),
-                    data TEXT DEFAULT '{}'
-                );""",
-            ]
-            for sql in migrations:
-                try:
-                    await conn.execute(text(sql))
-                except Exception as e:
-                    logger.warning(f"Migratsiya ogohlantirishida: {e}")
-            logger.info("PostgreSQL avtomatik migratsiyalar bajarildi.")
+            try:
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS fsm_states (
+                        key VARCHAR(255) PRIMARY KEY,
+                        state VARCHAR(255),
+                        data TEXT DEFAULT '{}'
+                    );
+                """))
+            except Exception as e:
+                logger.warning(f"PostgreSQL FSM jadvali yaratishda xato: {e}")
+        logger.info("Avtomatik migratsiyalar bajarildi.")
+
     
     async with async_session() as db:
         await crud.get_project_settings(db)
