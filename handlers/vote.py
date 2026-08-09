@@ -247,7 +247,7 @@ async def process_captcha_result(message: Message, state: FSMContext):
 
         if not success:
             await message.answer(
-                f"❌ Captcha to'g'ri, lekin SMS yuborishda xato yuz berdi:\n<b>{html.escape(error_msg)}</b>\n\n"
+                f"❌ SMS yuborishda xato yuz berdi:\n<b>{html.escape(error_msg)}</b>\n\n"
                 f"Qayta urinib ko'ring yoki bekor qiling.",
                 reply_markup=reply.get_cancel_keyboard(),
                 parse_mode="HTML"
