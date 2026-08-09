@@ -226,12 +226,79 @@
             color: #ef4444;
             text-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
         }
+        /* Countdown Timer */
+        .timer-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 18px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 14px;
+            padding: 10px 16px;
+        }
+        .timer-ring-svg {
+            transform: rotate(-90deg);
+            flex-shrink: 0;
+        }
+        .timer-ring-bg {
+            fill: none;
+            stroke: rgba(255,255,255,0.08);
+            stroke-width: 4;
+        }
+        .timer-ring-fg {
+            fill: none;
+            stroke: #38bdf8;
+            stroke-width: 4;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 1s linear, stroke 0.5s;
+        }
+        .timer-text-box {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        .timer-label {
+            font-size: 11px;
+            color: #64748b;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        .timer-value {
+            font-size: 22px;
+            font-weight: 800;
+            color: #38bdf8;
+            transition: color 0.5s;
+            line-height: 1.1;
+        }
+        .timer-value.warning { color: #f59e0b; }
+        .timer-value.danger  { color: #ef4444; animation: pulse-red 0.8s infinite alternate; }
+        @keyframes pulse-red {
+            from { text-shadow: 0 0 0px #ef4444; }
+            to   { text-shadow: 0 0 12px #ef4444; }
+        }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h2>Xavfsizlik tekshiruvi</h2>
+
+    <!-- Countdown Timer -->
+    <div class="timer-wrapper">
+        <svg class="timer-ring-svg" width="40" height="40" viewBox="0 0 40 40">
+            <circle class="timer-ring-bg" cx="20" cy="20" r="16"/>
+            <circle class="timer-ring-fg" id="timerRing" cx="20" cy="20" r="16"
+                stroke-dasharray="100.53"
+                stroke-dashoffset="0"/>
+        </svg>
+        <div class="timer-text-box">
+            <span class="timer-label">Qolgan vaqt</span>
+            <span class="timer-value" id="timerValue">1:30</span>
+        </div>
+    </div>
     
     {% if captcha_image %}
     <!-- Real Captcha Form -->
@@ -265,6 +332,46 @@
     const webapp = window.Telegram.WebApp;
     webapp.ready();
     webapp.expand();
+
+    // --- Countdown Timer (90 seconds) ---
+    const TOTAL_SEC = 90;
+    const circumference = 2 * Math.PI * 16; // 100.53
+    const timerRing  = document.getElementById("timerRing");
+    const timerValue = document.getElementById("timerValue");
+    let remaining = TOTAL_SEC;
+
+    function updateTimer() {
+        const m = Math.floor(remaining / 60);
+        const s = remaining % 60;
+        timerValue.textContent = m + ":" + String(s).padStart(2, "0");
+
+        // Progress ring
+        const progress = remaining / TOTAL_SEC;
+        timerRing.style.strokeDashoffset = circumference * (1 - progress);
+
+        // Colour transitions
+        timerValue.classList.remove("warning", "danger");
+        timerRing.style.stroke = "#38bdf8";
+        if (remaining <= 10) {
+            timerValue.classList.add("danger");
+            timerRing.style.stroke = "#ef4444";
+        } else if (remaining <= 30) {
+            timerValue.classList.add("warning");
+            timerRing.style.stroke = "#f59e0b";
+        }
+
+        if (remaining <= 0) {
+            clearInterval(timerInterval);
+            timerValue.textContent = "0:00";
+            webapp.close();
+            return;
+        }
+        remaining--;
+    }
+
+    updateTimer();
+    const timerInterval = setInterval(updateTimer, 1000);
+    // --- End Timer ---
 
     const statusMessage = document.getElementById("statusMessage");
 
