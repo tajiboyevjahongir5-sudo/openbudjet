@@ -31,13 +31,16 @@ class OpenBudgetService:
     @classmethod
     def _get_url(cls, path: str) -> str:
         """Proksi URL mavjud bo'lsa undan foydalanadi, aks holda real saytdan"""
-        base = settings.CLOUDFLARE_PROXY_URL.rstrip('/') if settings.CLOUDFLARE_PROXY_URL else "https://openbudget.uz/api"
-        # Cloudflare workerga so'rovlar /api prefiksiz boradi, chunki targetUrl da uni o'zimiz qo'shamiz
-        if settings.CLOUDFLARE_PROXY_URL:
-            # Masalan: /v2/vote/captcha-2
-            return f"{base}{path}"
+        # Agar PROXY_URL (turar-joy proksisi) kiritilgan bo'lsa, so'rovlarni to'g'ridan-to'g'ri real saytga yuboramiz.
+        # Chunki proksi o'zi IPni yashiradi va Cloudflare Workerga ehtiyoj qolmaydi.
+        if settings.PROXY_URL:
+            base = "https://openbudget.uz/api"
+        elif settings.CLOUDFLARE_PROXY_URL:
+            base = settings.CLOUDFLARE_PROXY_URL.rstrip('/')
         else:
-            return f"{base}{path}"
+            base = "https://openbudget.uz/api"
+            
+        return f"{base}{path}"
 
     # 1. Captcha olish manzili (GET)
     @classmethod
