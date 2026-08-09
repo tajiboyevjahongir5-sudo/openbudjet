@@ -720,13 +720,29 @@ async def process_admin_broadcast(message: Message, state: FSMContext):
     success_count = 0
     failed_count = 0
     
-    # Barcha foydalanuvchilarga xabarni nusxalaymiz (formatting, rasmlar, knopkalari bilan birga ketadi)
+    # Telegram rate limitlaridan himoyalanish importlari
+    from aiogram.exceptions import TelegramRetryAfter
+    import asyncio
+
+    # Barcha foydalanuvchilarga xabarni nusxalaymiz
     for user_id in user_ids:
         try:
             await message.copy_to(chat_id=user_id)
             success_count += 1
+        except TelegramRetryAfter as e:
+            # Agar limitga tushib qolsak, so'ralgan soniya kutamiz va qayta urinib ko'ramiz
+            logger.warning(f"Telegram Flood Control! {e.retry_after} soniya kutilmoqda...")
+            await asyncio.sleep(e.retry_after)
+            try:
+                await message.copy_to(chat_id=user_id)
+                success_count += 1
+            except Exception:
+                failed_count += 1
         except Exception:
             failed_count += 1
+        
+        # Har bir so'rovdan keyin 50ms kechikish (soniyasiga 20 ta so'rov, Telegram limiti 30 msg/sec)
+        await asyncio.sleep(0.05)
     
     await status_msg.answer(
         f"✅ **Reklama yuborish yakunlandi!**\n\n"
@@ -740,3 +756,4 @@ async def process_admin_broadcast(message: Message, state: FSMContext):
         await status_msg.delete()
     except Exception:
         pass
+

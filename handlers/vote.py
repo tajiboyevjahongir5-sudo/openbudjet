@@ -438,7 +438,34 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
                 return
 
             else:
-                # Boshqa xatoliklar (masalan: Ovoz berish boshlanmagan yoki server xatosi)
+                # Muvaqqat portal yoki server xatoligi yuz berganda (masalan, 502/504)
+                if any(x in result_msg.lower() for x in ["server", "portal", "ulanish", "timeout", "status: 5"]):
+                    await message.answer(
+                        f"⚠️ <b>Portalda vaqtincha xatolik yuz berdi:</b>\n{html.escape(result_msg)}\n\n"
+                        f"Qaytadan urinib ko'rishingiz mumkin. Yangi captcha yuklanmoqda...",
+                        parse_mode="HTML"
+                    )
+                    
+                    cap_waiting = await message.answer("🔄 Yangi captcha yuklanmoqda...")
+                    success_cap, _, cap_data = await OpenBudgetService.get_captcha()
+                    await cap_waiting.delete()
+
+                    if success_cap and cap_data:
+                        await state.update_data(
+                            captcha_key=cap_data.get("key"),
+                            captcha_image=cap_data.get("image_base64"),
+                        )
+                        web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
+                        session_id = str(telegram_id)
+                        await message.answer(
+                            "🧩 <b>Yangi Captcha!</b>\n\n"
+                            "Qaytadan urinib ko'rish uchun pastdagi tugmani bosing 👇",
+                            reply_markup=reply.get_captcha_reply_keyboard(session_id, web_url),
+                            parse_mode="HTML"
+                        )
+                        return
+
+                # Boshqa jiddiy/doimiy rad etish holatlari
                 async with async_session() as db:
                     await crud.add_vote_history(
                         db=db,
@@ -458,12 +485,14 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
         # --- OVOZ MUVAFFAQIYATLI QABUL QILINDI ---
         async with async_session() as db:
             try:
+                # Ovoz tarixini bazaga yozamiz (commit qilmasdan, tranzaksiyada saqlaymiz)
                 await crud.add_vote_history(
                     db=db,
                     telegram_id=telegram_id,
                     phone_number=phone_number,
                     project_id=project_id,
-                    status=VoteStatus.SUCCESS
+                    status=VoteStatus.SUCCESS,
+                    commit=False
                 )
 
                 project_settings = await crud.get_project_settings(db)
@@ -496,6 +525,7 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
                             except Exception as e:
                                 logger.error(f"Refererga xabar yuborishda xato: {e}")
 
+                # Barcha o'zgarishlarni bitta tranzaksiyada tasdiqlaymiz (Atomicity)
                 await db.commit()
                 
                 await message.answer(
@@ -519,3 +549,4 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Final Captcha WebApp natijasini o'qishda xato: {e}", exc_info=True)
         await message.answer("❌ Captcha ma'lumotlarini qabul qilishda xatolik yuz berdi. Qayta urinib ko'ring.")
+

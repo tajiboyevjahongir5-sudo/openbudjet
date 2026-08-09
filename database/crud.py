@@ -110,7 +110,8 @@ async def add_vote_history(
     telegram_id: int,
     phone_number: str,
     project_id: str,
-    status: VoteStatus
+    status: VoteStatus,
+    commit: bool = True
 ) -> VotesHistory:
     vote = VotesHistory(
         telegram_id=telegram_id,
@@ -120,9 +121,11 @@ async def add_vote_history(
         created_at=datetime.utcnow()
     )
     db.add(vote)
-    await db.commit()
-    await db.refresh(vote)
+    if commit:
+        await db.commit()
+        await db.refresh(vote)
     return vote
+
 
 async def check_phone_voted(db: AsyncSession, phone_number: str, project_id: str) -> bool:
     """Telefon raqam joriy loyihaga muvaffaqiyatli ovoz berganligini tekshiradi"""
