@@ -116,12 +116,14 @@ class OpenBudgetService:
         if clean_phone.startswith("998"):
             clean_phone = clean_phone[3:]
 
+        # Captcha har doim birinchi urinishda talab qilinadi (ham mock, ham real rejimda)
+        if captcha_key is None:
+            return False, "captcha_required", {"phone": clean_phone, "project_id": project_id}
+
         # --- MOCK REJIM ---
         if settings.MOCK_OPENBUDGET:
             if clean_phone.endswith("99"):
                 return False, "Bu raqam orqali allaqachon ovoz berilgan", None
-            if captcha_key is None:
-                return False, "captcha_required", {"phone": clean_phone, "project_id": project_id}
             return True, "SMS kod yuborildi (Simulyatsiya kodi: 1111)", {
                 "phone": "998" + clean_phone,
                 "project_id": project_id,
