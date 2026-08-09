@@ -56,6 +56,60 @@
             margin-bottom: 24px;
             line-height: 1.5;
         }
+        /* Real Captcha Styling */
+        .real-captcha-img-box {
+            width: 100%;
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 12px;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+        }
+        .real-captcha-img-box img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+        }
+        .captcha-text-input {
+            width: 100%;
+            height: 48px;
+            background: rgba(9, 13, 22, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            padding: 0 16px;
+            color: #ffffff;
+            font-size: 16px;
+            text-align: center;
+            margin-bottom: 16px;
+            outline: none;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+        .captcha-text-input:focus {
+            border-color: #818cf8;
+            box-shadow: 0 0 10px rgba(129, 140, 248, 0.4);
+        }
+        .submit-captcha-btn {
+            width: 100%;
+            height: 48px;
+            background: linear-gradient(90deg, #38bdf8 0%, #818cf8 100%);
+            border: none;
+            border-radius: 12px;
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(129, 140, 248, 0.4);
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .submit-captcha-btn:active {
+            transform: scale(0.98);
+        }
+
         /* Puzzle maydoni */
         .puzzle-area {
             position: relative;
@@ -178,86 +232,113 @@
 
 <div class="container">
     <h2>Xavfsizlik tekshiruvi</h2>
-    <p>Ovoz berishni davom ettirish uchun boshqotirmani yeching. Puzl bo'lagini joyiga siljiting 👇</p>
     
-    <div class="puzzle-area">
-        <div class="puzzle-slot" id="slot"></div>
-        <div class="puzzle-piece" id="piece"></div>
+    {% if captcha_image %}
+    <!-- Real Captcha Form -->
+    <div id="real-captcha-container">
+        <div class="real-captcha-img-box">
+            <img src="data:image/png;base64,{{ captcha_image }}" id="captchaImg" alt="Captcha" />
+        </div>
+        <p>Rasmda ko'rsatilgan ifoda yoki kod javobini yozing 👇</p>
+        <input type="text" id="captchaInput" class="captcha-text-input" placeholder="Matnni kiriting..." autocomplete="off" />
+        <button type="button" id="submitCaptchaBtn" class="submit-captcha-btn">Tasdiqlash</button>
     </div>
-    
-    <div class="slider-container">
-        <input type="range" min="0" max="100" value="0" class="slider" id="puzzleSlider">
-        <span class="slider-label" id="sliderLabel">Suring ➡️</span>
+    {% else %}
+    <!-- Mock Slider Captcha -->
+    <div id="mock-captcha-container">
+        <p>Ovoz berishni davom ettirish uchun boshqotirmani yeching. Puzl bo'lagini joyiga siljiting 👇</p>
+        <div class="puzzle-area">
+            <div class="puzzle-slot" id="slot"></div>
+            <div class="puzzle-piece" id="piece"></div>
+        </div>
+        <div class="slider-container">
+            <input type="range" min="0" max="100" value="0" class="slider" id="puzzleSlider">
+            <span class="slider-label" id="sliderLabel">Suring ➡️</span>
+        </div>
     </div>
+    {% endif %}
     
     <div class="status" id="statusMessage"></div>
 </div>
 
 <script>
-    // Telegram WebApp sozlash
     const webapp = window.Telegram.WebApp;
     webapp.ready();
-    webapp.expand(); // Oynani to'liq ochish
+    webapp.expand();
 
-    // URL parametrlardan seans IDsini olish
-    const urlParams = new URLSearchParams(window.location.search);
-    const sessionId = urlParams.get('session_id') || 'default_sess';
+    const statusMessage = document.getElementById("statusMessage");
 
-    const slider = document.getElementById('puzzleSlider');
-    const piece = document.getElementById('piece');
-    const statusMessage = document.getElementById('statusMessage');
-    const label = document.getElementById('sliderLabel');
+    {% if captcha_image %}
+    // Real Captcha Submission Logic
+    const submitBtn = document.getElementById("submitCaptchaBtn");
+    const captchaInput = document.getElementById("captchaInput");
 
-    // Bo'shliq (target) pozitsiyasi: 210px. 
-    // Slider minimal qiymati 0 da rasm chap tomonda 10px masofada bo'ladi.
-    // Slider maksimal qiymati 100 da rasm chap tomondan 290px masofaga surilishi mumkin (umumiy kenglik 360px - 50px puzl - 20px chekkalari = 290px).
-    // Target 210px ga yetishi uchun slider qiymati taxminan 71.4 ga teng bo'lishi kerak.
-    // Biz target qiymatni tasodifiy o'zgartirsak ham bo'ladi, lekin simulyatsiya uchun 210px yetarli.
-    const targetLeft = 210;
-    const minLeft = 10;
-    const maxLeft = 290;
-    const range = maxLeft - minLeft;
-
-    slider.addEventListener('input', function() {
-        const percent = slider.value / 100;
-        const currentLeft = minLeft + (percent * range);
-        piece.style.left = currentLeft + 'px';
-        
-        // Suring yozuvini yashirib borish
-        if (slider.value > 10) {
-            label.style.opacity = '0';
-        } else {
-            label.style.opacity = '1';
+    submitBtn.addEventListener("click", () => {
+        const val = captchaInput.value.trim();
+        if (!val) {
+            statusMessage.className = "status error";
+            statusMessage.innerText = "❌ Iltimos, javobni kiriting!";
+            return;
         }
+
+        statusMessage.className = "status success";
+        statusMessage.innerText = "✓ Muvaffaqiyatli tasdiqlandi!";
+
+        const result = {
+            status: "success",
+            captcha_result: val,
+            captcha_key: "{{ captcha_key }}",
+            session_id: "{{ session_id }}"
+        };
+        webapp.sendData(JSON.stringify(result));
     });
 
-    slider.addEventListener('change', function() {
-        const percent = slider.value / 100;
-        const currentLeft = minLeft + (percent * range);
+    captchaInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            submitBtn.click();
+        }
+    });
+    {% else %}
+    // Mock Slider Logic
+    const slider = document.getElementById("puzzleSlider");
+    const piece = document.getElementById("piece");
+    const label = document.getElementById("sliderLabel");
+    
+    const minLeft = 10;
+    const maxLeft = 290;
+    const targetLeft = 210;
+
+    slider.addEventListener("input", () => {
+        const percentage = slider.value / 100;
+        const currentLeft = minLeft + percentage * (maxLeft - minLeft);
+        piece.style.left = currentLeft + 'px';
+        
+        label.style.opacity = (1 - percentage * 2);
+    });
+
+    slider.addEventListener("change", () => {
+        const percentage = slider.value / 100;
+        const currentLeft = minLeft + percentage * (maxLeft - minLeft);
         const difference = Math.abs(currentLeft - targetLeft);
 
-        // Agar puzl 6 piksel atrofida yaqin bo'lsa (to'g'ri joylashtirildi)
         if (difference <= 6) {
             statusMessage.className = "status success";
             statusMessage.innerText = "✓ Muvaffaqiyatli tasdiqlandi!";
-            piece.style.left = targetLeft + 'px'; // Puzlni aniq joyiga qulflaymiz
+            piece.style.left = targetLeft + 'px';
             slider.disabled = true;
             
-            // Vibratsiya effektini berish (Haptic Feedback)
             if (webapp.HapticFeedback) {
                 webapp.HapticFeedback.notificationOccurred('success');
             }
 
-            // WebApp orqali botga natija yuborish (srazi yuboriladi va oyna darhol yopiladi)
             const result = {
                 status: "success",
-                captcha_code: "puzzle_ok_" + Math.floor(Math.random() * 10000),
-                session_id: sessionId
+                captcha_result: "1", // Mock captcha key
+                captcha_key: "mock_captcha_key",
+                session_id: "{{ session_id }}"
             };
             webapp.sendData(JSON.stringify(result));
-
         } else {
-            // Noto'g'ri bo'lsa, qaytarib yuboramiz
             statusMessage.className = "status error";
             statusMessage.innerText = "❌ Noto'g'ri joylashtirildi. Qayta urinib ko'ring.";
             
@@ -265,7 +346,6 @@
                 webapp.HapticFeedback.notificationOccurred('error');
             }
 
-            // Qaytadan 0 holatga qaytarish
             setTimeout(() => {
                 slider.value = 0;
                 piece.style.left = minLeft + 'px';
@@ -274,6 +354,7 @@
             }, 800);
         }
     });
+    {% endif %}
 </script>
 
 </body>

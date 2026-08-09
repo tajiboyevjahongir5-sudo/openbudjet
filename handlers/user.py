@@ -1,5 +1,6 @@
 import re
 import logging
+import html
 from datetime import datetime
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -92,7 +93,7 @@ async def cmd_balance(message: Message, state: FSMContext):
         min_withdrawal = project_settings.min_withdrawal
 
     text = (
-        f"👤 <b>Ism:</b> {message.from_user.full_name}\n"
+        f"👤 <b>Ism:</b> {html.escape(str(message.from_user.full_name))}\n"
         f"<tg-emoji emoji-id='5471983050186938952'>🆔</tg-emoji> <b>ID:</b> <code>{telegram_id}</code>\n"
         f"<tg-emoji emoji-id='5471971711481666499'>💳</tg-emoji> <b>Hamyon balansi:</b> {user.balance} so'm\n"
         f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"
@@ -156,9 +157,9 @@ async def process_withdraw_request(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         f"💳 Pul yechib olish so'rovini yuborish uchun plastik karta raqamingizni kiriting:\n"
         f"(Misol: 8600 1234 5678 9012)\n\n"
-        f"Yechib olinadigan summa: **{user.balance} so'm**",
+        f"Yechib olinadigan summa: <b>{user.balance} so'm</b>",
         reply_markup=reply.get_cancel_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @router.message(WithdrawStates.WAITING_FOR_CARD)
@@ -212,22 +213,23 @@ async def process_card_input(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         f"✅ Pul yechish so'rovingiz qabul qilindi!\n\n"
-        f"💰 Summa: **{amount_to_withdraw} so'm**\n"
-        f"⏳ Mablag' **24 soat** ichida kartangizga o'tkazib beriladi.",
+        f"💰 Summa: <b>{amount_to_withdraw} so'm</b>\n"
+        f"⏳ Mablag' <b>24 soat</b> ichida kartangizga o'tkazib beriladi.",
         reply_markup=reply.get_user_menu(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
     # Karta raqamini maskalaymiz: faqat oxirgi 4 raqam ko'rinadi
     masked_card = f"{'*' * 4} {'*' * 4} {'*' * 4} {clean_card[-4:]}"
 
-    # Adminlarga darhol bildirishnoma yuborish (maskalangan karta bilan)
+    # Adminlarga darhol bildirishnoma yuborish (maskalangan karta va HTML escape bilan)
+    safe_username = html.escape(str(username))
     admin_message_text = (
-        f"🚨 **Yangi pul yechish so'rovi!**\n\n"
-        f"👤 **Foydalanuvchi:** {username} (ID: `{telegram_id}`)\n"
-        f"👥 **Taklif qilgan odamlari soni:** `{total_referrals}` ta\n"
-        f"💳 **Karta raqami:** `{masked_card}`\n"
-        f"💰 **Summa:** `{amount_to_withdraw}` so'm"
+        f"🚨 <b>Yangi pul yechish so'rovi!</b>\n\n"
+        f"👤 <b>Foydalanuvchi:</b> {safe_username} (ID: <code>{telegram_id}</code>)\n"
+        f"👥 <b>Taklif qilgan odamlari soni:</b> <code>{total_referrals}</code> ta\n"
+        f"💳 <b>Karta raqami:</b> <code>{masked_card}</code>\n"
+        f"💰 <b>Summa:</b> <code>{amount_to_withdraw}</code> so'm"
     )
 
     for admin_id in settings.ADMIN_IDS:
@@ -236,7 +238,7 @@ async def process_card_input(message: Message, state: FSMContext):
                 chat_id=admin_id,
                 text=admin_message_text,
                 reply_markup=inline.get_withdraw_action_keyboard(withdrawal.id),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
         except Exception as e:
             logger.error(f"Adminga (ID: {admin_id}) xabar yuborishda xatolik: {e}")
@@ -263,7 +265,7 @@ async def process_menu_balance(callback: CallbackQuery, state: FSMContext):
         min_withdrawal = project_settings.min_withdrawal
 
     text = (
-        f"👤 <b>Ism:</b> {callback.from_user.full_name}\n"
+        f"👤 <b>Ism:</b> {html.escape(str(callback.from_user.full_name))}\n"
         f"<tg-emoji emoji-id='5471983050186938952'>🆔</tg-emoji> <b>ID:</b> <code>{telegram_id}</code>\n"
         f"<tg-emoji emoji-id='5471971711481666499'>💳</tg-emoji> <b>Hamyon balansi:</b> {user.balance} so'm\n"
         f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"

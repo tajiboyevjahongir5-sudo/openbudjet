@@ -1,6 +1,8 @@
 import io
 import csv
 import logging
+import html
+from urllib.parse import urlparse
 from aiogram import Router, F
 from aiogram.filters import Command, BaseFilter
 from aiogram.fsm.context import FSMContext
@@ -28,6 +30,7 @@ class IsAdmin(BaseFilter):
 router.message.filter(IsAdmin())
 router.callback_query.filter(IsAdmin())
 
+
 @router.message(Command("admin"))
 @router.message(F.text == "🔙 Asosiy menyu")
 async def cmd_admin(message: Message, state: FSMContext):
@@ -39,10 +42,10 @@ async def cmd_admin(message: Message, state: FSMContext):
         return
 
     await message.answer(
-        "🛠️ **Admin boshqaruv paneliga xush kelibsiz!**\n\n"
+        "🛠️ <b>Admin boshqaruv paneliga xush kelibsiz!</b>\n\n"
         "Quyidagi tugmalar orqali bot sozlamalarini boshqarishingiz mumkin:",
         reply_markup=reply.get_admin_menu(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 # --- Helper to show projects list ---
@@ -53,15 +56,15 @@ async def show_projects_list(message_or_callback, state: FSMContext):
         projects = await crud.get_all_projects(db)
     
     text = (
-        "📂 **Open Budget loyihalari ro'yxati**\n\n"
+        "📂 <b>Open Budget loyihalari ro'yxati</b>\n\n"
         "Quyidagi loyihalardan birini tanlab faollashtirishingiz, faolsizlantirishingiz yoki o'chirishingiz mumkin. "
         "Yoki yangi loyiha qo'shishingiz mumkin:\n\n"
-        "*(Eslatma: Bir vaqtda faqat 1 ta loyiha faol bo'la oladi)*"
+        "<i>(Eslatma: Bir vaqtda faqat 1 ta loyiha faol bo'la oladi)</i>"
     )
     if isinstance(message_or_callback, Message):
-        await message_or_callback.answer(text, reply_markup=inline.get_admin_projects_list_keyboard(projects), parse_mode="Markdown")
+        await message_or_callback.answer(text, reply_markup=inline.get_admin_projects_list_keyboard(projects), parse_mode="HTML")
     else:
-        await message_or_callback.message.edit_text(text, reply_markup=inline.get_admin_projects_list_keyboard(projects), parse_mode="Markdown")
+        await message_or_callback.message.edit_text(text, reply_markup=inline.get_admin_projects_list_keyboard(projects), parse_mode="HTML")
 
 # --- 1. Loyihalar boshqaruvi handlers ---
 
@@ -81,10 +84,10 @@ async def process_admin_project_id(message: Message, state: FSMContext):
     await state.update_data(project_id=project_id)
     await state.set_state(AdminStates.WAITING_FOR_PROJECT_URL)
     await message.answer(
-        "🔗 Endi loyihaning to'liq **havolasini (URL)** kiriting:\n"
+        "🔗 Endi loyihaning to'liq <b>havolasini (URL)</b> kiriting:\n"
         "(Masalan: https://openbudget.uz/boards/initiatives/31/details?initiativeId=32541)",
         reply_markup=reply.get_cancel_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @router.message(AdminStates.WAITING_FOR_PROJECT_URL, F.text)
@@ -95,8 +98,21 @@ async def process_admin_project_url(message: Message, state: FSMContext):
         await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
         return
 
-    if not project_url.startswith("http"):
-        await message.answer("❌ Havola noto'g'ri. Havola 'http' yoki 'https' bilan boshlanishi kerak. Qayta kiriting:")
+    # Qat'iy URL tekshiruvi (urllib.parse)
+    try:
+        parsed = urlparse(project_url)
+        if parsed.scheme != "https":
+            await message.answer("❌ Noto'g'ri havola. Havola faqat secure HTTPS sxemasi bilan boshlanishi kerak (https://...). Qayta kiriting:")
+            return
+        netloc = parsed.netloc.lower()
+        if netloc != "openbudget.uz" and not netloc.endswith(".openbudget.uz"):
+            await message.answer("❌ Noto'g'ri havola. Faqat rasmiy 'openbudget.uz' havolalariga ruxsat etiladi. Qayta kiriting:")
+            return
+        if parsed.username or parsed.password:
+            await message.answer("❌ Noto'g'ri havola. Havolada foydalanuvchi ma'lumotlari (credentials) bo'lmasligi kerak. Qayta kiriting:")
+            return
+    except Exception:
+        await message.answer("❌ Havola formati noto'g'ri. Iltimos to'g'ri havolani kiriting:")
         return
 
     data = await state.get_data()
@@ -112,12 +128,11 @@ async def process_admin_project_url(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         f"✅ Yangi loyiha muvaffaqiyatli qo'shildi!\n\n"
-        f"📌 Loyiha ID: `{project_id}`\n"
-        f"🔗 Havola: {project_url}",
+        f"📌 Loyiha ID: <code>{html.escape(str(project_id))}</code>\n"
+        f"🔗 Havola: {html.escape(str(project_url))}",
         reply_markup=reply.get_admin_menu(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
-
 @router.callback_query(F.data.startswith("admin_proj_view_"))
 async def process_admin_project_view(callback: CallbackQuery):
     """Loyiha tafsilotlarini ko'rish va boshqarish"""
@@ -132,13 +147,13 @@ async def process_admin_project_view(callback: CallbackQuery):
 
     status_text = "🟢 Faol (Ishga tushirilgan)" if project.is_active else "🔴 Faolsiz (O'chirilgan)"
     text = (
-        f"📂 **Loyiha tafsilotlari**\n\n"
-        f"📌 **Loyiha ID:** `{project.project_id}`\n"
-        f"🔗 **Havola:** {project.project_url}\n"
-        f"⚡ **Holati:** {status_text}\n\n"
+        f"📂 <b>Loyiha tafsilotlari</b>\n\n"
+        f"📌 <b>Loyiha ID:</b> <code>{html.escape(str(project.project_id))}</code>\n"
+        f"🔗 <b>Havola:</b> {html.escape(str(project.project_url))}\n"
+        f"⚡ <b>Holati:</b> {status_text}\n\n"
         f"Quyidagi amallardan birini tanlang:"
     )
-    await callback.message.edit_text(text, reply_markup=inline.get_project_manage_keyboard(project), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=inline.get_project_manage_keyboard(project), parse_mode="HTML")
     await callback.answer()
 
 @router.callback_query(F.data.startswith("admin_proj_activate_"))
@@ -189,7 +204,7 @@ async def admin_change_voter_reward(message: Message, state: FSMContext):
         "💵 Ovoz bergan foydalanuvchining o'ziga beriladigan yangi mukofot summasini kiriting (so'mda):\n"
         "(Faqat raqam kiriting, masalan: 1000)",
         reply_markup=reply.get_cancel_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @router.message(AdminStates.WAITING_FOR_VOTER_REWARD, F.text)
@@ -214,9 +229,9 @@ async def process_admin_voter_reward(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         f"✅ Ovoz mukofoti narxi muvaffaqiyatli o'zgartirildi!\n"
-        f"💵 Yangi narx: **{price} so'm**",
+        f"💵 Yangi narx: <b>{price} so'm</b>",
         reply_markup=reply.get_admin_menu(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @router.message(F.text == "👥 Referal mukofoti")
@@ -227,7 +242,7 @@ async def admin_change_price(message: Message, state: FSMContext):
         "💵 Taklif qiluvchiga (referal) beriladigan yangi mukofot summasini kiriting (so'mda):\n"
         "(Faqat raqam kiriting, masalan: 1500)",
         reply_markup=reply.get_cancel_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @router.message(AdminStates.WAITING_FOR_REFERRAL_PRICE, F.text)
@@ -252,9 +267,9 @@ async def process_admin_price(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         f"✅ Referal mukofoti narxi muvaffaqiyatli o'zgartirildi!\n"
-        f"💵 Yangi narx: **{price} so'm**",
+        f"💵 Yangi narx: <b>{price} so'm</b>",
         reply_markup=reply.get_admin_menu(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 # --- 3. Minimal pul yechish chegarasini o'zgartirish ---
@@ -266,7 +281,7 @@ async def admin_change_min_withdraw(message: Message, state: FSMContext):
         "💳 Minimal pul yechib olish chegarasini kiriting (so'mda):\n"
         "(Faqat raqam kiriting, masalan: 10000)",
         reply_markup=reply.get_cancel_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @router.message(AdminStates.WAITING_FOR_MIN_WITHDRAWAL, F.text)
@@ -291,9 +306,9 @@ async def process_admin_min_withdraw(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         f"✅ Minimal pul yechib olish chegarasi muvaffaqiyatli o'zgartirildi!\n"
-        f"💳 Yangi chegara: **{min_withdrawal} so'm**",
+        f"💳 Yangi chegara: <b>{min_withdrawal} so'm</b>",
         reply_markup=reply.get_admin_menu(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 # --- 4. Statistikalarni ko'rish ---
@@ -310,18 +325,18 @@ async def admin_statistics(message: Message):
     history_lines = []
     for h in stats["history_stats"]:
         status_star = "⭐️" if h["project_id"] == active_project_id else "•"
-        history_lines.append(f"{status_star} Loyiha `{h['project_id']}`: {h['votes_count']} ta ovoz")
+        history_lines.append(f"{status_star} Loyiha <code>{html.escape(str(h['project_id']))}</code>: {h['votes_count']} ta ovoz")
     
     history_text = "\n".join(history_lines) if history_lines else "Tarixiy ovozlar mavjud emas."
 
     stats_text = (
-        f"📊 **Bot Statistikasi:**\n\n"
-        f"👥 Botdagi jami a'zolar: **{stats['total_users']} ta**\n"
-        f"🗳️ Joriy loyihadagi ovozlar (`{active_project_id}`): **{stats['current_votes']} ta**\n\n"
-        f"📈 **Tarixiy ovozlar ro'yxati (Loyihalar bo'yicha):**\n"
+        f"📊 <b>Bot Statistikasi:</b>\n\n"
+        f"👥 Botdagi jami a'zolar: <b>{stats['total_users']} ta</b>\n"
+        f"🗳️ Joriy loyihadagi ovozlar (<code>{html.escape(str(active_project_id))}</code>): <b>{stats['current_votes']} ta</b>\n\n"
+        f"📈 <b>Tarixiy ovozlar ro'yxati (Loyihalar bo'yicha):</b>\n"
         f"{history_text}"
     )
-    await message.answer(stats_text, reply_markup=reply.get_admin_menu(), parse_mode="Markdown")
+    await message.answer(stats_text, reply_markup=reply.get_admin_menu(), parse_mode="HTML")
 
 # --- 5. Pul Yechishni Tasdiqlash / Rad etish Callback Handler ---
 
@@ -336,23 +351,23 @@ async def process_approve_withdraw(callback: CallbackQuery):
             await callback.answer("❌ Bu so'rov allaqachon tasdiqlangan, rad etilgan yoki topilmadi.", show_alert=True)
             return
 
-    # Admin xabarini yangilash
-    original_text = callback.message.text
+    # Admin xabarini yangilash (HTML formatida)
+    original_html = callback.message.html_text
     updated_text = (
-        f"{original_text}\n\n"
-        f"✅ **Tasdiqlandi!** (Admin: @{callback.from_user.username or callback.from_user.id})"
+        f"{original_html}\n\n"
+        f"✅ <b>Tasdiqlandi!</b> (Admin: @{html.escape(str(callback.from_user.username or callback.from_user.id))})"
     )
-    await callback.message.edit_text(text=updated_text, reply_markup=None)
+    await callback.message.edit_text(text=updated_text, reply_markup=None, parse_mode="HTML")
     await callback.answer("Pul yechish tasdiqlandi.", show_alert=True)
 
     # Foydalanuvchiga xabar yuborish
     user_message = (
-        f"✅ **Sizning pul yechish so'rovingiz tasdiqlandi!**\n\n"
-        f"💰 Summa: {withdrawal.amount} so'm\n"
+        f"✅ <b>Sizning pul yechish so'rovingiz tasdiqlandi!</b>\n\n"
+        f"💰 Summa: <code>{withdrawal.amount}</code> so'm\n"
         f"💳 Karta raqamiga yuborildi. Hisobingizni tekshirishingiz mumkin."
     )
     try:
-        await callback.bot.send_message(chat_id=withdrawal.telegram_id, text=user_message, parse_mode="Markdown")
+        await callback.bot.send_message(chat_id=withdrawal.telegram_id, text=user_message, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Tasdiqlanganlik haqida foydalanuvchiga (ID: {withdrawal.telegram_id}) xabar yuborishda xatolik: {e}")
 
@@ -434,24 +449,24 @@ async def send_project_report(message_or_callback, project_id: str, is_delete: b
 
     if is_delete:
         caption_text = (
-            f"🗑️ **Loyiha o'chirilishi munosabati bilan hisobot!**\n\n"
-            f"📌 O'chirilgan Loyiha ID: `{project_id}`\n"
-            f"👥 Jami to'plangan ovozlar soni: **{len(report_data)} ta**\n"
+            f"🗑️ <b>Loyiha o'chirilishi munosabati bilan hisobot!</b>\n\n"
+            f"📌 O'chirilgan Loyiha ID: <code>{html.escape(str(project_id))}</code>\n"
+            f"👥 Jami to'plangan ovozlar soni: <b>{len(report_data)} ta</b>\n"
             f"⚠️ Ma'lumotlaringiz yo'qolmasligi uchun ushbu faylni saqlab qo'ying."
         )
     else:
         caption_text = (
-            f"📋 **Loyiha bo'yicha hisobot tayyor!**\n\n"
-            f"📌 Loyiha ID: `{project_id}`\n"
-            f"👥 Muvaffaqiyatli ovozlar soni: **{len(report_data)} ta**\n"
+            f"📋 <b>Loyiha bo'yicha hisobot tayyor!</b>\n\n"
+            f"📌 Loyiha ID: <code>{html.escape(str(project_id))}</code>\n"
+            f"👥 Muvaffaqiyatli ovozlar soni: <b>{len(report_data)} ta</b>\n"
             f"📂 Hujjat formati: Excel/CSV"
         )
 
     try:
         if isinstance(message_or_callback, Message):
-            await message_or_callback.answer_document(document=file_input, caption=caption_text, parse_mode="Markdown")
+            await message_or_callback.answer_document(document=file_input, caption=caption_text, parse_mode="HTML")
         else:
-            await message_or_callback.message.answer_document(document=file_input, caption=caption_text, parse_mode="Markdown")
+            await message_or_callback.message.answer_document(document=file_input, caption=caption_text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Hisobot yuborishda xato: {e}")
         
@@ -478,22 +493,22 @@ async def process_reject_withdraw(callback: CallbackQuery):
             await callback.answer("❌ Bu so'rov allaqachon tasdiqlangan, rad etilgan yoki topilmadi.", show_alert=True)
             return
 
-    # Admin xabarini yangilash
-    original_text = callback.message.text
+    # Admin xabarini yangilash (HTML formatida)
+    original_html = callback.message.html_text
     updated_text = (
-        f"{original_text}\n\n"
-        f"❌ **Rad etildi!** (Admin: @{callback.from_user.username or callback.from_user.id})"
+        f"{original_html}\n\n"
+        f"❌ <b>Rad etildi!</b> (Admin: @{html.escape(str(callback.from_user.username or callback.from_user.id))})"
     )
-    await callback.message.edit_text(text=updated_text, reply_markup=None)
+    await callback.message.edit_text(text=updated_text, reply_markup=None, parse_mode="HTML")
     await callback.answer("Pul yechish rad etildi. Mablag' balansga qaytarildi.", show_alert=True)
 
     # Foydalanuvchiga xabar yuborish
     user_message = (
-        f"❌ **Sizning pul yechish so'rovingiz rad etildi.**\n\n"
-        f"💰 Summa: {withdrawal.amount} so'm qaytadan balansingizga qo'shildi."
+        f"❌ <b>Sizning pul yechish so'rovingiz rad etildi.</b>\n\n"
+        f"💰 Summa: <code>{withdrawal.amount}</code> so'm qaytadan balansingizga qo'shildi."
     )
     try:
-        await callback.bot.send_message(chat_id=withdrawal.telegram_id, text=user_message, parse_mode="Markdown")
+        await callback.bot.send_message(chat_id=withdrawal.telegram_id, text=user_message, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Rad etilganlik haqida foydalanuvchiga (ID: {withdrawal.telegram_id}) xabar yuborishda xatolik: {e}")
 
@@ -514,8 +529,8 @@ async def process_reveal_card(callback: CallbackQuery):
     try:
         await callback.bot.send_message(
             chat_id=callback.from_user.id,
-            text=f"💳 **To'liq karta raqami (So'rov #{withdraw_id}):**\n`{formatted}`",
-            parse_mode="Markdown"
+            text=f"💳 <b>To'liq karta raqami (So'rov #{withdraw_id}):</b>\n<code>{formatted}</code>",
+            parse_mode="HTML"
         )
         await callback.answer("💳 Karta raqami shaxsiy xabar sifatida yuborildi.", show_alert=True)
     except Exception as e:

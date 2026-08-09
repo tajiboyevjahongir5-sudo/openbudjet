@@ -84,7 +84,11 @@ async def lifespan(app: FastAPI):
         # Webhook rejimi
         webhook_url = f"{settings.WEBHOOK_URL}/webhook"
         logger.info(f"Webhook o'rnatilmoqda: {webhook_url}")
-        await bot.set_webhook(url=webhook_url, drop_pending_updates=True)
+        await bot.set_webhook(
+            url=webhook_url,
+            drop_pending_updates=True,
+            secret_token=settings.WEBHOOK_SECRET_TOKEN
+        )
     else:
         # Polling rejimi (FastAPI ichida background task sifatida)
         logger.info("WEBHOOK_URL topilmadi. Bot polling rejimida ishga tushmoqda...")
@@ -121,10 +125,27 @@ async def health_check():
 
 @app.get("/captcha", response_class=HTMLResponse)
 async def get_captcha_page(request: Request, session_id: str = "default"):
-    """Foydalanuvchilar puzlli captchani yechishi uchun chiroyli HTML sahifasi"""
+    """Foydalanuvchilar captchani yechishi uchun chiroyli HTML sahifasi"""
+    captcha_image = None
+    captcha_key = None
+    try:
+        user_id = int(session_id)
+        from aiogram.fsm.storage.base import StorageKey
+        key = StorageKey(bot_id=bot.id, chat_id=user_id, user_id=user_id)
+        state_data = await dp.storage.get_data(key)
+        captcha_image = state_data.get("captcha_image")
+        captcha_key = state_data.get("captcha_key")
+    except Exception as e:
+        logger.warning(f"FSM dan captcha olishda xatolik: {e}")
+
     return templates.TemplateResponse(
         "captcha.html", 
-        {"request": request, "session_id": session_id}
+        {
+            "request": request, 
+            "session_id": session_id,
+            "captcha_image": captcha_image,
+            "captcha_key": captcha_key
+        }
     )
 
 @app.post("/webhook")
@@ -136,6 +157,22 @@ async def telegram_webhook(request: Request):
             content={"message": "Webhook rejimi faol emas."}
         )
     
+    # 1. Secret token autentifikatsiyasi
+    received_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    if received_token != settings.WEBHOOK_SECRET_TOKEN:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"message": "Ruxsatsiz so'rov."}
+        )
+
+    # 2. JSON yuklama hajmini tekshirish (10MB limit)
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > 10 * 1024 * 1024:
+        return JSONResponse(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            content={"message": "Payload juda katta."}
+        )
+
     try:
         update_data = await request.json()
         update = Update.model_validate(update_data)

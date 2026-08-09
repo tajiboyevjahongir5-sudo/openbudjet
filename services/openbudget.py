@@ -6,6 +6,24 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+def mask_sensitive_data(data: dict) -> dict:
+    """Loglarga chiqib ketadigan maxfiy ma'lumotlarni maskalaydi"""
+    if not isinstance(data, dict):
+        return data
+    masked = data.copy()
+    for key in ['access_token', 'refreshToken', 'refresh_token', 'token', 'otpKey', 'otp_key']:
+        if key in masked:
+            val = str(masked[key])
+            masked[key] = f"{val[:10]}...[MASKED]" if len(val) > 15 else "[MASKED]"
+    for key in ['phone_number', 'phone']:
+        if key in masked:
+            val = str(masked[key])
+            masked[key] = f"{val[:5]}***{val[-4:]}" if len(val) >= 9 else "[MASKED]"
+    for key in ['otp_code', 'code']:
+        if key in masked:
+            masked[key] = "[MASKED]"
+    return masked
+
 class OpenBudgetService:
     """
     openbudget.uz saytining rasmiy JS kodlaridan aniqlangan real ovoz berish API xizmati.
@@ -130,6 +148,8 @@ class OpenBudgetService:
                     except Exception:
                         data = {}
                     
+                    logger.info(f"send-otp javob: {status} — {mask_sensitive_data(data)}")
+                    
                     if status == 200:
                         return True, "SMS tasdiqlash kodi yuborildi.", {
                             "phone": "998" + clean_phone,
@@ -197,6 +217,7 @@ class OpenBudgetService:
                         return False, f"SMS tasdiqlashda xatolik: {msg}"
                     
                     login_data = await resp.json()
+                    logger.info(f"verify-otp javob: {resp.status} — {mask_sensitive_data(login_data)}")
                     access_token = login_data.get("access_token")
                     if not access_token:
                         return False, "Tizimdan ruxsat tokenini olib bo'lmadi."
@@ -227,7 +248,7 @@ class OpenBudgetService:
                         except Exception:
                             v_data = {}
 
-                        logger.info(f"Ovoz berish yakuniy javobi: {v_status} - {v_data}")
+                        logger.info(f"Ovoz berish yakuniy javobi: {v_status} - {mask_sensitive_data(v_data)}")
                         if v_status == 200:
                             return True, "Sizning ovozingiz muvaffaqiyatli qabul qilindi!"
                         else:

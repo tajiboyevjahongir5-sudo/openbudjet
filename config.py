@@ -1,11 +1,15 @@
 import os
 from typing import List
+from urllib.parse import urlparse
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # Telegram Bot Token
     BOT_TOKEN: str
+
+    # Webhook autentifikatsiyasi uchun maxfiy kalit
+    WEBHOOK_SECRET_TOKEN: str = "default_secret_token_ob_bot_998"
 
     # Database URL: default sifatida SQLite ga ulanadi, PostgreSQL ga oson almashtirish mumkin
     DATABASE_URL: str = "sqlite+aiosqlite:///database.db"
@@ -28,6 +32,28 @@ class Settings(BaseSettings):
     # FastAPI Server parametrlari
     HOST: str = "0.0.0.0"
     PORT: int = 8000
+
+    @field_validator("CLOUDFLARE_PROXY_URL")
+    @classmethod
+    def validate_proxy_url(cls, v: str) -> str:
+        if not v:
+            return v
+        parsed = urlparse(v)
+        if parsed.scheme != "https":
+            raise ValueError("Proxy URL must use HTTPS scheme")
+        host = parsed.netloc.lower()
+        is_trusted = (
+            host == "openbudget.uz" or 
+            host.endswith(".workers.dev") or 
+            host.endswith(".pages.dev") or 
+            host.startswith("localhost") or 
+            host.startswith("127.0.0.1")
+        )
+        if not is_trusted:
+            raise ValueError("Proxy URL host is not in the trusted allowlist (openbudget.uz, workers.dev, pages.dev)")
+        if parsed.username or parsed.password:
+            raise ValueError("Proxy URL cannot contain credentials")
+        return v
 
     model_config = SettingsConfigDict(
         env_file=".env",

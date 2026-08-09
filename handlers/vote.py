@@ -1,4 +1,5 @@
 import re
+import html
 import json
 import logging
 from aiogram import Router, F
@@ -42,11 +43,11 @@ async def start_voting(message: Message, state: FSMContext):
 
     await state.set_state(VoteStates.WAITING_FOR_PHONE)
     await message.answer(
-        "🗳️ **Ovoz berish bo'limi**\n\n"
+        "🗳️ <b>Ovoz berish bo'limi</b>\n\n"
         "Iltimos, pastdagi tugma orqali kontaktingizni yuboring yoki telefon raqamingizni kiriting:\n"
         "(Masalan: +998901234567)",
         reply_markup=reply.get_phone_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @router.callback_query(F.data == "menu_vote")
@@ -63,11 +64,11 @@ async def process_menu_vote(callback: CallbackQuery, state: FSMContext):
 
     await state.set_state(VoteStates.WAITING_FOR_PHONE)
     await callback.message.answer(
-        "🗳️ **Ovoz berish bo'limi**\n\n"
+        "🗳️ <b>Ovoz berish bo'limi</b>\n\n"
         "Iltimos, pastdagi tugma orqali kontaktingizni yuboring yoki telefon raqamingizni kiriting:\n"
         "(Masalan: +998901234567)",
         reply_markup=reply.get_phone_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
     await callback.answer()
 
@@ -120,7 +121,8 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
     success, error_msg, session_data = await OpenBudgetService.check_and_send_sms(
         phone_number=clean_phone,
         project_id=project_id,
-        captcha_code=None
+        captcha_key=None,
+        captcha_result=None
     )
     
     await waiting_msg.delete()
@@ -128,10 +130,22 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
     if not success:
         # A) Captcha talab etiladigan holat (Gibrid usul ishga tushadi)
         if error_msg == "captcha_required":
-            session_id = session_data.get("mock_session_id") or session_data.get("session_token") or "session"
-            
+            # Real captcha ma'lumotlarini yuklaymiz
+            success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
+            if success_cap and cap_data:
+                await state.update_data(
+                    captcha_key=cap_data.get("key"),
+                    captcha_image=cap_data.get("image_base64")
+                )
+            else:
+                await state.update_data(
+                    captcha_key="mock_captcha_key",
+                    captcha_image=None
+                )
+
             # Web App uchun manzilni aniqlash
             web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
+            session_id = str(telegram_id)
             
             await state.update_data(
                 phone_number=clean_phone,
@@ -141,10 +155,10 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             await state.set_state(VoteStates.WAITING_FOR_CAPTCHA)
             
             await message.answer(
-                "⚠️ **Xavfsizlik tekshiruvi (Captcha)!**\n\n"
-                "Ovoz berishni davom ettirish uchun pastdagi tugmani bosing va puzlni joylashtiring 👇",
+                "⚠️ <b>Xavfsizlik tekshiruvi (Captcha)!</b>\n\n"
+                "Ovoz berishni davom ettirish uchun pastdagi tugmani bosing va puzl yoki captchani yeching 👇",
                 reply_markup=inline.get_captcha_keyboard(session_id, web_url),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
             return
 
@@ -174,10 +188,10 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
                     status=VoteStatus.FAILED
                 )
             await message.answer(
-                f"❌ Xatolik yuz berdi:\n{error_msg}\n\n"
+                f"❌ Xatolik yuz berdi:\n<b>{html.escape(error_msg)}</b>\n\n"
                 f"Iltimos, qayta urunib ko'ring yoki boshqa raqam kiriting:",
                 reply_markup=reply.get_phone_keyboard(),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
         return
 
@@ -189,10 +203,10 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
     )
     await state.set_state(VoteStates.WAITING_FOR_SMS)
     await message.answer(
-        f"📩 **SMS yuborildi!**\n\n"
-        f"`{clean_phone}` raqamiga yuborilgan 6 xonali SMS kodni kiriting:",
+        f"📩 <b>SMS yuborildi!</b>\n\n"
+        f"<code>{clean_phone}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:",
         reply_markup=reply.get_cancel_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @router.message(VoteStates.WAITING_FOR_CAPTCHA, F.web_app_data)
@@ -206,7 +220,14 @@ async def process_captcha_result(message: Message, state: FSMContext):
             await message.answer("❌ Captcha tasdiqlanmadi. Iltimos tugmani bosib, qaytadan yeching.")
             return
 
-        captcha_code = data.get("captcha_code")
+        captcha_key = data.get("captcha_key") or "mock_captcha_key"
+        captcha_result_str = data.get("captcha_result")
+        
+        try:
+            captcha_result = int(captcha_result_str) if captcha_result_str is not None else 0
+        except ValueError:
+            captcha_result = 0
+
         state_data = await state.get_data()
         phone_number = state_data.get("phone_number")
         project_id = state_data.get("project_id")
@@ -218,17 +239,18 @@ async def process_captcha_result(message: Message, state: FSMContext):
         success, error_msg, session_data = await OpenBudgetService.check_and_send_sms(
             phone_number=phone_number,
             project_id=project_id,
-            captcha_code=captcha_code
+            captcha_key=captcha_key,
+            captcha_result=captcha_result
         )
         
         await waiting_msg.delete()
 
         if not success:
             await message.answer(
-                f"❌ Captcha to'g'ri, lekin SMS yuborishda xato yuz berdi:\n{error_msg}\n\n"
+                f"❌ Captcha to'g'ri, lekin SMS yuborishda xato yuz berdi:\n<b>{html.escape(error_msg)}</b>\n\n"
                 f"Qayta urinib ko'ring yoki bekor qiling.",
                 reply_markup=reply.get_cancel_keyboard(),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
             return
 
@@ -236,10 +258,10 @@ async def process_captcha_result(message: Message, state: FSMContext):
         await state.update_data(session_data=session_data)
         await state.set_state(VoteStates.WAITING_FOR_SMS)
         await message.answer(
-            f"📩 **Muvaffaqiyatli!**\n\n"
-            f"`{phone_number}` raqamiga yuborilgan SMS tasdiqlash kodini kiriting:",
+            f"📩 <b>Muvaffaqiyatli!</b>\n\n"
+            f"<code>{phone_number}</code> raqamiga yuborilgan SMS tasdiqlash kodini kiriting:",
             reply_markup=reply.get_cancel_keyboard(),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
 
     except Exception as e:
@@ -279,10 +301,10 @@ async def process_sms_code(message: Message, state: FSMContext):
 
     if not success:
         await message.answer(
-            f"❌ Kod tasdiqlanmadi!\n`{result_msg}`\n\n"
+            f"❌ Kod tasdiqlanmadi!\n<b>{html.escape(str(result_msg))}</b>\n\n"
             f"Iltimos, SMS kodni qaytadan kiriting yoki jarayonni bekor qiling:",
             reply_markup=reply.get_cancel_keyboard(),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         return
 
@@ -315,14 +337,14 @@ async def process_sms_code(message: Message, state: FSMContext):
                         
                         try:
                             referrer_message_text = (
-                                f"🎉 **Yangi referal mukofoti!**\n\n"
-                                f"Siz taklif qilgan foydalanuvchi ({user.username or telegram_id}) muvaffaqiyatli ovoz berdi.\n"
-                                f"💵 Balansingizga **{referral_price} so'm** qo'shildi!"
+                                f"🎉 <b>Yangi referal mukofoti!</b>\n\n"
+                                f"Siz taklif qilgan foydalanuvchi ({html.escape(str(user.username or telegram_id))}) muvaffaqiyatli ovoz berdi.\n"
+                                f"💵 Balansingizga <b>{referral_price} so'm</b> qo'shildi!"
                             )
                             await message.bot.send_message(
                                 chat_id=referrer.telegram_id,
                                 text=referrer_message_text,
-                                parse_mode="Markdown"
+                                parse_mode="HTML"
                             )
                         except Exception as e:
                             logger.error(f"Refererga xabar yuborishda xato (ID: {referrer.telegram_id}): {e}")
@@ -330,10 +352,10 @@ async def process_sms_code(message: Message, state: FSMContext):
             await db.commit()
             
             await message.answer(
-                f"🎉 **Tabriklaymiz!** Ovoz muvaffaqiyatli qabul qilindi.\n"
-                f"💵 Balansingizga **{voter_reward} so'm** qo'shildi!",
+                f"🎉 <b>Tabriklaymiz!</b> Ovoz muvaffaqiyatli qabul qilindi.\n"
+                f"💵 Balansingizga <b>{voter_reward} so'm</b> qo'shildi!",
                 reply_markup=reply.get_user_menu(),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
             await state.clear()
 
