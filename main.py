@@ -49,19 +49,23 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 async def init_db():
     """Ma'lumotlar bazasi jadvallarini yaratish va birlamchi sozlamalarni kiritish"""
     logger.info("Ma'lumotlar bazasi jadvallari tekshirilmoqda/yaratilmoqda...")
+    
+    # 1. Barcha jadvallarni metadata orqali yaratamiz
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        
-        # Barcha ma'lumotlar bazalari uchun avtomatik ustun qo'shish (SQLite / PostgreSQL)
-        # SQLite da 'IF NOT EXISTS' ishlamasligi mumkin, shuning uchun 'try-except' bilan bajaramiz.
+
+    # 2. Alohida tranzaksiyalarda ustunlarni ALTER qilamiz (bittasi xato qilsa ham qolganlari ishlaydi)
+    async with engine.connect() as conn:
         for sql in [
             "ALTER TABLE project_settings ADD COLUMN voter_reward FLOAT DEFAULT 0.0;",
             "ALTER TABLE project_settings ADD COLUMN channel_username VARCHAR(100);",
         ]:
             try:
                 await conn.execute(text(sql))
+                await conn.commit()
             except Exception:
-                pass  # Ustun allaqachon mavjud bo'lsa xatolik yuz beradi, uni tashlab o'tamiz
+                # Agar ustun allaqachon mavjud bo'lsa yoki boshqa xato bo'lsa, commitni bekor qilamiz va davom etamiz
+                await conn.rollback()
 
         # PostgreSQL uchun maxsus qo'shimcha FSM jadvali
         if "postgresql" in engine.url.drivername:
@@ -73,14 +77,17 @@ async def init_db():
                         data TEXT DEFAULT '{}'
                     );
                 """))
+                await conn.commit()
             except Exception as e:
+                await conn.rollback()
                 logger.warning(f"PostgreSQL FSM jadvali yaratishda xato: {e}")
-        logger.info("Avtomatik migratsiyalar bajarildi.")
-
+                
+    logger.info("Avtomatik migratsiyalar bajarildi.")
     
     async with async_session() as db:
         await crud.get_project_settings(db)
     logger.info("Ma'lumotlar bazasi tayyor!")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
