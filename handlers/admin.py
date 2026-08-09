@@ -399,9 +399,9 @@ async def admin_report_select(message: Message):
     # Loyihalar ro'yxatini inline klaviatura shaklida chiqaramiz
     from keyboards import inline
     await message.answer(
-        "📋 **Hisobot yuklab olish uchun loyihani tanlang:**",
+        "📋 <b>Hisobot yuklab olish uchun loyihani tanlang:</b>",
         reply_markup=inline.get_admin_projects_keyboard(projects),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 async def send_project_report(message_or_callback, project_id: str, is_delete: bool = False):
@@ -605,18 +605,18 @@ async def admin_statistics_callback(callback: CallbackQuery):
     history_lines = []
     for h in stats["history_stats"]:
         status_star = "⭐️" if h["project_id"] == active_project_id else "•"
-        history_lines.append(f"{status_star} Loyiha `{h['project_id']}`: {h['votes_count']} ta ovoz")
+        history_lines.append(f"{status_star} Loyiha <code>{html.escape(str(h['project_id']))}</code>: {h['votes_count']} ta ovoz")
     
     history_text = "\n".join(history_lines) if history_lines else "Tarixiy ovozlar mavjud emas."
 
     stats_text = (
-        f"📊 **Bot Statistikasi:**\n\n"
-        f"👥 Botdagi jami a'zolar: **{stats['total_users']} ta**\n"
-        f"🗳️ Joriy loyihadagi ovozlar (`{active_project_id}`): **{stats['current_votes']} ta**\n\n"
-        f"📈 **Tarixiy ovozlar ro'yxati (Loyihalar bo'yicha):**\n"
+        f"📊 <b>Bot Statistikasi:</b>\n\n"
+        f"👥 Botdagi jami a'zolar: <b>{stats['total_users']} ta</b>\n"
+        f"🗳️ Joriy loyihadagi ovozlar (<code>{html.escape(str(active_project_id))}</code>): <b>{stats['current_votes']} ta</b>\n\n"
+        f"📈 <b>Tarixiy ovozlar ro'yxati (Loyihalar bo'yicha):</b>\n"
         f"{history_text}"
     )
-    await callback.message.answer(stats_text, reply_markup=reply.get_admin_menu(), parse_mode="Markdown")
+    await callback.message.answer(stats_text, reply_markup=reply.get_admin_menu(), parse_mode="HTML")
     await callback.answer()
 
 @router.callback_query(F.data == "admin_select_report")
@@ -632,9 +632,9 @@ async def admin_report_select_callback(callback: CallbackQuery):
 
     from keyboards import inline
     await callback.message.answer(
-        "📋 **Hisobot yuklab olish uchun loyihani tanlang:**",
+        "📋 <b>Hisobot yuklab olish uchun loyihani tanlang:</b>",
         reply_markup=inline.get_admin_projects_keyboard(projects),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
     await callback.answer()
 
