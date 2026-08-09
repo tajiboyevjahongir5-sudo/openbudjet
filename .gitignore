@@ -14,3 +14,7 @@ database.db
 .venv/
 env/
 venv/
+
+captcha_*.png
+captcha_original.png
+captcha_processed.png

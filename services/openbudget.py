@@ -1,8 +1,6 @@
-import asyncio
 import logging
 import aiohttp
 import base64
-import re
 import time
 from config import settings
 
@@ -101,68 +99,6 @@ class OpenBudgetService:
         except Exception as e:
             logger.error(f"Captcha yuklashda xatolik: {e}")
             return False, "Captcha yuklashda tarmoq xatoligi yuz berdi.", None
-
-    @classmethod
-    async def solve_captcha_auto(
-        cls,
-        image_base64: str,
-    ) -> tuple[bool, str, int | None]:
-        """
-        2captcha.com orqali captcha rasmini avtomatik hal qiladi.
-        TWOCAPTCHA_API_KEY sozlamasi bo'sh bo'lsa ishlamaydi.
-        Returns: (success, error_msg, solved_int_answer)
-        """
-        api_key = settings.TWOCAPTCHA_API_KEY
-        if not api_key:
-            return False, "2captcha API kaliti sozlanmagan.", None
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                # 1. Captcha rasmini 2captcha ga yuborish
-                submit_payload = {
-                    "key": api_key,
-                    "method": "base64",
-                    "body": image_base64,
-                    "json": "1",
-                    "numeric": "0",
-                    "math": "1",
-                }
-                async with session.post(
-                    "https://2captcha.com/in.php",
-                    data=submit_payload,
-                    timeout=20
-                ) as resp:
-                    result = await resp.json(content_type=None)
-                    if result.get("status") != 1:
-                        return False, f"2captcha topshiriq xatoligi: {result.get('request')}", None
-                    task_id = result["request"]
-                    logger.info(f"2captcha task yuborildi: {task_id}")
-
-                # 2. Natijani kutish (har 5 soniyada, max 12 urinish = 60 soniya)
-                for attempt in range(12):
-                    await asyncio.sleep(5)
-                    async with session.get(
-                        "https://2captcha.com/res.php",
-                        params={"key": api_key, "action": "get", "id": task_id, "json": "1"},
-                        timeout=10
-                    ) as res:
-                        data = await res.json(content_type=None)
-                        if data.get("status") == 1:
-                            raw_answer = str(data.get("request", "")).strip()
-                            logger.info(f"2captcha javobi: '{raw_answer}'")
-                            # Matematik ifodani hisoblash
-                            expr = re.sub(r"[^\d\+\-\*\/\(\)]", "", raw_answer)
-                            try:
-                                return True, "ok", int(eval(expr)) if expr else int(raw_answer)
-                            except Exception:
-                                return False, f"2captcha javobini tahlil qilishda xatolik: '{raw_answer}'", None
-                        elif data.get("request") != "CAPCHA_NOT_READY":
-                            return False, f"2captcha xatoligi: {data.get('request')}", None
-
-                return False, "2captcha vaqt tugadi (60 soniya)", None
-        except Exception as e:
-            logger.error(f"2captcha ulanishda xatolik: {e}")
-            return False, f"2captcha bilan ulanib bo'lmadi.", None
 
     @classmethod
     async def check_and_send_sms(
