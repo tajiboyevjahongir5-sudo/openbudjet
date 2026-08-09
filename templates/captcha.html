@@ -382,14 +382,37 @@
 
     submitBtn.addEventListener("click", () => {
         const val = captchaInput.value.trim();
+
+        // 1. Bo'sh kiritish tekshiruvi
         if (!val) {
             statusMessage.className = "status error";
-            statusMessage.innerText = "❌ Iltimos, javobni kiriting!";
+            statusMessage.innerText = "❌ Javob kiritilmagan. Rasmga qarang!";
+            captchaInput.focus();
             return;
         }
 
+        // 2. Faqat raqam (musbat yoki manfiy butun son) tekshiruvi
+        if (!/^-?\d+$/.test(val)) {
+            statusMessage.className = "status error";
+            statusMessage.innerText = "❌ Faqat butun son kiriting! (Masalan: 10, -5, 0)";
+            captchaInput.select();
+            return;
+        }
+
+        // 3. Mantiqiy chegaralar (-9999 dan 9999 gacha)
+        const num = parseInt(val, 10);
+        if (num < -9999 || num > 9999) {
+            statusMessage.className = "status error";
+            statusMessage.innerText = "❌ Javob juda katta yoki kichik. Qayta tekshiring!";
+            captchaInput.select();
+            return;
+        }
+
+        // Hammasi to'g'ri — yuboramiz
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Yuborilmoqda...";
         statusMessage.className = "status success";
-        statusMessage.innerText = "✓ Muvaffaqiyatli tasdiqlandi!";
+        statusMessage.innerText = "✓ Javob qabul qilindi, yuborilmoqda...";
 
         const result = {
             status: "success",
@@ -403,6 +426,14 @@
     captchaInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
             submitBtn.click();
+        }
+    });
+
+    // Foydalanuvchi yozib boshlaganda xato xabarni tozalash
+    captchaInput.addEventListener("input", () => {
+        if (statusMessage.classList.contains("error")) {
+            statusMessage.className = "status";
+            statusMessage.innerText = "";
         }
     });
     {% else %}
