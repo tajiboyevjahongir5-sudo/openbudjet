@@ -75,6 +75,14 @@ async def process_menu_vote(callback: CallbackQuery, state: FSMContext):
 @router.message(VoteStates.WAITING_FOR_PHONE, F.contact)
 async def process_phone_contact(message: Message, state: FSMContext):
     phone = message.contact.phone_number
+    # Kontakt raqamini ham tekshiramiz
+    cleaned = "".join(filter(str.isdigit, phone))
+    if not (cleaned.startswith("998") and len(cleaned) == 12) and len(cleaned) != 9:
+        await message.answer(
+            "❌ Kontaktdagi raqam O'zbek telefon raqami emas.\n"
+            "Iltimos o'z raqamingizni kiriting: +998XXXXXXXXX"
+        )
+        return
     await handle_phone_submission(message, state, phone)
 
 @router.message(VoteStates.WAITING_FOR_PHONE, F.text)
@@ -154,7 +162,17 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             )
             return
 
-        # B) Allaqachon ovoz berilgan bo'lsa
+        # C) Server xatoligi
+        elif error_msg == "server_error":
+            await message.answer(
+                "⚠️ <b>Portal vaqtincha ishlamayapti.</b>\n\n"
+                "openbudget.uz serveri xatolik qaytardi. "
+                "Bir necha soniyadan so'ng qayta urinib ko'ring 🔁",
+                reply_markup=reply.get_cancel_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+
         elif "allaqachon ovoz berilgan" in error_msg.lower():
             async with async_session() as db:
                 await crud.add_vote_history(
@@ -238,12 +256,21 @@ async def process_captcha_result(message: Message, state: FSMContext):
         await waiting_msg.delete()
 
         if not success:
-            await message.answer(
-                f"❌ SMS yuborishda xato yuz berdi:\n<b>{html.escape(error_msg)}</b>\n\n"
-                f"Qayta urinib ko'ring yoki bekor qiling.",
-                reply_markup=reply.get_cancel_keyboard(),
-                parse_mode="HTML"
-            )
+            if error_msg == "server_error":
+                await message.answer(
+                    "⚠️ <b>Portal vaqtincha ishlamayapti.</b>\n\n"
+                    "openbudget.uz serveri xatolik qaytardi. "
+                    "Bir necha soniyadan so'ng qayta urinib ko'ring 🔁",
+                    reply_markup=reply.get_cancel_keyboard(),
+                    parse_mode="HTML"
+                )
+            else:
+                await message.answer(
+                    f"❌ SMS yuborishda xato yuz berdi:\n<b>{html.escape(error_msg)}</b>\n\n"
+                    f"Qayta urinib ko'ring yoki bekor qiling.",
+                    reply_markup=reply.get_cancel_keyboard(),
+                    parse_mode="HTML"
+                )
             return
 
         # SMS kod muvaffaqiyatli ketdi

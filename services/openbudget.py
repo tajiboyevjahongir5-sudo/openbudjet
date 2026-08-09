@@ -164,6 +164,8 @@ class OpenBudgetService:
                     elif status == 429:
                         retry = data.get("retryAfter", 60)
                         return False, f"Juda ko'p urinish. {retry} soniyadan keyin qayta urinib ko'ring.", None
+                    elif status in (500, 502, 503, 504):
+                        return False, "server_error", None
                     else:
                         msg = data.get("message") or data.get("detail") or f"Status: {status}"
                         return False, f"Xatolik: {msg}", None
