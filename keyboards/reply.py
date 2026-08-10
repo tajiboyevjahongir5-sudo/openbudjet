@@ -1,12 +1,12 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 
 def get_user_menu() -> ReplyKeyboardMarkup:
-    """Foydalanuvchilar uchun zamonaviy asosiy menyu (Reply Keyboard)"""
+    """Foydalanuvchilar uchun zamonaviy va rangli asosiy menyu (Reply Keyboard)"""
     keyboard = [
-        [KeyboardButton(text="⚡ Ovoz berish")],
+        [KeyboardButton(text="⚡ Ovoz berish", style="success")],
         [
-            KeyboardButton(text="💎 Mening hisobim"), 
-            KeyboardButton(text="📣 Do'stlarni taklif qilish")
+            KeyboardButton(text="💎 Mening hisobim", style="primary"), 
+            KeyboardButton(text="📣 Do'stlarni taklif qilish", style="primary")
         ]
     ]
     return ReplyKeyboardMarkup(
@@ -16,10 +16,10 @@ def get_user_menu() -> ReplyKeyboardMarkup:
     )
 
 def get_phone_keyboard() -> ReplyKeyboardMarkup:
-    """Ovoz berishda telefon raqamini olish uchun tugmalar"""
+    """Ovoz berishda telefon raqamini olish uchun rangli tugma"""
     keyboard = [
-        [KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True)],
-        [KeyboardButton(text="❌ Jarayonni bekor qilish")]
+        [KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True, style="success")],
+        [KeyboardButton(text="❌ Jarayonni bekor qilish", style="danger")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
@@ -30,23 +30,23 @@ def get_admin_menu() -> ReplyKeyboardMarkup:
     """Adminlar uchun boshqaruv paneli menyusi (Reply Keyboard)"""
     keyboard = [
         [
-            KeyboardButton(text="📂 Loyihalar"), 
-            KeyboardButton(text="💰 Ovoz mukofoti")
+            KeyboardButton(text="📂 Loyihalar", style="primary"), 
+            KeyboardButton(text="💰 Ovoz mukofoti", style="primary")
         ],
         [
-            KeyboardButton(text="👥 Referal mukofoti"), 
-            KeyboardButton(text="💸 Min. Pul yechish")
+            KeyboardButton(text="👥 Referal mukofoti", style="primary"), 
+            KeyboardButton(text="💸 Min. Pul yechish", style="primary")
         ],
         [
-            KeyboardButton(text="📈 Statistika"),
-            KeyboardButton(text="🔒 Maxfiy kanal")
+            KeyboardButton(text="📈 Statistika", style="primary"),
+            KeyboardButton(text="🔒 Maxfiy kanal", style="primary")
         ],
         [
-            KeyboardButton(text="📊 Batafsil Hisobot"),
-            KeyboardButton(text="📣 Reklama yuborish")
+            KeyboardButton(text="📊 Batafsil Hisobot", style="success"),
+            KeyboardButton(text="📣 Reklama yuborish", style="success")
         ],
         [
-            KeyboardButton(text="🔙 Asosiy menyu")
+            KeyboardButton(text="🔙 Asosiy menyu", style="primary")
         ]
     ]
     return ReplyKeyboardMarkup(
@@ -57,7 +57,7 @@ def get_admin_menu() -> ReplyKeyboardMarkup:
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     """Bekor qilish tugmasi"""
     keyboard = [
-        [KeyboardButton(text="❌ Jarayonni bekor qilish")]
+        [KeyboardButton(text="❌ Jarayonni bekor qilish", style="danger")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
