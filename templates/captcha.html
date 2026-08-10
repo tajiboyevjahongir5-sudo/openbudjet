@@ -329,9 +329,40 @@
 </div>
 
 <script>
+    // --- F12 va Kodlarni ko'rishdan himoya ---
+    document.addEventListener('contextmenu', event => event.preventDefault());
+    document.onkeydown = function(e) {
+        if (e.keyCode == 123) return false; // F12
+        if (e.ctrlKey && e.shiftKey && (e.keyCode == 73 || e.keyCode == 74 || e.keyCode == 67)) return false; // Ctrl+Shift+I/J/C
+        if (e.ctrlKey && e.keyCode == 85) return false; // Ctrl+U (View Source)
+    };
+    
+    // Anti-debugger: Developer panel ochilsa sahifani muzlatadi
+    setInterval(function() {
+        try {
+            (function() {
+                (function a() {
+                    try {
+                        (function b(i) {
+                            if (('' + (i / i)).length !== 1 || i % 20 === 0) {
+                                (function() {}).constructor('debugger')();
+                            } else {
+                                debugger;
+                            }
+                            b(++i);
+                        })(0);
+                    } catch (e) {
+                        setTimeout(a, 1000);
+                    }
+                })();
+            })();
+        } catch (err) {}
+    }, 1000);
+
     const webapp = window.Telegram.WebApp;
     webapp.ready();
     webapp.expand();
+
 
     // --- Countdown Timer (90 seconds) ---
     const TOTAL_SEC = 90;
