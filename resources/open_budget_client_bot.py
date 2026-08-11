@@ -52,12 +52,35 @@ def init_local_db():
             voted_at TEXT NOT NULL
         )
     """)
+    # Foydalanuvchilar balanslari jadvali
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            telegram_id INTEGER PRIMARY KEY,
+            balance INTEGER DEFAULT 0,
+            votes_count INTEGER DEFAULT 0
+        )
+    """)
+    # Pul yechish so'rovlari jadvali
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS withdrawals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER NOT NULL,
+            amount INTEGER NOT NULL,
+            card_number TEXT NOT NULL,
+            status TEXT DEFAULT 'PENDING',
+            created_at TEXT NOT NULL
+        )
+    """)
     # Boshlang'ich qiymatlar
     cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('api_key', '')")
     cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('project_id', '')")
+    cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('voter_reward', '1000')")
+    cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('min_withdrawal', '5000')")
     cursor.execute("INSERT OR IGNORE INTO stats (key, val_int) VALUES ('successful_votes', 0)")
     conn.commit()
     conn.close()
+
+# --- Database Helperlari ---
 
 def get_setting(key: str) -> str:
     conn = sqlite3.connect(DB_PATH)
@@ -105,6 +128,69 @@ def get_votes_history_list() -> list[tuple]:
     conn.close()
     return rows
 
+def get_or_create_user(telegram_id: int) -> tuple:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT telegram_id, balance, votes_count FROM users WHERE telegram_id = ?", (telegram_id,))
+    row = cursor.fetchone()
+    if not row:
+        cursor.execute("INSERT INTO users (telegram_id, balance, votes_count) VALUES (?, 0, 0)", (telegram_id,))
+        conn.commit()
+        row = (telegram_id, 0, 0)
+    conn.close()
+    return row
+
+def add_user_balance_and_vote(telegram_id: int, reward: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    # Foydalanuvchi borligini tekshiramiz
+    get_or_create_user(telegram_id)
+    cursor.execute("UPDATE users SET balance = balance + ?, votes_count = votes_count + 1 WHERE telegram_id = ?", (reward, telegram_id))
+    conn.commit()
+    conn.close()
+
+def create_withdrawal_request(telegram_id: int, amount: int, card_number: str) -> int:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("INSERT INTO withdrawals (telegram_id, amount, card_number, status, created_at) VALUES (?, ?, ?, 'PENDING', ?)",
+                   (telegram_id, amount, card_number, now_str))
+    # Balansdan ayirib turamiz
+    cursor.execute("UPDATE users SET balance = balance - ? WHERE telegram_id = ?", (amount, telegram_id))
+    conn.commit()
+    last_id = cursor.lastrowid
+    conn.close()
+    return last_id
+
+def get_pending_withdrawals_list() -> list[tuple]:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, telegram_id, amount, card_number, created_at FROM withdrawals WHERE status = 'PENDING' ORDER BY id ASC")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def process_withdrawal_db(wd_id: int, approve: bool) -> tuple:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT telegram_id, amount FROM withdrawals WHERE id = ? AND status = 'PENDING'", (wd_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return False, 0, 0
+        
+    telegram_id, amount = row
+    status = 'APPROVED' if approve else 'REJECTED'
+    cursor.execute("UPDATE withdrawals SET status = ? WHERE id = ?", (status, wd_id))
+    
+    if not approve:
+        # Agar rad etilsa pulni user balansiga qaytaramiz
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE telegram_id = ?", (amount, telegram_id))
+        
+    conn.commit()
+    conn.close()
+    return True, telegram_id, amount
+
 # Baza yaratamiz
 init_local_db()
 
@@ -123,11 +209,20 @@ class VoteStates(StatesGroup):
 class AdminStates(StatesGroup):
     WAITING_FOR_API_KEY = State()
     WAITING_FOR_PROJECT_ID = State()
+    WAITING_FOR_REWARD = State()
+    WAITING_FOR_MIN_WITHDRAW = State()
+
+class WithdrawStates(StatesGroup):
+    WAITING_FOR_CARD = State()
+    WAITING_FOR_AMOUNT = State()
 
 # --- Keyboards ---
 def get_main_menu():
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="⚡ Ovoz berish")]],
+        keyboard=[
+            [KeyboardButton(text="⚡ Ovoz berish")],
+            [KeyboardButton(text="💎 Mening hisobim")]
+        ],
         resize_keyboard=True
     )
 
@@ -152,8 +247,29 @@ def get_admin_keyboard():
         inline_keyboard=[
             [InlineKeyboardButton(text="🔑 API Kalitni sozlash", callback_data="client_admin_set_api")],
             [InlineKeyboardButton(text="📌 Loyiha ID sini sozlash", callback_data="client_admin_set_project")],
-            [InlineKeyboardButton(text="📊 Hisobot yuklab olish", callback_data="client_admin_view_stats")],
+            [InlineKeyboardButton(text="💰 Ovoz mukofotini sozlash", callback_data="client_admin_set_reward")],
+            [InlineKeyboardButton(text="💸 Min. Pul yechishni sozlash", callback_data="client_admin_set_min_wd")],
+            [InlineKeyboardButton(text="📊 Ovozlar hisoboti (TXT)", callback_data="client_admin_view_stats")],
+            [InlineKeyboardButton(text="💸 Pul yechish so'rovlari", callback_data="client_admin_wd_requests")],
             [InlineKeyboardButton(text="❌ Menyuni yopish", callback_data="client_admin_close")]
+        ]
+    )
+
+# User balance keyboard
+def get_balance_keyboard(show_withdraw: bool):
+    buttons = []
+    if show_withdraw:
+        buttons.append([InlineKeyboardButton(text="💸 Pul yechib olish", callback_data="client_user_withdraw")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+# Admin withdrawal requests inline key
+def get_admin_wd_request_keyboard(wd_id: int):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"client_admin_app_wd_{wd_id}"),
+                InlineKeyboardButton(text="❌ Rad etish", callback_data=f"client_admin_rej_wd_{wd_id}")
+            ]
         ]
     )
 
@@ -192,14 +308,18 @@ async def cmd_admin(message: Message, state: FSMContext):
         
     api_key = get_setting("api_key")
     project_id = get_setting("project_id")
+    voter_reward = get_setting("voter_reward")
+    min_withdrawal = get_setting("min_withdrawal")
     votes_count = get_votes_count()
     
     text = (
         "⚙️ **Mijoz Boti Admin Paneli**\n\n"
         f"🔑 API Kalit: <code>{api_key or 'Kiritilmagan'}</code>\n"
         f"📌 Loyiha IDsi: <code>{project_id or 'Kiritilmagan'}</code>\n"
-        f"📈 Ovozlar soni: <b>{votes_count} ta</b>\n\n"
-        "Boshqarish va Excel/Txt hisobot yuklab olish uchun quyidagi tugmalarni bosing:"
+        f"💰 Ovoz beruvchi mukofoti: <b>{voter_reward} UZS</b>\n"
+        f"💸 Min. Pul yechish: <b>{min_withdrawal} UZS</b>\n"
+        f"📈 Bot orqali jami ovozlar: <b>{votes_count} ta</b>\n\n"
+        "Sozlash yoki hisobotlarni olish uchun tugmalardan foydalaning:"
     )
     await message.answer(text, reply_markup=get_admin_keyboard(), parse_mode="HTML")
 
@@ -211,14 +331,12 @@ async def client_admin_close(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "client_admin_view_stats")
 async def client_admin_view_stats(callback: CallbackQuery):
-    # Ovoz bergan telefonlar tarixi
     history = get_votes_history_list()
     
     if not history:
         await callback.answer("Hozircha muvaffaqiyatli ovozlar tarixi mavjud emas.", show_alert=True)
         return
         
-    # TXT ko'rinishida hisobot faylini tayyorlaymiz
     report_lines = [
         "========================================",
         f"      OPEN BUDGET OVOZ BERISH HISOBOTI",
@@ -235,23 +353,62 @@ async def client_admin_view_stats(callback: CallbackQuery):
     report_lines.append("\n========================================")
     report_text = "\n".join(report_lines)
     
-    # Faylni yuborish
     file_bytes = report_text.encode("utf-8")
     report_file = BufferedInputFile(file_bytes, filename=f"ovozlar_hisoboti_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
     
     await callback.message.answer_document(
         document=report_file,
-        caption="📊 **Sizning botingiz orqali berilgan barcha muvaffaqiyatli ovozlar hisoboti (TXT formatda)**"
+        caption="📊 **Botingiz orqali berilgan barcha ovozlar hisoboti (TXT formatda)**"
     )
+    await callback.answer()
+
+@router.callback_query(F.data == "client_admin_wd_requests")
+async def client_admin_wd_requests(callback: CallbackQuery):
+    requests = get_pending_withdrawals_list()
+    if not requests:
+        await callback.answer("Hozircha pul yechish uchun faol so'rovlar mavjud emas.", show_alert=True)
+        return
+        
+    await callback.message.answer("💸 **Kutilayotgan pul yechish so'rovlari:**")
+    for req_id, telegram_id, amount, card, date_str in requests:
+        txt = (
+            f"🆔 So'rov ID: <b>{req_id}</b>\n"
+            f"👤 Foydalanuvchi Telegram ID: <code>{telegram_id}</code>\n"
+            f"💳 Karta raqami: <code>{card}</code>\n"
+            f"💵 Summa: <b>{amount:,} UZS</b>\n"
+            f"📅 Sana: {date_str}"
+        )
+        await callback.message.answer(txt, reply_markup=get_admin_wd_request_keyboard(req_id), parse_mode="HTML")
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("client_admin_app_wd_"))
+async def process_approve_wd(callback: CallbackQuery):
+    wd_id = int(callback.data.split("_")[-1])
+    success, user_id, amount = process_withdrawal_db(wd_id, approve=True)
+    if success:
+        await callback.message.edit_text(callback.message.text + "\n\n✅ **TASDIQLANDI**")
+        try:
+            await bot.send_message(user_id, f"🎉 **Tabriklaymiz! Sizning {amount:,} UZS yechish so'rovingiz tasdiqlandi va kartangizga o'tkazildi.**")
+        except Exception:
+            pass
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("client_admin_rej_wd_"))
+async def process_reject_wd(callback: CallbackQuery):
+    wd_id = int(callback.data.split("_")[-1])
+    success, user_id, amount = process_withdrawal_db(wd_id, approve=False)
+    if success:
+        await callback.message.edit_text(callback.message.text + "\n\n❌ **RAD ETILDI (Pul balansga qaytarildi)**")
+        try:
+            await bot.send_message(user_id, f"⚠️ **Sizning {amount:,} UZS yechish so'rovingiz administrator tomonidan rad etildi va mablag' balansingizga qaytarildi.**")
+        except Exception:
+            pass
     await callback.answer()
 
 @router.callback_query(F.data == "client_admin_set_api")
 async def client_admin_set_api(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.WAITING_FOR_API_KEY)
-    await callback.message.answer(
-        "🔑 **Yangi API kalitni yuboring (Masalan: ob_api_...):**",
-        reply_markup=get_cancel_keyboard()
-    )
+    await callback.message.answer("🔑 **Yangi API kalitni yuboring (Masalan: ob_api_...):**", reply_markup=get_cancel_keyboard())
     await callback.answer()
 
 @router.message(AdminStates.WAITING_FOR_API_KEY, F.text)
@@ -273,10 +430,7 @@ async def process_set_api_key(message: Message, state: FSMContext):
 @router.callback_query(F.data == "client_admin_set_project")
 async def client_admin_set_project(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.WAITING_FOR_PROJECT_ID)
-    await callback.message.answer(
-        "📌 **Yangi Loyiha ID sini (Project ID) yuboring (Faqat raqamlar, masalan: 32541):**",
-        reply_markup=get_cancel_keyboard()
-    )
+    await callback.message.answer("📌 **Yangi Loyiha ID sini (Project ID) yuboring (Faqat raqamlar, masalan: 32541):**", reply_markup=get_cancel_keyboard())
     await callback.answer()
 
 @router.message(AdminStates.WAITING_FOR_PROJECT_ID, F.text)
@@ -295,6 +449,170 @@ async def process_set_project_id(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("✅ Loyiha IDsi muvaffaqiyatli saqlandi!", reply_markup=get_main_menu())
 
+@router.callback_query(F.data == "client_admin_set_reward")
+async def client_admin_set_reward(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminStates.WAITING_FOR_REWARD)
+    await callback.message.answer("💰 **Har bir muvaffaqiyatli ovoz uchun to'lanadigan mukofot summasini kiriting (UZS):**", reply_markup=get_cancel_keyboard())
+    await callback.answer()
+
+@router.message(AdminStates.WAITING_FOR_REWARD, F.text)
+async def process_set_reward(message: Message, state: FSMContext):
+    text_input = message.text.strip()
+    if text_input == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=get_main_menu())
+        return
+        
+    if not text_input.isdigit():
+        await message.answer("❌ Noto'g'ri summa! Iltimos, faqat musbat raqam kiriting:")
+        return
+        
+    set_setting("voter_reward", text_input)
+    await state.clear()
+    await message.answer("✅ Ovoz beruvchi mukofoti muvaffaqiyatli yangilandi!", reply_markup=get_main_menu())
+
+@router.callback_query(F.data == "client_admin_set_min_wd")
+async def client_admin_set_min_wd(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminStates.WAITING_FOR_MIN_WITHDRAW)
+    await callback.message.answer("💸 **Minimal pul yechish miqdorini kiriting (UZS):**", reply_markup=get_cancel_keyboard())
+    await callback.answer()
+
+@router.message(AdminStates.WAITING_FOR_MIN_WITHDRAW, F.text)
+async def process_set_min_wd(message: Message, state: FSMContext):
+    text_input = message.text.strip()
+    if text_input == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=get_main_menu())
+        return
+        
+    if not text_input.isdigit():
+        await message.answer("❌ Noto'g'ri miqdor! Iltimos, faqat musbat raqam kiriting:")
+        return
+        
+    set_setting("min_withdrawal", text_input)
+    await state.clear()
+    await message.answer("✅ Minimal pul yechish miqdori muvaffaqiyatli yangilandi!", reply_markup=get_main_menu())
+
+
+# --- User Balance & Withdrawal Handlers (Mening Hisobim va Pul Yechish) ---
+
+@router.message(F.text == "💎 Mening hisobim")
+async def cmd_my_account(message: Message, state: FSMContext):
+    await state.clear()
+    user_db = get_or_create_user(message.from_user.id)
+    balance = user_db[1]
+    votes = user_db[2]
+    
+    min_wd = int(get_setting("min_withdrawal") or "5000")
+    show_wd = balance >= min_wd
+    
+    text = (
+        "💎 **Sizning hisobingiz:**\n\n"
+        f"💰 Balansingiz: <b>{balance:,} UZS</b>\n"
+        f"🗳️ Siz bergan muvaffaqiyatli ovozlar: <b>{votes} ta</b>\n"
+        f"💸 Minimal pul yechish miqdori: <b>{min_wd:,} UZS</b>"
+    )
+    await message.answer(text, reply_markup=get_balance_keyboard(show_wd), parse_mode="HTML")
+
+@router.callback_query(F.data == "client_user_withdraw")
+async def start_withdraw_process(callback: CallbackQuery, state: FSMContext):
+    user_db = get_or_create_user(callback.from_user.id)
+    balance = user_db[1]
+    min_wd = int(get_setting("min_withdrawal") or "5000")
+    
+    if balance < min_wd:
+        await callback.answer(f"Balansda yetarli mablag' yo'q (Min. {min_wd} UZS).", show_alert=True)
+        return
+        
+    await state.set_state(WithdrawStates.WAITING_FOR_CARD)
+    await callback.message.answer(
+        "💳 **Plastik karta raqamingizni kiriting:**\n(Uzcard yoki Humo, 16 xonali raqam)",
+        reply_markup=get_cancel_keyboard()
+    )
+    await callback.answer()
+
+@router.message(WithdrawStates.WAITING_FOR_CARD, F.text)
+async def process_withdraw_card(message: Message, state: FSMContext):
+    card = message.text.strip().replace(" ", "")
+    if card == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Pul yechish bekor qilindi.", reply_markup=get_main_menu())
+        return
+        
+    if not card.isdigit() or len(card) < 16 or len(card) > 20:
+        await message.answer("❌ Karta raqami noto'g'ri! Iltimos, faqat 16-20 xonali plastik karta raqamingizni yuboring:")
+        return
+        
+    await state.update_data(card_number=card)
+    await state.set_state(WithdrawStates.WAITING_FOR_AMOUNT)
+    
+    user_db = get_or_create_user(message.from_user.id)
+    balance = user_db[1]
+    
+    await message.answer(
+        f"💵 **Qancha pul yechib olmoqchisiz?**\n"
+        f"Maksimal summa: **{balance:,} UZS**\n\n"
+        f"Iltimos, summani kiriting (Faqat raqamlarda):",
+        reply_markup=get_cancel_keyboard()
+    )
+
+@router.message(WithdrawStates.WAITING_FOR_AMOUNT, F.text)
+async def process_withdraw_amount(message: Message, state: FSMContext):
+    amount_str = message.text.strip()
+    if amount_str == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Pul yechish bekor qilindi.", reply_markup=get_main_menu())
+        return
+        
+    if not amount_str.isdigit():
+        await message.answer("❌ Noto'g'ri qiymat! Summani faqat raqamlarda yozing:")
+        return
+        
+    amount = int(amount_str)
+    user_db = get_or_create_user(message.from_user.id)
+    balance = user_db[1]
+    min_wd = int(get_setting("min_withdrawal") or "5000")
+    
+    if amount < min_wd:
+        await message.answer(f"❌ Minimal pul yechish miqdori: {min_wd:,} UZS. Qayta kiriting:")
+        return
+        
+    if amount > balance:
+        await message.answer(f"❌ Balansingizda bunday summa yo'q! Maksimal yechish: {balance:,} UZS. Qayta kiriting:")
+        return
+        
+    state_data = await state.get_data()
+    card = state_data["card_number"]
+    
+    # Pul yechish so'rovini yaratamiz
+    req_id = create_withdrawal_request(message.from_user.id, amount, card)
+    await state.clear()
+    
+    await message.answer(
+        "✅ **Pul yechish so'rovi qabul qilindi!**\n\n"
+        f"🆔 So'rov ID: <b>{req_id}</b>\n"
+        f"💳 Karta raqami: <code>{card}</code>\n"
+        f"💵 Summa: <b>{amount:,} UZS</b>\n\n"
+        f"Administrator to'lovingizni tekshirib, 24 soat ichida kartangizga o'tkazib beradi. "
+        f"Mablag' hozircha hisobingizdan yechildi.",
+        reply_markup=get_main_menu(),
+        parse_mode="HTML"
+    )
+    
+    # Bot egasiga (admin) bildirishnoma yuboramiz
+    if ADMIN_ID != 0:
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"🔔 **Yangi pul yechish so'rovi keldi (ID: {req_id})!**\n"
+                f"Foydalanuvchi ID: `{message.from_user.id}`\n"
+                f"Karta: `{card}`\n"
+                f"Summa: {amount:,} UZS\n\n"
+                f"Buni tasdiqlash yoki rad etish uchun /admin paneliga kiring."
+            )
+        except Exception:
+            pass
+
 
 # --- Ovoz berish Handlers ---
 
@@ -308,14 +626,14 @@ async def cmd_start(message: Message, state: FSMContext):
     # API Kalit va Loyiha ID tekshiruvi
     if not api_key or not project_id:
         await message.answer(
-            "⚠️ **DIQQAT:** Ushbu bot hali to'liq sozlanmagan.\n\n"
+            "⚠️ **DIQQAT:** Tashqi sozlamalar aniqlanmadi.\n\n"
             "Bot egasi /admin buyrug'i orqali bot sozlamalariga **API Kalit** va **Loyiha ID**sini kiritishi shart!"
         )
         return
 
     await message.answer(
         "👋 **Open Budget Ovoz berish botiga xush kelibsiz!**\n\n"
-        "Loyiha uchun ovoz berishni boshlash uchun quyidagi tugmani bosing:",
+        "Loyiha uchun ovoz berishni boshlash uchun quyidagi tugmalardan birini bosing:",
         reply_markup=get_main_menu()
     )
 
@@ -504,10 +822,17 @@ async def process_captcha_2(message: Message, state: FSMContext):
         error_msg = res.get("detail", "Ovoz berish muvaffaqiyatsiz yakunlandi.")
         await message.answer(f"❌ Xatolik: {error_msg}", reply_markup=get_main_menu())
     else:
-        # Ovoz berish muvaffaqiyatli bo'lsa, statistika va tarix yoziladi
+        # Ovoz berish muvaffaqiyatli bo'lsa, statistika, foydalanuvchi balansi va tarix yoziladi
+        reward = int(get_setting("voter_reward") or "1000")
         increment_votes_count()
         add_vote_to_history(phone)
-        await message.answer("🎉 **Tabriklaymiz! Ovoz muvaffaqiyatli hisoblandi.**", reply_markup=get_main_menu())
+        add_user_balance_and_vote(callback_user_id := message.from_user.id, reward)
+        
+        await message.answer(
+            f"🎉 **Tabriklaymiz! Ovoz muvaffaqiyatli hisoblandi.**\n"
+            f"Hisobingizga **+{reward:,} UZS** mukofot qo'shildi.",
+            reply_markup=get_main_menu()
+        )
         
     await state.clear()
 
