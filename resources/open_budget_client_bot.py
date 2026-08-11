@@ -2,13 +2,15 @@ import logging
 import asyncio
 import os
 import aiohttp
+import sqlite3
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import (
     Message, ReplyKeyboardMarkup, KeyboardButton, 
-    ReplyKeyboardRemove, BufferedInputFile
+    ReplyKeyboardRemove, BufferedInputFile,
+    InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 )
 import base64
 
@@ -16,13 +18,74 @@ import base64
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# --- Sozlamalar (Atrof-muhit o'zgaruvchilari yoki qo'lda kiriting) ---
-# Dasturni ishga tushirishdan oldin .env fayl yaratib sozlang
+# --- Boshlang'ich Sozlamalar ---
+# Faqat BOT_TOKEN va ADMIN_ID ni .env orqali yoki bu yerda kiritsangiz kifoya.
+# Qolgan sozlamalar (API_KEY, PROJECT_ID) bot ichidagi /admin panel orqali sozlanadi.
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN_SHU_YERGA_YOZILADI")
-API_KEY = os.getenv("API_KEY", "") # Bizdan sotib olingan API Kalit (ob_api_...)
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # Bot egasining Telegram ID raqami (masalan: 12345678)
 API_URL = os.getenv("API_URL", "https://openbudjet-production.up.railway.app/api/v1")
-PROJECT_ID = os.getenv("PROJECT_ID", "") # Siz ovoz to'playotgan loyiha ID (masalan: 32541)
 
+# --- Ma'lumotlar Bazasi (SQLite - Kutubxona talab qilmaydi, standart o'rnatilgan) ---
+DB_PATH = "client_bot.db"
+
+def init_local_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    # Sozlamalar jadvali
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    # Muvaffaqiyatli ovozlar sonini saqlash jadvali
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS stats (
+            key TEXT PRIMARY KEY,
+            val_int INTEGER
+        )
+    """)
+    # Boshlang'ich qiymatlar
+    cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('api_key', '')")
+    cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('project_id', '')")
+    cursor.execute("INSERT OR IGNORE INTO stats (key, val_int) VALUES ('successful_votes', 0)")
+    conn.commit()
+    conn.close()
+
+def get_setting(key: str) -> str:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else ""
+
+def set_setting(key: str, value: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE settings SET value = ? WHERE key = ?", (value, key))
+    conn.commit()
+    conn.close()
+
+def get_votes_count() -> int:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT val_int FROM stats WHERE key = 'successful_votes'")
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+def increment_votes_count():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE stats SET val_int = val_int + 1 WHERE key = 'successful_votes'")
+    conn.commit()
+    conn.close()
+
+# Baza yaratamiz
+init_local_db()
+
+# Botni yaratish
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 router = Router()
@@ -33,6 +96,10 @@ class VoteStates(StatesGroup):
     WAITING_FOR_CAPTCHA_1 = State()
     WAITING_FOR_SMS = State()
     WAITING_FOR_CAPTCHA_2 = State()
+
+class AdminStates(StatesGroup):
+    WAITING_FOR_API_KEY = State()
+    WAITING_FOR_PROJECT_ID = State()
 
 # --- Keyboards ---
 def get_main_menu():
@@ -56,11 +123,23 @@ def get_cancel_keyboard():
         resize_keyboard=True
     )
 
+# Admin inline keyboard
+def get_admin_keyboard():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔑 API Kalitni sozlash", callback_data="client_admin_set_api")],
+            [InlineKeyboardButton(text="📌 Loyiha ID sini sozlash", callback_data="client_admin_set_project")],
+            [InlineKeyboardButton(text="📈 Statistika", callback_data="client_admin_view_stats")],
+            [InlineKeyboardButton(text="❌ Menyuni yopish", callback_data="client_admin_close")]
+        ]
+    )
+
 # --- API Ulanish Helperlari ---
 async def call_api(endpoint: str, method: str = "POST", json_data: dict = None) -> dict:
     """Bizning API Wrapperga so'rov yuborish funksiyasi"""
+    api_key = get_setting("api_key")
     headers = {
-        "X-API-Key": API_KEY,
+        "X-API-Key": api_key,
         "Content-Type": "application/json"
     }
     
@@ -78,17 +157,105 @@ async def call_api(endpoint: str, method: str = "POST", json_data: dict = None) 
             logger.error(f"API ulanish xatosi: {e}")
             return {"detail": "API server bilan ulanib bo'lmadi."}, 502
 
-# --- Bot Handlers ---
+# --- Admin Handlers (Mijoz Admin paneli) ---
+
+@router.message(Command("admin"))
+async def cmd_admin(message: Message, state: FSMContext):
+    await state.clear()
+    
+    # Faqat ADMIN_ID ga mos keladigan foydalanuvchi kira oladi
+    if ADMIN_ID == 0 or message.from_user.id != ADMIN_ID:
+        return
+        
+    api_key = get_setting("api_key")
+    project_id = get_setting("project_id")
+    votes_count = get_votes_count()
+    
+    text = (
+        "⚙️ **Mijoz Boti Admin Paneli**\n\n"
+        f"🔑 API Kalit: <code>{api_key or 'Kiritilmagan'}</code>\n"
+        f"📌 Loyiha IDsi: <code>{project_id or 'Kiritilmagan'}</code>\n"
+        f"📈 Ovozlar soni: <b>{votes_count} ta</b>\n\n"
+        "O'zgartirish uchun quyidagi tugmalardan foydalaning:"
+    )
+    await message.answer(text, reply_markup=get_admin_keyboard(), parse_mode="HTML")
+
+@router.callback_query(F.data == "client_admin_close")
+async def client_admin_close(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.delete()
+    await callback.answer()
+
+@router.callback_query(F.data == "client_admin_view_stats")
+async def client_admin_view_stats(callback: CallbackQuery):
+    votes_count = get_votes_count()
+    await callback.answer(f"Bot orqali jami {votes_count} ta muvaffaqiyatli ovoz berilgan.", show_alert=True)
+
+@router.callback_query(F.data == "client_admin_set_api")
+async def client_admin_set_api(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminStates.WAITING_FOR_API_KEY)
+    await callback.message.answer(
+        "🔑 **Yangi API kalitni yuboring (Masalan: ob_api_...):**",
+        reply_markup=get_cancel_keyboard()
+    )
+    await callback.answer()
+
+@router.message(AdminStates.WAITING_FOR_API_KEY, F.text)
+async def process_set_api_key(message: Message, state: FSMContext):
+    text_input = message.text.strip()
+    if text_input == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=get_main_menu())
+        return
+        
+    if not text_input.startswith("ob_api_"):
+        await message.answer("❌ Noto'g'ri API kalit! Kalit 'ob_api_' bilan boshlanishi shart. Qayta urinib ko'ring:")
+        return
+        
+    set_setting("api_key", text_input)
+    await state.clear()
+    await message.answer("✅ API kalit muvaffaqiyatli saqlandi!", reply_markup=get_main_menu())
+
+@router.callback_query(F.data == "client_admin_set_project")
+async def client_admin_set_project(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminStates.WAITING_FOR_PROJECT_ID)
+    await callback.message.answer(
+        "📌 **Yangi Loyiha ID sini (Project ID) yuboring (Faqat raqamlar, masalan: 32541):**",
+        reply_markup=get_cancel_keyboard()
+    )
+    await callback.answer()
+
+@router.message(AdminStates.WAITING_FOR_PROJECT_ID, F.text)
+async def process_set_project_id(message: Message, state: FSMContext):
+    text_input = message.text.strip()
+    if text_input == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=get_main_menu())
+        return
+        
+    if not text_input.isdigit():
+        await message.answer("❌ Noto'g'ri ID! Loyiha ID faqat raqamlardan iborat bo'lishi shart. Qayta urinib ko'ring:")
+        return
+        
+    set_setting("project_id", text_input)
+    await state.clear()
+    await message.answer("✅ Loyiha IDsi muvaffaqiyatli saqlandi!", reply_markup=get_main_menu())
+
+
+# --- Ovoz berish Handlers ---
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     
+    api_key = get_setting("api_key")
+    project_id = get_setting("project_id")
+    
     # API Kalit va Loyiha ID tekshiruvi
-    if not API_KEY or not PROJECT_ID:
+    if not api_key or not project_id:
         await message.answer(
-            "⚠️ **DIQQAT:** Ushbu bot to'liq sozlanganicha yo'q.\n\n"
-            "Dastur ishga tushishi uchun administrator `.env` faylida **API_KEY** va **PROJECT_ID** sozlamalarini kiritishi shart!"
+            "⚠️ **DIQQAT:** Ushbu bot hali to'liq sozlanmagan.\n\n"
+            "Bot egasi /admin buyrug'i orqali bot sozlamalariga **API Kalit** va **Loyiha ID**sini kiritishi shart!"
         )
         return
 
@@ -106,6 +273,14 @@ async def cmd_cancel(message: Message, state: FSMContext):
 @router.message(F.text == "⚡ Ovoz berish")
 async def start_vote_process(message: Message, state: FSMContext):
     await state.clear()
+    
+    api_key = get_setting("api_key")
+    project_id = get_setting("project_id")
+    
+    if not api_key or not project_id:
+        await message.answer("⚠️ Bot sozlanmagan. Iltimos, administratorga xabar bering.")
+        return
+        
     await message.answer(
         "📱 Ovoz berish uchun telefon raqamingizni quyidagi tugma orqali ulashing:",
         reply_markup=get_phone_keyboard()
@@ -164,6 +339,7 @@ async def process_captcha_1(message: Message, state: FSMContext):
     data = await state.get_data()
     phone = data["phone"]
     captcha_key = data["captcha_key"]
+    project_id = get_setting("project_id")
     
     await message.answer("🔄 SMS kod yuborilmoqda, kuting...")
     
@@ -172,7 +348,7 @@ async def process_captcha_1(message: Message, state: FSMContext):
         "phone_number": phone,
         "captcha_key": captcha_key,
         "captcha_result": int(captcha_result),
-        "project_id": PROJECT_ID
+        "project_id": project_id
     }
     
     res, status = await call_api("/send-otp", "POST", payload)
@@ -256,12 +432,13 @@ async def process_captcha_2(message: Message, state: FSMContext):
     data = await state.get_data()
     access_token = data["access_token"]
     captcha_key_2 = data["captcha_key_2"]
+    project_id = get_setting("project_id")
     
     await message.answer("⚡ Ovoz berilmoqda, kuting...")
     
     # 5. Yakuniy Ovoz berish
     payload = {
-        "project_id": PROJECT_ID,
+        "project_id": project_id,
         "access_token": access_token,
         "captcha_key": captcha_key_2,
         "captcha_result": int(captcha_result)
@@ -272,6 +449,8 @@ async def process_captcha_2(message: Message, state: FSMContext):
         error_msg = res.get("detail", "Ovoz berish muvaffaqiyatsiz yakunlandi.")
         await message.answer(f"❌ Xatolik: {error_msg}", reply_markup=get_main_menu())
     else:
+        # Ovoz berish muvaffaqiyatli bo'lsa, statistika oshiriladi
+        increment_votes_count()
         await message.answer("🎉 **Tabriklaymiz! Ovoz muvaffaqiyatli hisoblandi.**", reply_markup=get_main_menu())
         
     await state.clear()
