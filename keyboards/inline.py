@@ -142,3 +142,15 @@ def get_project_manage_keyboard(project: OpenBudgetProject) -> InlineKeyboardMar
     ])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_start_warning_keyboard() -> InlineKeyboardMarkup:
+    """Start buyrug'i yuborilganda ro'yxatdan o'tish ogohlantirishi uchun inline tugmalar"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🔗 Ro'yxatdan o'tish", url="https://id.egov.uz/"),
+                InlineKeyboardButton(text="✅ Ro'yxatdan o'tganman", callback_data="user_registered_confirm")
+            ]
+        ]
+    )
+

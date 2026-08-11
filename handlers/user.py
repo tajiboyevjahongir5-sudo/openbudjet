@@ -50,19 +50,47 @@ async def cmd_start(message: Message, state: FSMContext):
 
     if created:
         welcome_text = (
-            f"👋 Assalomu alaykum, {message.from_user.full_name}!\n\n"
+            f"👋 Assalomu alaykum, {html.escape(str(message.from_user.full_name))}!\n\n"
             f"Ovoz yig'ish botimizga xush kelibsiz.\n"
             f"Siz bu yerda o'z ovozingizni berib va do'stlaringizni taklif qilib pul ishlashingiz mumkin.\n\n"
-            f"💵 Har bir muvaffaqiyatli ovoz uchun taklif qiluvchiga **{referral_price} so'm** to'lanadi.\n"
+            f"💵 Har bir muvaffaqiyatli ovoz uchun taklif qiluvchiga <b>{referral_price} so'm</b> to'lanadi.\n"
             f"Boshlash uchun quyidagi menyudan foydalaning 👇"
         )
     else:
         welcome_text = (
-            f"👋 Assalomu alaykum, {message.from_user.full_name}!\n"
+            f"👋 Assalomu alaykum, {html.escape(str(message.from_user.full_name))}!\n\n"
             f"Qayta tashrifingizdan xursandmiz. Quyidagi menyudan foydalaning 👇"
         )
 
-    await message.answer(welcome_text, reply_markup=reply.get_user_menu())
+    await state.update_data(welcome_text=welcome_text)
+
+    warning_text = (
+        "⚠️ <b>DIQQAT: Muhim ogohlantirish!</b>\n\n"
+        "Open Budget ovoz berish tizimi yangilanganligi sababli, endilikda faqatgina "
+        "<b>Open Budget (OneID) saytidan ro'yxatdan o'tgan</b> telefon raqamlari orqali ovoz berish mumkin.\n\n"
+        "Agar telefon raqamingiz ro'yxatdan o'tmagan bo'lsa, SMS kod kelmaydi va ovoz berib bo'lmaydi.\n\n"
+        "Ro'yxatdan o'tish uchun quyidagi <b>\"🔗 Ro'yxatdan o'tish\"</b> tugmasini bosing (OneID'dan ro'yxatdan o'tish 1 daqiqa vaqt oladi). "
+        "Agar ro'yxatdan o'tib bo'lgan bo'lsangiz, <b>\"✅ Ro'yxatdan o'tganman\"</b> tugmasini bosing:"
+    )
+
+    await message.answer(warning_text, reply_markup=inline.get_start_warning_keyboard(), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "user_registered_confirm")
+async def process_user_registered_confirm(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    welcome_text = data.get("welcome_text")
+    
+    if not welcome_text:
+        welcome_text = (
+            f"👋 Assalomu alaykum, {html.escape(str(callback.from_user.full_name))}!\n\n"
+            f"Quyidagi menyudan foydalanishingiz mumkin 👇"
+        )
+
+    await state.clear()
+    await callback.message.edit_text("✅ Ro'yxatdan o'tganligingiz tasdiqlandi!")
+    await callback.message.answer(welcome_text, reply_markup=reply.get_user_menu(), parse_mode="HTML")
+    await callback.answer()
 
 @router.message(F.text == "❌ Jarayonni bekor qilish")
 async def process_cancel(message: Message, state: FSMContext):
