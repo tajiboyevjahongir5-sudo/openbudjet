@@ -79,15 +79,29 @@ def get_admin_inline_menu() -> InlineKeyboardMarkup:
     )
 
 
+from urllib.parse import urlparse, parse_qs
+
+def _get_display_id(project_id: str, url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        q = parse_qs(parsed.query)
+        val = q.get("initiativeId", [None])[0]
+        if val:
+            return val
+    except Exception:
+        pass
+    return project_id
+
 def get_admin_projects_list_keyboard(projects: list[OpenBudgetProject]) -> InlineKeyboardMarkup:
     """Barcha qo'shilgan loyihalar ro'yxatini va amallarni chiqarish"""
     buttons = []
     # Loyihalarni chiqarish
     for p in projects:
         status_star = "🟢 Faol: " if p.is_active else "🔴 Faolsiz: "
+        display_id = _get_display_id(p.project_id, p.project_url)
         buttons.append([
             InlineKeyboardButton(
-                text=f"{status_star}{p.project_id}",
+                text=f"{status_star}{display_id}",
                 callback_data=f"admin_proj_view_{p.project_id}",
                 style="primary"
             )

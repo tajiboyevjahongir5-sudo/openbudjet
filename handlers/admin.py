@@ -212,12 +212,15 @@ async def process_admin_project_view(callback: CallbackQuery):
         await callback.answer("❌ Loyiha topilmadi.", show_alert=True)
         return
 
-    status_text = "🟢 Faol (Ishga tushirilgan)" if project.is_active else "🔴 Faolsiz (O'chirilgan)"
+    from keyboards.inline import _get_display_id
+    display_id = _get_display_id(project.project_id, project.project_url)
+
     text = (
-        f"📂 <b>Loyiha tafsilotlari</b>\n\n"
-        f"📌 <b>Loyiha ID:</b> <code>{html.escape(str(project.project_id))}</code>\n"
-        f"🔗 <b>Havola:</b> {html.escape(str(project.project_url))}\n"
-        f"⚡ <b>Holati:</b> {status_text}\n\n"
+        f"📂 <b>Loyiha ma'lumotlari:</b>\n\n"
+        f"📌 <b>ID:</b> <code>{html.escape(display_id)}</code>\n"
+        f"🔑 <b>UUID:</b> <code>{html.escape(project.project_id)}</code>\n"
+        f"🔗 <b>Havola:</b> {html.escape(project.project_url)}\n"
+        f"⚙️ <b>Holati:</b> {'🟢 Faol' if project.is_active else '🔴 Faolsiz'}\n\n"
         f"Quyidagi amallardan birini tanlang:"
     )
     await callback.message.edit_text(text, reply_markup=inline.get_project_manage_keyboard(project), parse_mode="HTML")
