@@ -160,11 +160,12 @@ async def get_admin_dashboard(request: Request):
 
 @app.get("/admin/api/keys")
 async def get_keys_api(
+    init_data: str = None,
     tg_init_data: str = Header(None, alias="tg-init-data"),
     db: AsyncSession = Depends(get_db)
 ):
     from utils.api_auth import verify_telegram_init_data, is_admin_user
-    user_data = verify_telegram_init_data(tg_init_data)
+    user_data = verify_telegram_init_data(init_data or tg_init_data)
     if not user_data or not is_admin_user(user_data.get("id", 0)):
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN, 
@@ -212,11 +213,12 @@ async def get_keys_api(
 @app.post("/admin/api/keys")
 async def create_key_api(
     req: CreateKeySchema,
+    init_data: str = None,
     tg_init_data: str = Header(None, alias="tg-init-data"),
     db: AsyncSession = Depends(get_db)
 ):
     from utils.api_auth import verify_telegram_init_data, is_admin_user
-    user_data = verify_telegram_init_data(tg_init_data)
+    user_data = verify_telegram_init_data(init_data or tg_init_data)
     if not user_data or not is_admin_user(user_data.get("id", 0)):
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN, 
@@ -242,11 +244,12 @@ async def create_key_api(
 async def topup_key_api(
     key_id: int,
     req: TopUpSchema,
+    init_data: str = None,
     tg_init_data: str = Header(None, alias="tg-init-data"),
     db: AsyncSession = Depends(get_db)
 ):
     from utils.api_auth import verify_telegram_init_data, is_admin_user
-    user_data = verify_telegram_init_data(tg_init_data)
+    user_data = verify_telegram_init_data(init_data or tg_init_data)
     if not user_data or not is_admin_user(user_data.get("id", 0)):
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN, 
@@ -266,11 +269,12 @@ async def topup_key_api(
 async def toggle_key_api(
     key_id: int,
     req: ToggleSchema,
+    init_data: str = None,
     tg_init_data: str = Header(None, alias="tg-init-data"),
     db: AsyncSession = Depends(get_db)
 ):
     from utils.api_auth import verify_telegram_init_data, is_admin_user
-    user_data = verify_telegram_init_data(tg_init_data)
+    user_data = verify_telegram_init_data(init_data or tg_init_data)
     if not user_data or not is_admin_user(user_data.get("id", 0)):
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN, 
@@ -289,11 +293,12 @@ async def toggle_key_api(
 @app.delete("/admin/api/keys/{key_id}")
 async def delete_key_api(
     key_id: int,
+    init_data: str = None,
     tg_init_data: str = Header(None, alias="tg-init-data"),
     db: AsyncSession = Depends(get_db)
 ):
     from utils.api_auth import verify_telegram_init_data, is_admin_user
-    user_data = verify_telegram_init_data(tg_init_data)
+    user_data = verify_telegram_init_data(init_data or tg_init_data)
     if not user_data or not is_admin_user(user_data.get("id", 0)):
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN, 

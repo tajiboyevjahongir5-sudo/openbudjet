@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import urllib.parse
+import logging
 from fastapi import Header, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.session import get_db
@@ -9,17 +10,25 @@ from database import crud
 from database.models import APIKey
 from config import settings
 
+logger = logging.getLogger(__name__)
+
 def verify_telegram_init_data(init_data: str) -> dict | None:
     """
     Telegram WebApp initData imzosini bot tokeni orqali tekshiradi.
     Muvaffaqiyatli bo'lsa, user ma'lumotlarini (dict) qaytaradi, aks holda None.
     """
     if not init_data:
+        logger.warning("verify_telegram_init_data: init_data is empty.")
         return None
         
     try:
+        # Decode first if double URL encoded
+        if "%3D" in init_data or "%26" in init_data:
+            init_data = urllib.parse.unquote(init_data)
+            
         parsed = dict(urllib.parse.parse_qsl(init_data))
         if "hash" not in parsed:
+            logger.warning(f"verify_telegram_init_data: 'hash' not found in parsed data: {list(parsed.keys())}")
             return None
             
         tg_hash = parsed.pop("hash")
@@ -35,23 +44,29 @@ def verify_telegram_init_data(init_data: str) -> dict | None:
         calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
         
         if calculated_hash != tg_hash:
+            logger.warning(f"verify_telegram_init_data: Signature mismatch! Calculated: {calculated_hash}, Received: {tg_hash}")
             return None
             
         # User ma'lumotlarini JSON qilib o'qiymiz
         user_str = parsed.get("user")
         if not user_str:
+            logger.warning("verify_telegram_init_data: 'user' field not found in parsed data.")
             return None
             
         user_data = json.loads(user_str)
+        logger.info(f"verify_telegram_init_data: Successful verification for user: {user_data.get('id')}")
         return user_data
-    except Exception:
+    except Exception as e:
+        logger.error(f"verify_telegram_init_data: Exception during verification: {e}", exc_info=True)
         return None
 
 def is_admin_user(telegram_id: int) -> bool:
     """Foydalanuvchi bot adminlaridan biri ekanligini tekshiradi"""
     # ADMIN_IDS_RAW ni vergul bo'yicha ajratamiz
     admin_ids = [int(x.strip()) for x in settings.ADMIN_IDS_RAW.split(",") if x.strip().isdigit()]
-    return telegram_id in admin_ids
+    is_admin = telegram_id in admin_ids
+    logger.info(f"is_admin_user: checking {telegram_id} against {admin_ids} -> Result: {is_admin}")
+    return is_admin
 
 async def get_api_key(
     x_api_key: str = Header(..., alias="X-API-Key"), 
