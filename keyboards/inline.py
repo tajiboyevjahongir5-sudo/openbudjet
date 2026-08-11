@@ -162,3 +162,44 @@ def get_start_warning_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+# --- Hamkorlik va API sotib olish inline tugmalari ---
+
+def get_partnership_keyboard() -> InlineKeyboardMarkup:
+    """Hamkorlik menyusi inline tugmalari"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="💻 Bot kodi (Tayyor)", callback_data="partnership_get_code", style="primary")
+            ],
+            [
+                InlineKeyboardButton(text="🔑 API Kalit sotib olish", callback_data="partnership_buy_api", style="success")
+            ]
+        ]
+    )
+
+def get_tariffs_keyboard() -> InlineKeyboardMarkup:
+    """API kalit sotib olish uchun tariflar ro'yxati"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💎 50 ovoz (75 000 so'm)", callback_data="buy_tariff_50", style="primary")],
+            [InlineKeyboardButton(text="💎 100 ovoz (150 000 so'm)", callback_data="buy_tariff_100", style="primary")],
+            [InlineKeyboardButton(text="💎 500 ovoz (750 000 so'm)", callback_data="buy_tariff_500", style="primary")],
+            [InlineKeyboardButton(text="💎 1000 ovoz (1 500 000 so'm)", callback_data="buy_tariff_1000", style="primary")],
+            [InlineKeyboardButton(text="💎 5000 ovoz (7 500 000 so'm)", callback_data="buy_tariff_5000", style="primary")],
+            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="partnership_back", style="danger")]
+        ]
+    )
+
+def get_payment_keyboard(purchase_id: int) -> InlineKeyboardMarkup:
+    """To'lov tasdiqlash uchun inline tugmalar"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ To'ladim", callback_data=f"payment_paid_{purchase_id}", style="success"),
+                InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"payment_cancel_{purchase_id}", style="danger")
+            ]
+        ]
+    )
+
+
+

@@ -35,6 +35,9 @@ class ProjectSettings(Base):
     voter_reward: Mapped[float] = mapped_column(Float, default=0.0)
     min_withdrawal: Mapped[float] = mapped_column(Float, default=0.0)
     channel_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    card_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    payment_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
 
 
 class OpenBudgetProject(Base):
@@ -75,5 +78,19 @@ class APIKey(Base):
     balance_uzs: Mapped[int] = mapped_column(Integer, default=0)                                 # UZS Balans
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class APIKeyPurchase(Base):
+    __tablename__ = "api_key_purchases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    tariff_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    price_uzs: Mapped[int] = mapped_column(Integer, nullable=False)
+    unique_price_uzs: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
+    votes_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 
 

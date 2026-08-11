@@ -18,7 +18,7 @@ from database.session import engine, get_db
 from database import crud
 from database.session import async_session
 from database.fsm_storage import PostgresStorage
-from handlers import user, vote, admin
+from handlers import user, vote, admin, partnership
 from middlewares import ThrottlingMiddleware
 from api.v1 import router as api_router
 
@@ -41,6 +41,8 @@ dp = Dispatcher(storage=PostgresStorage())
 dp.include_router(user.router)
 dp.include_router(vote.router)
 dp.include_router(admin.router)
+dp.include_router(partnership.router)
+
 
 # Anti-flood (Throttling) middleware ulash
 dp.message.middleware(ThrottlingMiddleware(time_limit=1.0))
@@ -63,6 +65,8 @@ async def init_db():
         for sql in [
             "ALTER TABLE project_settings ADD COLUMN voter_reward FLOAT DEFAULT 0.0;",
             "ALTER TABLE project_settings ADD COLUMN channel_username VARCHAR(100);",
+            "ALTER TABLE project_settings ADD COLUMN card_number VARCHAR(30);",
+            "ALTER TABLE project_settings ADD COLUMN payment_channel_id BIGINT;",
         ]:
             try:
                 await conn.execute(text(sql))

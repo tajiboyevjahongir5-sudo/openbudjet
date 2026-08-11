@@ -9,6 +9,9 @@ def get_user_menu() -> ReplyKeyboardMarkup:
         [
             KeyboardButton(text="💎 Mening hisobim", style="primary"), 
             KeyboardButton(text="📣 Do'stlarni taklif qilish", style="primary")
+        ],
+        [
+            KeyboardButton(text="🤝 Hamkorlik", style="primary")
         ]
     ]
     return ReplyKeyboardMarkup(
@@ -51,7 +54,8 @@ def get_admin_menu() -> ReplyKeyboardMarkup:
             KeyboardButton(text="📊 Batafsil Hisobot", style="success")
         ],
         [
-            KeyboardButton(text="📣 Reklama yuborish", style="success")
+            KeyboardButton(text="📣 Reklama yuborish", style="success"),
+            KeyboardButton(text="⚙️ Sozlamalar", style="success")
         ],
         [
             KeyboardButton(text="🔙 Asosiy menyu", style="primary")

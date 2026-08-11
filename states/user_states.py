@@ -20,4 +20,7 @@ class AdminStates(StatesGroup):
     WAITING_FOR_MIN_WITHDRAWAL = State()  # Minimal pul yechish chegarasini o'zgartirish
     WAITING_FOR_AD_TEXT = State()         # Reklama matnini qabul qilish holati
     WAITING_FOR_CHANNEL_USERNAME = State() # Maxfiy kanal username yoki linkini kiritish
+    WAITING_FOR_ADMIN_CARD = State()      # To'lovlar uchun karta raqami sozlash
+    WAITING_FOR_ADMIN_CHANNEL = State()   # To'lov kanali Telegram ID sini sozlash
+
 

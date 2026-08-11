@@ -3,7 +3,7 @@ from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.models import (
     User, ProjectSettings, VotesHistory, Withdrawals,
-    VoteStatus, WithdrawalStatus, OpenBudgetProject, APIKey
+    VoteStatus, WithdrawalStatus, OpenBudgetProject, APIKey, APIKeyPurchase
 )
 
 # --- Foydalanuvchilar bilan ishlash ---
@@ -90,7 +90,9 @@ async def update_project_settings(
     referral_price: float | None = None,
     voter_reward: float | None = None,
     min_withdrawal: float | None = None,
-    channel_username: str | None = None
+    channel_username: str | None = None,
+    card_number: str | None = None,
+    payment_channel_id: int | None = None
 ) -> ProjectSettings:
     settings = await get_project_settings(db)
     if referral_price is not None:
@@ -101,9 +103,14 @@ async def update_project_settings(
         settings.min_withdrawal = min_withdrawal
     if channel_username is not None:
         settings.channel_username = channel_username
+    if card_number is not None:
+        settings.card_number = card_number
+    if payment_channel_id is not None:
+        settings.payment_channel_id = payment_channel_id
     await db.commit()
     await db.refresh(settings)
     return settings
+
 
 
 # --- Ovozlar tarixi bilan ishlash ---
@@ -417,4 +424,57 @@ async def delete_api_key(db: AsyncSession, key_id: int) -> bool:
         await db.commit()
         return True
     return False
+
+
+# --- API Kalit sotib olish va To'lovlar CRUD operatsiyalari ---
+
+async def create_pending_purchase(
+    db: AsyncSession,
+    telegram_id: int,
+    tariff_name: str,
+    price_uzs: int,
+    unique_price_uzs: int,
+    votes_count: int
+) -> APIKeyPurchase:
+    """Yangi API kalit sotib olish to'lov so'rovini (PENDING) yaratadi"""
+    purchase = APIKeyPurchase(
+        telegram_id=telegram_id,
+        tariff_name=tariff_name,
+        price_uzs=price_uzs,
+        unique_price_uzs=unique_price_uzs,
+        votes_count=votes_count,
+        status="PENDING",
+        created_at=datetime.utcnow()
+    )
+    db.add(purchase)
+    await db.commit()
+    await db.refresh(purchase)
+    return purchase
+
+async def get_pending_purchase_by_unique_price(db: AsyncSession, unique_price: int) -> APIKeyPurchase | None:
+    """Tiyinlari bilan hisoblangan narxi bo'yicha kutilayotgan to'lovni topadi"""
+    result = await db.execute(
+        select(APIKeyPurchase).where(
+            APIKeyPurchase.unique_price_uzs == unique_price,
+            APIKeyPurchase.status == "PENDING"
+        )
+    )
+    return result.scalar_one_or_none()
+
+async def get_all_pending_purchases(db: AsyncSession) -> list[APIKeyPurchase]:
+    """Barcha kutilayotgan to'lov so'rovlarini qaytaradi"""
+    result = await db.execute(select(APIKeyPurchase).where(APIKeyPurchase.status == "PENDING"))
+    return list(result.scalars().all())
+
+async def complete_purchase(db: AsyncSession, purchase_id: int) -> APIKeyPurchase | None:
+    """To'lov tasdiqlanganda xarid statusini COMPLETED qilib yangilaydi"""
+    result = await db.execute(select(APIKeyPurchase).where(APIKeyPurchase.id == purchase_id))
+    purchase = result.scalar_one_or_none()
+    if purchase:
+        purchase.status = "COMPLETED"
+        await db.commit()
+        await db.refresh(purchase)
+        return purchase
+    return None
+
 
