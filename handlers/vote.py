@@ -197,12 +197,27 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
                     project_id=project_id,
                     status=VoteStatus.FAILED
                 )
-            await message.answer(
-                f"❌ Xatolik yuz berdi:\n<b>{html.escape(error_msg)}</b>\n\n"
-                f"Iltimos, qayta urunib ko'ring yoki boshqa raqam kiriting:",
-                reply_markup=reply.get_phone_keyboard(),
-                parse_mode="HTML"
-            )
+            
+            # Raqam ro'yxatdan o'tmagan bo'lsa batafsil ko'rsatma berish
+            if "topilmadi" in error_msg.lower() or "foydalanuvchi" in error_msg.lower():
+                await message.answer(
+                    f"⚠️ <b>Raqam ro'yxatdan o'tmagan!</b>\n\n"
+                    f"Kiritilgan <code>{clean_phone}</code> raqami Open Budget (OneID) tizimida ro'yxatdan o'tmagan. "
+                    f"SMS kod yuborilishi uchun ushbu raqam kamida 1 marta OneID'dan o'tgan bo'lishi kerak.\n\n"
+                    f"🛠️ <b>Muammoni hal qilish yo'li:</b>\n"
+                    f"1. Fuqaro o'z telefonidan <a href='https://id.egov.uz'>id.egov.uz</a> saytiga kiradi.\n"
+                    f"2. <b>'Ro'yxatdan o'tish'</b> tugmasini bosib, pasporti va ushbu raqamini kiritib tasdiqlaydi (1 daqiqa vaqt oladi).\n\n"
+                    f"Ushbu amal bajarilgach, botda qayta urinib ko'ring, SMS muvaffaqiyatli ketadi!",
+                    reply_markup=reply.get_phone_keyboard(),
+                    parse_mode="HTML"
+                )
+            else:
+                await message.answer(
+                    f"❌ Xatolik yuz berdi:\n<b>{html.escape(error_msg)}</b>\n\n"
+                    f"Iltimos, qayta urunib ko'ring yoki boshqa raqam kiriting:",
+                    reply_markup=reply.get_phone_keyboard(),
+                    parse_mode="HTML"
+                )
         return
 
     # Captcha talab etilmasdan birdan SMS ketgan holat (agar portalda captcha o'chirilgan bo'lsa)
@@ -264,6 +279,19 @@ async def process_captcha_result(message: Message, state: FSMContext):
                     reply_markup=reply.get_cancel_keyboard(),
                     parse_mode="HTML"
                 )
+            elif "topilmadi" in error_msg.lower() or "foydalanuvchi" in error_msg.lower():
+                await message.answer(
+                    f"⚠️ <b>Raqam ro'yxatdan o'tmagan!</b>\n\n"
+                    f"Kiritilgan <code>{phone_number}</code> raqami Open Budget (OneID) tizimida ro'yxatdan o'tmagan. "
+                    f"SMS kod yuborilishi uchun ushbu raqam kamida 1 marta OneID'dan o'tgan bo'lishi kerak.\n\n"
+                    f"🛠️ <b>Muammoni hal qilish yo'li:</b>\n"
+                    f"1. Fuqaro o'z telefonidan <a href='https://id.egov.uz'>id.egov.uz</a> saytiga kiradi.\n"
+                    f"2. <b>'Ro'yxatdan o'tish'</b> tugmasini bosib, pasporti va ushbu raqamini kiritib tasdiqlaydi (1 daqiqa vaqt oladi).\n\n"
+                    f"Ushbu amal bajarilgach, botda qayta urinib ko'ring, SMS muvaffaqiyatli ketadi!",
+                    reply_markup=reply.get_user_menu(),
+                    parse_mode="HTML"
+                )
+                await state.clear()
             else:
                 await message.answer(
                     f"❌ SMS yuborishda xato yuz berdi:\n<b>{html.escape(error_msg)}</b>\n\n"
