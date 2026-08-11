@@ -76,3 +76,15 @@ def get_captcha_reply_keyboard(session_id: str, web_url: str) -> ReplyKeyboardMa
         resize_keyboard=True,
         one_time_keyboard=True
     )
+
+def get_check_registration_keyboard() -> ReplyKeyboardMarkup:
+    """Ro'yxatdan o'tganlikni tekshirish tugmasi"""
+    keyboard = [
+        [KeyboardButton(text="🔄 Ro'yxatdan o'tdim, tekshirish")],
+        [KeyboardButton(text="❌ Jarayonni bekor qilish")]
+    ]
+    return ReplyKeyboardMarkup(
+        keyboard=keyboard,
+        resize_keyboard=True
+    )
+

@@ -198,8 +198,14 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
                     status=VoteStatus.FAILED
                 )
             
-            # Raqam ro'yxatdan o'tmagan bo'lsa batafsil ko'rsatma berish
+            # Raqam ro'yxatdan o'tmagan bo'lsa batafsil ko'rsatma berish va tekshirish holatiga o'tkazish
             if "topilmadi" in error_msg.lower() or "foydalanuvchi" in error_msg.lower():
+                await state.update_data(
+                    phone_number=clean_phone,
+                    project_id=project_id,
+                    is_checking_registration=True
+                )
+                await state.set_state(VoteStates.WAITING_FOR_REGISTRATION_CHECK)
                 await message.answer(
                     f"⚠️ <b>Raqam ro'yxatdan o'tmagan!</b>\n\n"
                     f"Kiritilgan <code>{clean_phone}</code> raqami Open Budget (OneID) tizimida ro'yxatdan o'tmagan. "
@@ -207,8 +213,8 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
                     f"🛠️ <b>Muammoni hal qilish yo'li:</b>\n"
                     f"1. Fuqaro o'z telefonidan <a href='https://id.egov.uz'>id.egov.uz</a> saytiga kiradi.\n"
                     f"2. <b>'Ro'yxatdan o'tish'</b> tugmasini bosib, pasporti va ushbu raqamini kiritib tasdiqlaydi (1 daqiqa vaqt oladi).\n\n"
-                    f"Ushbu amal bajarilgach, botda qayta urinib ko'ring, SMS muvaffaqiyatli ketadi!",
-                    reply_markup=reply.get_phone_keyboard(),
+                    f"Ushbu amal bajarilgach, quyidagi <b>'🔄 Ro'yxatdan o'tdim, tekshirish'</b> tugmasini bosing:",
+                    reply_markup=reply.get_check_registration_keyboard(),
                     parse_mode="HTML"
                 )
             else:
@@ -280,6 +286,12 @@ async def process_captcha_result(message: Message, state: FSMContext):
                     parse_mode="HTML"
                 )
             elif "topilmadi" in error_msg.lower() or "foydalanuvchi" in error_msg.lower():
+                await state.update_data(
+                    phone_number=phone_number,
+                    project_id=project_id,
+                    is_checking_registration=True
+                )
+                await state.set_state(VoteStates.WAITING_FOR_REGISTRATION_CHECK)
                 await message.answer(
                     f"⚠️ <b>Raqam ro'yxatdan o'tmagan!</b>\n\n"
                     f"Kiritilgan <code>{phone_number}</code> raqami Open Budget (OneID) tizimida ro'yxatdan o'tmagan. "
@@ -287,11 +299,10 @@ async def process_captcha_result(message: Message, state: FSMContext):
                     f"🛠️ <b>Muammoni hal qilish yo'li:</b>\n"
                     f"1. Fuqaro o'z telefonidan <a href='https://id.egov.uz'>id.egov.uz</a> saytiga kiradi.\n"
                     f"2. <b>'Ro'yxatdan o'tish'</b> tugmasini bosib, pasporti va ushbu raqamini kiritib tasdiqlaydi (1 daqiqa vaqt oladi).\n\n"
-                    f"Ushbu amal bajarilgach, botda qayta urinib ko'ring, SMS muvaffaqiyatli ketadi!",
-                    reply_markup=reply.get_user_menu(),
+                    f"Ushbu amal bajarilgach, quyidagi <b>'🔄 Ro'yxatdan o'tdim, tekshirish'</b> tugmasini bosing:",
+                    reply_markup=reply.get_check_registration_keyboard(),
                     parse_mode="HTML"
                 )
-                await state.clear()
             else:
                 await message.answer(
                     f"❌ SMS yuborishda xato yuz berdi:\n<b>{html.escape(error_msg)}</b>\n\n"
@@ -304,12 +315,23 @@ async def process_captcha_result(message: Message, state: FSMContext):
         # SMS kod muvaffaqiyatli ketdi
         await state.update_data(session_data=session_data)
         await state.set_state(VoteStates.WAITING_FOR_SMS)
-        await message.answer(
-            f"📩 <b>Muvaffaqiyatli!</b>\n\n"
-            f"<code>{phone_number}</code> raqamiga yuborilgan SMS tasdiqlash kodini kiriting:",
-            reply_markup=reply.get_cancel_keyboard(),
-            parse_mode="HTML"
-        )
+        
+        is_checking = state_data.get("is_checking_registration", False)
+        if is_checking:
+            await message.answer(
+                f"✅ <b>Ro'yxatdan o'tish muvaffaqiyatli bo'ldi!</b> SMS yuborildi.\n\n"
+                f"<code>{phone_number}</code> raqamiga yuborilgan SMS tasdiqlash kodini kiriting:",
+                reply_markup=reply.get_cancel_keyboard(),
+                parse_mode="HTML"
+            )
+            await state.update_data(is_checking_registration=False)
+        else:
+            await message.answer(
+                f"📩 <b>Muvaffaqiyatli!</b>\n\n"
+                f"<code>{phone_number}</code> raqamiga yuborilgan SMS tasdiqlash kodini kiriting:",
+                reply_markup=reply.get_cancel_keyboard(),
+                parse_mode="HTML"
+            )
 
     except Exception as e:
         logger.error(f"Captcha WebApp natijasini o'qishda xato: {e}", exc_info=True)
@@ -577,4 +599,49 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Final Captcha WebApp natijasini o'qishda xato: {e}", exc_info=True)
         await message.answer("❌ Captcha ma'lumotlarini qabul qilishda xatolik yuz berdi. Qayta urinib ko'ring.")
+
+@router.message(VoteStates.WAITING_FOR_REGISTRATION_CHECK)
+async def check_registration_status(message: Message, state: FSMContext):
+    """Foydalanuvchi OneID'dan ro'yxatdan o'tib, 'Tekshirish' tugmasini bosganda ishlaydi"""
+    text = message.text.strip()
+    if text == "❌ Jarayonni bekor qilish":
+        await state.clear()
+        await message.answer("Jarayon bekor qilindi.", reply_markup=reply.get_user_menu())
+        return
+        
+    if text == "🔄 Ro'yxatdan o'tdim, tekshirish":
+        telegram_id = message.from_user.id
+        
+        # Yangi captcha yuklaymiz
+        cap_waiting = await message.answer("🔄 Yangi captcha yuklanmoqda...")
+        success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
+        await cap_waiting.delete()
+        
+        if not success_cap or not cap_data:
+            await message.answer("❌ Captcha yuklab bo'lmadi. Qayta urinib ko'ring.")
+            return
+
+        # Captcha ma'lumotlarini saqlaymiz va WAITING_FOR_CAPTCHA holatiga qaytaramiz
+        await state.update_data(
+            captcha_key=cap_data.get("key"),
+            captcha_image=cap_data.get("image_base64")
+        )
+        await state.set_state(VoteStates.WAITING_FOR_CAPTCHA)
+        
+        web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
+        session_id = str(telegram_id)
+        
+        await message.answer(
+            "🔄 <b>Ro'yxatdan o'tganlik tekshirilmoqda...</b>\n\n"
+            "Iltimos, pastdagi tugma orqali captchani yeching. "
+            "Agar muvaffaqiyatli ro'yxatdan o'tgan bo'lsangiz, raqamingizga SMS yuboriladi 👇",
+            reply_markup=reply.get_captcha_reply_keyboard(session_id, web_url),
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer(
+            "Iltimos, quyidagi tugmalardan birini bosing 👇",
+            reply_markup=reply.get_check_registration_keyboard()
+        )
+
 
