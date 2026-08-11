@@ -47,7 +47,7 @@ def get_admin_menu() -> ReplyKeyboardMarkup:
             KeyboardButton(text="🔒 Maxfiy kanal", style="primary")
         ],
         [
-            KeyboardButton(text="🔑 API Web App", web_app=WebAppInfo(url=dashboard_url)),
+            KeyboardButton(text="🔑 API Web App", web_app=WebAppInfo(url=dashboard_url), style="success"),
             KeyboardButton(text="📊 Batafsil Hisobot", style="success")
         ],
         [
