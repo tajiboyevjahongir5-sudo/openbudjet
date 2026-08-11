@@ -148,9 +148,10 @@ def get_start_warning_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🔗 Ro'yxatdan o'tish", url="https://id.egov.uz/"),
+                InlineKeyboardButton(text="🔗 Ro'yxatdan o'tish", url="https://openbudget.uz/registeration"),
                 InlineKeyboardButton(text="✅ Ro'yxatdan o'tganman", callback_data="user_registered_confirm")
             ]
         ]
     )
+
 
