@@ -1,7 +1,10 @@
 from datetime import datetime
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from database.models import User, ProjectSettings, VotesHistory, Withdrawals, VoteStatus, WithdrawalStatus, OpenBudgetProject
+from database.models import (
+    User, ProjectSettings, VotesHistory, Withdrawals,
+    VoteStatus, WithdrawalStatus, OpenBudgetProject, APIKey
+)
 
 # --- Foydalanuvchilar bilan ishlash ---
 
@@ -344,3 +347,74 @@ async def deactivate_all_projects(db: AsyncSession):
     """Barcha loyihalarni faolsizlantiradi"""
     await db.execute(update(OpenBudgetProject).values(is_active=False))
     await db.commit()
+
+
+# --- API Kalitlar bilan ishlash (Tijoriy API va Monetizatsiya) ---
+
+import hashlib
+from utils.encrypt import encrypt_key
+
+async def get_api_key_by_hash(db: AsyncSession, key_hash: str) -> APIKey | None:
+    """FastAPI orqali kelgan so'rovlarda API kalitni SHA256 xeshi bo'yicha bazadan tezkor qidiradi"""
+    result = await db.execute(select(APIKey).where(APIKey.key_hash == key_hash))
+    return result.scalar_one_or_none()
+
+async def get_user_api_keys(db: AsyncSession, owner_id: int) -> list[APIKey]:
+    """Foydalanuvchining barcha API kalitlarini qaytaradi"""
+    result = await db.execute(select(APIKey).where(APIKey.owner_id == owner_id))
+    return list(result.scalars().all())
+
+async def get_all_api_keys(db: AsyncSession) -> list[APIKey]:
+    """Barcha API kalitlar ro'yxatini qaytaradi (Admin dashboard uchun)"""
+    result = await db.execute(select(APIKey).order_by(APIKey.created_at.desc()))
+    return list(result.scalars().all())
+
+async def create_api_key(db: AsyncSession, plain_key: str, owner_id: int | None, initial_balance: int) -> APIKey:
+    """Yangi API kalit yaratadi, shifrlaydi va xeshlangan holatda bazaga saqlaydi"""
+    key_hash = hashlib.sha256(plain_key.encode()).hexdigest()
+    encrypted_key = encrypt_key(plain_key)
+    
+    new_key = APIKey(
+        key=encrypted_key,
+        key_hash=key_hash,
+        owner_id=owner_id,
+        balance_uzs=initial_balance,
+        is_active=True
+    )
+    db.add(new_key)
+    await db.commit()
+    await db.refresh(new_key)
+    return new_key
+
+async def update_api_key_balance(db: AsyncSession, key_id: int, amount: int) -> APIKey | None:
+    """API kalit balansini yangilaydi (mablag' qo'shadi yoki ayiradi)"""
+    result = await db.execute(select(APIKey).where(APIKey.id == key_id))
+    api_key = result.scalar_one_or_none()
+    if api_key:
+        api_key.balance_uzs += amount
+        await db.commit()
+        await db.refresh(api_key)
+        return api_key
+    return None
+
+async def toggle_api_key_status(db: AsyncSession, key_id: int, is_active: bool) -> APIKey | None:
+    """API kalit holatini (bloklangan/faol) o'zgartiradi"""
+    result = await db.execute(select(APIKey).where(APIKey.id == key_id))
+    api_key = result.scalar_one_or_none()
+    if api_key:
+        api_key.is_active = is_active
+        await db.commit()
+        await db.refresh(api_key)
+        return api_key
+    return None
+
+async def delete_api_key(db: AsyncSession, key_id: int) -> bool:
+    """API kalitni bazadan butunlay o'chiradi"""
+    result = await db.execute(select(APIKey).where(APIKey.id == key_id))
+    api_key = result.scalar_one_or_none()
+    if api_key:
+        await db.delete(api_key)
+        await db.commit()
+        return True
+    return False
+

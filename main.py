@@ -2,22 +2,26 @@ import os
 import logging
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, Depends, Header
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Update
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from database.models import Base
-from database.session import engine
+from database.session import engine, get_db
 from database import crud
 from database.session import async_session
 from database.fsm_storage import PostgresStorage
 from handlers import user, vote, admin
 from middlewares import ThrottlingMiddleware
+from api.v1 import router as api_router
+
 
 # Logger sozlamalari
 logging.basicConfig(
@@ -133,9 +137,177 @@ app = FastAPI(
 )
 
 # FastAPI endpointlari
+app.include_router(api_router, prefix="/api/v1", tags=["Commercial API"])
+
+class CreateKeySchema(BaseModel):
+    owner_id: int | None = None
+    balance_uzs: int = 150000
+
+class TopUpSchema(BaseModel):
+    amount: int
+
+class ToggleSchema(BaseModel):
+    is_active: bool
+
 @app.get("/")
 async def health_check():
     return {"status": "running", "mode": "webhook" if settings.WEBHOOK_URL else "polling"}
+
+@app.get("/admin/api-dashboard", response_class=HTMLResponse)
+async def get_admin_dashboard(request: Request):
+    """Admin API boshqaruv paneli sahifasini qaytaradi"""
+    return templates.TemplateResponse("api_dashboard.html", {"request": request})
+
+@app.get("/admin/api/keys")
+async def get_keys_api(
+    tg_init_data: str = Header(None, alias="tg-init-data"),
+    db: AsyncSession = Depends(get_db)
+):
+    from utils.api_auth import verify_telegram_init_data, is_admin_user
+    user_data = verify_telegram_init_data(tg_init_data)
+    if not user_data or not is_admin_user(user_data.get("id", 0)):
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
+        )
+
+    keys = await crud.get_all_api_keys(db)
+    total_balance = sum(k.balance_uzs for k in keys)
+    
+    # Jami muvaffaqiyatli ovozlar soni
+    from database.models import VotesHistory, VoteStatus
+    v_result = await db.execute(select(func.count(VotesHistory.id)).where(VotesHistory.status == VoteStatus.SUCCESS))
+    total_votes = v_result.scalar_one() or 0
+
+    from utils.encrypt import decrypt_key
+    serialized_keys = []
+    for k in keys:
+        try:
+            plain = decrypt_key(k.key)
+            masked = f"{plain[:11]}...{plain[-4:]}"
+        except Exception:
+            plain = ""
+            masked = "xatolik..."
+            
+        serialized_keys.append({
+            "id": k.id,
+            "key_masked": masked,
+            "raw_key_decrypted": plain, # Faqattgina dashboardda nusxalash uchun uzatamiz
+            "owner_id": k.owner_id,
+            "balance_uzs": k.balance_uzs,
+            "is_active": k.is_active,
+            "created_at": k.created_at.isoformat()
+        })
+        
+    return {
+        "status": "success",
+        "stats": {
+            "total_keys": len(keys),
+            "total_balance": total_balance,
+            "total_votes": total_votes
+        },
+        "keys": serialized_keys
+    }
+
+@app.post("/admin/api/keys")
+async def create_key_api(
+    req: CreateKeySchema,
+    tg_init_data: str = Header(None, alias="tg-init-data"),
+    db: AsyncSession = Depends(get_db)
+):
+    from utils.api_auth import verify_telegram_init_data, is_admin_user
+    user_data = verify_telegram_init_data(tg_init_data)
+    if not user_data or not is_admin_user(user_data.get("id", 0)):
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            content={"status": "error", "message": "Kirish taqiqlangan."}
+        )
+
+    import secrets
+    plain_key = f"ob_api_{secrets.token_hex(16)}"
+    
+    await crud.create_api_key(
+        db=db,
+        plain_key=plain_key,
+        owner_id=req.owner_id,
+        initial_balance=req.balance_uzs
+    )
+    
+    return {
+        "status": "success",
+        "key_plain": plain_key
+    }
+
+@app.post("/admin/api/keys/{key_id}/topup")
+async def topup_key_api(
+    key_id: int,
+    req: TopUpSchema,
+    tg_init_data: str = Header(None, alias="tg-init-data"),
+    db: AsyncSession = Depends(get_db)
+):
+    from utils.api_auth import verify_telegram_init_data, is_admin_user
+    user_data = verify_telegram_init_data(tg_init_data)
+    if not user_data or not is_admin_user(user_data.get("id", 0)):
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            content={"status": "error", "message": "Kirish taqiqlangan."}
+        )
+
+    updated = await crud.update_api_key_balance(db, key_id, req.amount)
+    if not updated:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            content={"status": "error", "message": "API kalit topilmadi."}
+        )
+        
+    return {"status": "success"}
+
+@app.post("/admin/api/keys/{key_id}/toggle")
+async def toggle_key_api(
+    key_id: int,
+    req: ToggleSchema,
+    tg_init_data: str = Header(None, alias="tg-init-data"),
+    db: AsyncSession = Depends(get_db)
+):
+    from utils.api_auth import verify_telegram_init_data, is_admin_user
+    user_data = verify_telegram_init_data(tg_init_data)
+    if not user_data or not is_admin_user(user_data.get("id", 0)):
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            content={"status": "error", "message": "Kirish taqiqlangan."}
+        )
+
+    updated = await crud.toggle_api_key_status(db, key_id, req.is_active)
+    if not updated:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            content={"status": "error", "message": "API kalit topilmadi."}
+        )
+        
+    return {"status": "success"}
+
+@app.delete("/admin/api/keys/{key_id}")
+async def delete_key_api(
+    key_id: int,
+    tg_init_data: str = Header(None, alias="tg-init-data"),
+    db: AsyncSession = Depends(get_db)
+):
+    from utils.api_auth import verify_telegram_init_data, is_admin_user
+    user_data = verify_telegram_init_data(tg_init_data)
+    if not user_data or not is_admin_user(user_data.get("id", 0)):
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            content={"status": "error", "message": "Kirish taqiqlangan."}
+        )
+
+    success = await crud.delete_api_key(db, key_id)
+    if not success:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            content={"status": "error", "message": "API kalit topilmadi."}
+        )
+        
+    return {"status": "success"}
 
 @app.get("/captcha", response_class=HTMLResponse)
 async def get_captcha_page(request: Request, session_id: str = "default", sign: str = ""):

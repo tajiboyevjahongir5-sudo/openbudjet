@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Boshqaruv Paneli</title>
+    <!-- Google Fonts (Outfit) -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Telegram WebApp JS SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg-color: #030712;
+            --card-bg: rgba(17, 24, 39, 0.45);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --primary-gradient: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            --text-color: #f3f4f6;
+            --text-muted: #9ca3af;
+            --success-color: #10b981;
+            --danger-color: #ef4444;
+            --warning-color: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background: linear-gradient(135deg, var(--bg-color) 0%, #0c0a09 50%, #0f172a 100%);
+            color: var(--text-color);
+            min-height: 100vh;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Header */
+        header {
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 26px;
+            font-weight: 800;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 6px;
+        }
+
+        header p {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 18px;
+            padding: 16px 12px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            transition: transform 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .stat-card .value {
+            font-size: 20px;
+            font-weight: 800;
+            color: #ffffff;
+            margin-bottom: 4px;
+        }
+
+        .stat-card .label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        /* Actions Section */
+        .action-section {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .form-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .form-input {
+            flex: 1;
+            min-width: 140px;
+            height: 46px;
+            background: rgba(9, 13, 22, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 0 14px;
+            color: #ffffff;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .form-input:focus {
+            border-color: #3b82f6;
+        }
+
+        .btn {
+            height: 46px;
+            padding: 0 20px;
+            background: var(--primary-gradient);
+            border: none;
+            border-radius: 12px;
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s, transform 0.1s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .btn:hover {
+            opacity: 0.95;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-danger {
+            background: var(--danger-color);
+        }
+
+        /* Table Section */
+        .keys-section {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .keys-list {
+            margin-top: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .key-item {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 14px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            position: relative;
+            transition: border-color 0.2s;
+        }
+
+        .key-item:hover {
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .key-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .key-label {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .key-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .key-value.masked {
+            font-family: monospace;
+            letter-spacing: 1px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 4px 8px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        /* Status Badge */
+        .badge {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 8px;
+            border-radius: 9999px;
+            text-transform: uppercase;
+        }
+
+        .badge-active {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success-color);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .badge-blocked {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger-color);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        /* Switch toggle button */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #374151;
+            transition: .3s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--success-color);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+
+        .key-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 6px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 10px;
+        }
+
+        /* Loading / Modal overlay */
+        .loader-container {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(3, 7, 18, 0.85);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .loader {
+            width: 48px;
+            height: 48px;
+            border: 5px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-left-color: #3b82f6;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 480px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+            .form-group {
+                flex-direction: column;
+            }
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>API Dashboard</h1>
+            <p>Tijoriy API kalitlar va balanslarni boshqarish paneli</p>
+        </header>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="value" id="stat-total-keys">0</div>
+                <div class="label">Jami kalitlar</div>
+            </div>
+            <div class="stat-card">
+                <div class="value" id="stat-total-balance">0 UZS</div>
+                <div class="label">Umumiy balans</div>
+            </div>
+            <div class="stat-card">
+                <div class="value" id="stat-total-votes">0</div>
+                <div class="label">Muvaffaqiyatli Ovozlar</div>
+            </div>
+        </div>
+
+        <!-- Create Key Form -->
+        <div class="action-section">
+            <div class="section-title">➕ Yangi API kalit generatsiya qilish</div>
+            <div class="form-group">
+                <input type="number" id="create-owner-id" class="form-input" placeholder="Telegram ID (ixtiyoriy)">
+                <input type="number" id="create-balance" class="form-input" placeholder="Boshlang'ich balans (UZS)" value="150000">
+                <button onclick="generateKey()" class="btn">🔑 Generatsiya</button>
+            </div>
+        </div>
+
+        <!-- API Keys List -->
+        <div class="keys-section">
+            <div class="section-title">📂 API kalitlar ro'yxati</div>
+            <div class="keys-list" id="keys-container">
+                <!-- Kalitlar shu yerga yuklanadi -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Loader Container -->
+    <div class="loader-container" id="loader">
+        <div class="loader"></div>
+        <p style="color: #ffffff; font-weight: 500;">Yuklanmoqda, kuting...</p>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        const headers = {
+            "Content-Type": "application/json",
+            "tg-init-data": tg.initData || ""
+        };
+
+        function showLoader(show) {
+            document.getElementById("loader").style.display = show ? "flex" : "none";
+        }
+
+        async function fetchDashboardData() {
+            showLoader(true);
+            try {
+                const response = await fetch("/admin/api/keys", { headers });
+                if (response.status === 403) {
+                    alert("Kirish taqiqlangan! Faqat adminlar kirishi mumkin.");
+                    tg.close();
+                    return;
+                }
+                const data = await response.json();
+                if (data.status === "success") {
+                    renderStats(data.stats);
+                    renderKeys(data.keys);
+                } else {
+                    alert("Xatolik yuz berdi: " + data.message);
+                }
+            } catch (err) {
+                alert("Server bilan bog'lanishda xato: " + err.message);
+            } finally {
+                showLoader(false);
+            }
+        }
+
+        function renderStats(stats) {
+            document.getElementById("stat-total-keys").innerText = stats.total_keys;
+            document.getElementById("stat-total-balance").innerText = stats.total_balance.toLocaleString() + " UZS";
+            document.getElementById("stat-total-votes").innerText = stats.total_votes;
+        }
+
+        function renderKeys(keys) {
+            const container = document.getElementById("keys-container");
+            container.innerHTML = "";
+
+            if (keys.length === 0) {
+                container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 20px;">Hozircha API kalitlar mavjud emas.</div>`;
+                return;
+            }
+
+            keys.forEach(key => {
+                const item = document.createElement("div");
+                item.className = "key-item";
+                
+                // Kalit egasi
+                const owner = key.owner_id ? `<code>${key.owner_id}</code>` : `<span style="color: var(--text-muted);">Egasi yo'q</span>`;
+                const createdDate = new Date(key.created_at).toLocaleDateString("uz-UZ");
+
+                item.innerHTML = `
+                    <div class="key-row">
+                        <div>
+                            <span class="key-label">Egasi:</span> ${owner}
+                        </div>
+                        <div>
+                            <span class="badge ${key.is_active ? 'badge-active' : 'badge-blocked'}">${key.is_active ? 'Faol' : 'Bloklangan'}</span>
+                        </div>
+                    </div>
+                    <div class="key-row">
+                        <div>
+                            <span class="key-label">Balans:</span> 
+                            <span style="color: ${key.balance_uzs >= 1500 ? 'var(--success-color)' : 'var(--danger-color)'}; font-weight: 700;">
+                                ${key.balance_uzs.toLocaleString()} UZS
+                            </span>
+                        </div>
+                        <div>
+                            <span class="key-label">Sana:</span> <span style="font-size: 13px;">${createdDate}</span>
+                        </div>
+                    </div>
+                    <div class="key-row" style="margin-top: 4px;">
+                        <span class="key-label">Kalit:</span>
+                        <span class="key-value masked" onclick="copyKeyText('${key.raw_key_decrypted || 'Nusxalash'}', ${key.id})" id="raw-key-${key.id}">
+                            ob_api_${key.key_masked} 📋
+                        </span>
+                    </div>
+                    <div class="key-actions">
+                        <button onclick="topUpPrompt(${key.id}, ${key.balance_uzs})" class="btn btn-secondary" style="height: 34px; font-size: 13px; padding: 0 12px;">💸 To'ldirish</button>
+                        <button onclick="deleteKey(${key.id})" class="btn btn-danger" style="height: 34px; font-size: 13px; padding: 0 12px;">🗑️ O'chirish</button>
+                        <div style="flex: 1; display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
+                            <span class="key-label">Aktivlik:</span>
+                            <label class="switch">
+                                <input type="checkbox" ${key.is_active ? 'checked' : ''} onchange="toggleStatus(${key.id}, this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        async function generateKey() {
+            const ownerId = document.getElementById("create-owner-id").value;
+            const balance = document.getElementById("create-balance").value;
+
+            if (!balance || parseInt(balance) < 0) {
+                alert("Iltimos, boshlang'ich balansni to'g'ri kiriting!");
+                return;
+            }
+
+            showLoader(true);
+            try {
+                const response = await fetch("/admin/api/keys", {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify({
+                        owner_id: ownerId ? parseInt(ownerId) : null,
+                        balance_uzs: parseInt(balance)
+                    })
+                });
+                const data = await response.json();
+                if (data.status === "success") {
+                    // Yangi generatsiya bo'lgan kalitni ekranda ko'rsatamiz va nusxalab olamiz
+                    const generatedKey = data.key_plain;
+                    alert("🔑 Yangi API kalit generatsiya qilindi!\n\nDasturchi uchun kalit:\n" + generatedKey + "\n\n(Nusxalab oling, u faqat 1 marta ko'rsatiladi!)");
+                    document.getElementById("create-owner-id").value = "";
+                    fetchDashboardData();
+                } else {
+                    alert("Xatolik: " + data.message);
+                }
+            } catch (err) {
+                alert("Server xatosi: " + err.message);
+            } finally {
+                showLoader(false);
+            }
+        }
+
+        async function topUpPrompt(keyId, currentBalance) {
+            const amount = prompt(`API Kalit balansini to'ldirish (UZS):\nJoriy balans: ${currentBalance.toLocaleString()} UZS\n\nQo'shiladigan summani kiriting (masalan, balansni kamaytirish uchun -10000 kiritiladi):`);
+            if (amount === null || amount.trim() === "" || isNaN(amount)) {
+                return;
+            }
+            
+            showLoader(true);
+            try {
+                const response = await fetch(`/admin/api/keys/${keyId}/topup`, {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify({ amount: parseInt(amount) })
+                });
+                const data = await response.json();
+                if (data.status === "success") {
+                    fetchDashboardData();
+                } else {
+                    alert("Xatolik: " + data.message);
+                }
+            } catch (err) {
+                alert("Xatolik: " + err.message);
+            } finally {
+                showLoader(false);
+            }
+        }
+
+        async function toggleStatus(keyId, isActive) {
+            try {
+                const response = await fetch(`/admin/api/keys/${keyId}/toggle`, {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify({ is_active: isActive })
+                });
+                const data = await response.json();
+                if (data.status !== "success") {
+                    alert("Holatni o'zgartirib bo'lmadi: " + data.message);
+                    fetchDashboardData();
+                }
+            } catch (err) {
+                alert("Ulanish xatosi: " + err.message);
+                fetchDashboardData();
+            }
+        }
+
+        async function deleteKey(keyId) {
+            if (!confirm("Haqiqatan ham ushbu API kalitni butunlay o'chirmoqchimisiz? Bu amalni ortga qaytarib bo'lmaydi!")) {
+                return;
+            }
+            showLoader(true);
+            try {
+                const response = await fetch(`/admin/api/keys/${keyId}`, {
+                    method: "DELETE",
+                    headers
+                });
+                const data = await response.json();
+                if (data.status === "success") {
+                    fetchDashboardData();
+                } else {
+                    alert("O'chirishda xato: " + data.message);
+                }
+            } catch (err) {
+                alert("Xatolik: " + err.message);
+            } finally {
+                showLoader(false);
+            }
+        }
+
+        function copyKeyText(plainText, keyId) {
+            if (!plainText || plainText === 'Nusxalash') {
+                alert("Kalitni faqat generatsiya vaqtida nusxalab olish mumkin! Xavfsizlik yuzasidan u bazada shifrlangan holatda saqlanadi.");
+                return;
+            }
+            navigator.clipboard.writeText(plainText).then(() => {
+                const el = document.getElementById("raw-key-" + keyId);
+                const originalText = el.innerText;
+                el.innerText = "Nusxalandi! ✅";
+                setTimeout(() => {
+                    el.innerText = originalText;
+                }, 1500);
+            }).catch(err => {
+                alert("Nusxalashda xatolik yuz berdi. Kalit:\n" + plainText);
+            });
+        }
+
+        // Dashboard ma'lumotlarini yuklaymiz
+        fetchDashboardData();
+    </script>
+</body>
+</html>

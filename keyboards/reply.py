@@ -30,6 +30,9 @@ def get_phone_keyboard() -> ReplyKeyboardMarkup:
 
 def get_admin_menu() -> ReplyKeyboardMarkup:
     """Adminlar uchun boshqaruv paneli menyusi (Reply Keyboard)"""
+    web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
+    dashboard_url = f"{web_url}/admin/api-dashboard"
+    
     keyboard = [
         [
             KeyboardButton(text="📂 Loyihalar", style="primary"), 
@@ -44,7 +47,10 @@ def get_admin_menu() -> ReplyKeyboardMarkup:
             KeyboardButton(text="🔒 Maxfiy kanal", style="primary")
         ],
         [
-            KeyboardButton(text="📊 Batafsil Hisobot", style="success"),
+            KeyboardButton(text="🔑 API Web App", web_app=WebAppInfo(url=dashboard_url)),
+            KeyboardButton(text="📊 Batafsil Hisobot", style="success")
+        ],
+        [
             KeyboardButton(text="📣 Reklama yuborish", style="success")
         ],
         [
@@ -55,6 +61,7 @@ def get_admin_menu() -> ReplyKeyboardMarkup:
         keyboard=keyboard,
         resize_keyboard=True
     )
+
 
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     """Bekor qilish tugmasi"""

@@ -58,10 +58,16 @@ def get_admin_projects_keyboard(projects: list[str]) -> InlineKeyboardMarkup:
 
 def get_admin_inline_menu() -> InlineKeyboardMarkup:
     """Adminlar uchun boshqaruv panelining inline menyusi"""
+    web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
+    dashboard_url = f"{web_url}/admin/api-dashboard"
+    
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="📂 Loyihalar", callback_data="admin_proj_list", style="primary")
+            ],
+            [
+                InlineKeyboardButton(text="🔑 API Web App", web_app=WebAppInfo(url=dashboard_url), style="success")
             ],
             [
                 InlineKeyboardButton(text="💰 Ovoz mukofoti", callback_data="admin_change_voter_reward", style="primary"),
@@ -77,6 +83,7 @@ def get_admin_inline_menu() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
 
 
 from urllib.parse import urlparse, parse_qs

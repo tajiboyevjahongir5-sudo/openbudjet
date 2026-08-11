@@ -64,3 +64,16 @@ class Withdrawals(Base):
     card_number: Mapped[str] = mapped_column(String(30), nullable=False)
     status: Mapped[WithdrawalStatus] = mapped_column(SQLEnum(WithdrawalStatus), default=WithdrawalStatus.PENDING)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class APIKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(500), unique=True, index=True, nullable=False)      # Shifrlangan kalit
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)  # Tezkor qidiruv uchun SHA256 xeshi
+    owner_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)                      # Telegram ID
+    balance_uzs: Mapped[int] = mapped_column(Integer, default=0)                                 # UZS Balans
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
