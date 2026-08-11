@@ -22,5 +22,7 @@ class AdminStates(StatesGroup):
     WAITING_FOR_CHANNEL_USERNAME = State() # Maxfiy kanal username yoki linkini kiritish
     WAITING_FOR_ADMIN_CARD = State()      # To'lovlar uchun karta raqami sozlash
     WAITING_FOR_ADMIN_CHANNEL = State()   # To'lov kanali Telegram ID sini sozlash
+    WAITING_FOR_TARIFF_PRICE = State()    # Tarif narxini o'zgartirish
+
 
 

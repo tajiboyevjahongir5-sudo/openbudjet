@@ -1,7 +1,7 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from config import settings
 from utils.security import generate_session_signature
-from database.models import OpenBudgetProject
+from database.models import OpenBudgetProject, Tariff
 
 def get_user_inline_menu() -> InlineKeyboardMarkup:
     """Foydalanuvchilar uchun zamonaviy va rangli asosiy inline menyu"""
@@ -177,18 +177,21 @@ def get_partnership_keyboard() -> InlineKeyboardMarkup:
         ]
     )
 
-def get_tariffs_keyboard() -> InlineKeyboardMarkup:
-    """API kalit sotib olish uchun tariflar ro'yxati"""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="💎 50 ovoz (75 000 so'm)", callback_data="buy_tariff_50", style="primary")],
-            [InlineKeyboardButton(text="💎 100 ovoz (150 000 so'm)", callback_data="buy_tariff_100", style="primary")],
-            [InlineKeyboardButton(text="💎 500 ovoz (750 000 so'm)", callback_data="buy_tariff_500", style="primary")],
-            [InlineKeyboardButton(text="💎 1000 ovoz (1 500 000 so'm)", callback_data="buy_tariff_1000", style="primary")],
-            [InlineKeyboardButton(text="💎 5000 ovoz (7 500 000 so'm)", callback_data="buy_tariff_5000", style="primary")],
-            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="partnership_back", style="danger")]
-        ]
-    )
+def get_tariffs_keyboard(tariffs: list[Tariff]) -> InlineKeyboardMarkup:
+    """API kalit sotib olish uchun tariflar ro'yxati (dinamik)"""
+    buttons = []
+    for tariff in tariffs:
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"💎 {tariff.name} ({tariff.price:,} so'm)",
+                callback_data=f"buy_tariff_{tariff.votes}",
+                style="primary"
+            )
+        ])
+    buttons.append([
+        InlineKeyboardButton(text="🔙 Orqaga", callback_data="partnership_back", style="danger")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_payment_keyboard(purchase_id: int) -> InlineKeyboardMarkup:
     """To'lov tasdiqlash uchun inline tugmalar"""
@@ -200,6 +203,33 @@ def get_payment_keyboard(purchase_id: int) -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+def get_admin_settings_keyboard() -> InlineKeyboardMarkup:
+    """Admin sozlamalari inline menyusi"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Karta raqamini sozlash", callback_data="admin_set_card")],
+            [InlineKeyboardButton(text="📣 To'lov kanalini sozlash", callback_data="admin_set_payment_channel")],
+            [InlineKeyboardButton(text="💎 Tariflarni tahrirlash", callback_data="admin_set_tariffs")],
+            [InlineKeyboardButton(text="🔙 Chiqish", callback_data="admin_settings_close")]
+        ]
+    )
+
+def get_admin_tariffs_keyboard(tariffs: list[Tariff]) -> InlineKeyboardMarkup:
+    """Admin uchun tarifni tanlab narxini o'zgartirish inline klaviaturasi"""
+    buttons = []
+    for tariff in tariffs:
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"✏️ {tariff.name} ({tariff.price:,} UZS)",
+                callback_data=f"admin_edit_tariff_{tariff.votes}"
+            )
+        ])
+    buttons.append([
+        InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_settings_back", style="danger")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 
 

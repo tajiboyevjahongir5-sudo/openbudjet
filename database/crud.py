@@ -1,9 +1,12 @@
 from datetime import datetime
-from sqlalchemy import select, update, func
+import logging
+from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 from database.models import (
     User, ProjectSettings, VotesHistory, Withdrawals,
-    VoteStatus, WithdrawalStatus, OpenBudgetProject, APIKey, APIKeyPurchase
+    VoteStatus, WithdrawalStatus, OpenBudgetProject, APIKey, APIKeyPurchase, Tariff
 )
 
 # --- Foydalanuvchilar bilan ishlash ---
@@ -476,5 +479,44 @@ async def complete_purchase(db: AsyncSession, purchase_id: int) -> APIKeyPurchas
         await db.refresh(purchase)
         return purchase
     return None
+
+
+# --- Tariflar bilan ishlash CRUD operatsiyalari ---
+
+async def get_all_tariffs(db: AsyncSession) -> list[Tariff]:
+    """Barcha tariflarni ovozlar soni bo'yicha saralab qaytaradi"""
+    result = await db.execute(select(Tariff).order_by(Tariff.votes.asc()))
+    return list(result.scalars().all())
+
+async def get_tariff_by_votes(db: AsyncSession, votes: int) -> Tariff | None:
+    """Ovozlar soni bo'yicha tarifni topadi"""
+    result = await db.execute(select(Tariff).where(Tariff.votes == votes))
+    return result.scalar_one_or_none()
+
+async def update_tariff_price(db: AsyncSession, votes: int, new_price: int) -> Tariff | None:
+    """Tarif narxini yangilaydi"""
+    tariff = await get_tariff_by_votes(db, votes)
+    if tariff:
+        tariff.price = new_price
+        await db.commit()
+        await db.refresh(tariff)
+        return tariff
+    return None
+
+async def seed_default_tariffs(db: AsyncSession):
+    """Agar bazada tariflar mavjud bo'lmasa, 5 ta standart tarifni kiritadi"""
+    tariffs = await get_all_tariffs(db)
+    if not tariffs:
+        default_tariffs = [
+            Tariff(votes=50, name="50 Ovoz", price=75000),
+            Tariff(votes=100, name="100 Ovoz", price=150000),
+            Tariff(votes=500, name="500 Ovoz", price=750000),
+            Tariff(votes=1000, name="1000 Ovoz", price=1500000),
+            Tariff(votes=5000, name="5000 Ovoz", price=7500000)
+        ]
+        db.add_all(default_tariffs)
+        await db.commit()
+        logger.info("Birlamchi tariflar bazaga muvaffaqiyatli kiritildi (seed).")
+
 
 

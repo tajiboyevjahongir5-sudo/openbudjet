@@ -93,4 +93,14 @@ class APIKeyPurchase(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class Tariff(Base):
+    __tablename__ = "tariffs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    votes: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    price: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+
 

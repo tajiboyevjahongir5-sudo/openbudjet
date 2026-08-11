@@ -9,19 +9,10 @@ from database.session import async_session
 from database import crud
 from keyboards import inline, reply
 from config import settings
-from database.models import ProjectSettings
+from database.models import ProjectSettings, Tariff
 
 logger = logging.getLogger(__name__)
 router = Router()
-
-# Tariflar tarifi nomi, narxi va ovozlar soni
-TARIFFS = {
-    50: {"name": "50 Ovoz", "price": 75000},
-    100: {"name": "100 Ovoz", "price": 150000},
-    500: {"name": "500 Ovoz", "price": 750000},
-    1000: {"name": "1000 Ovoz", "price": 1500000},
-    5000: {"name": "5000 Ovoz", "price": 7500000}
-}
 
 @router.message(F.text == "🤝 Hamkorlik")
 async def cmd_partnership(message: Message, state: FSMContext):
@@ -72,24 +63,27 @@ async def process_get_code(callback: CallbackQuery):
 
 @router.callback_query(F.data == "partnership_buy_api")
 async def process_buy_api(callback: CallbackQuery):
+    async with async_session() as db:
+        tariffs = await crud.get_all_tariffs(db)
+        
     await callback.message.edit_text(
         "🔑 **API Kalit sotib olish uchun tarifni tanlang:**\n\n"
         "Tarif summasiga avtomatik to'lovni tekshirish uchun 1 so'mdan 99 so'mgacha bo'lgan "
         "kichik summa qo'shib beriladi (Masalan: 150 043 UZS). Aynan o'sha summani to'lashingiz shart!",
-        reply_markup=inline.get_tariffs_keyboard()
+        reply_markup=inline.get_tariffs_keyboard(tariffs)
     )
     await callback.answer()
 
 @router.callback_query(F.data.startswith("buy_tariff_"))
 async def process_select_tariff(callback: CallbackQuery):
     votes = int(callback.data.split("_")[-1])
-    tariff = TARIFFS.get(votes)
     
-    if not tariff:
-        await callback.answer("Noto'g'ri tarif tanlandi.", show_alert=True)
-        return
-        
     async with async_session() as db:
+        tariff = await crud.get_tariff_by_votes(db, votes)
+        if not tariff:
+            await callback.answer("Noto'g'ri tarif tanlandi.", show_alert=True)
+            return
+            
         settings_db = await crud.get_project_settings(db)
         card_number = settings_db.card_number
         
@@ -103,7 +97,7 @@ async def process_select_tariff(callback: CallbackQuery):
             return
             
         # Unikal to'lov summasini generatsiya qilamiz
-        price = tariff["price"]
+        price = tariff.price
         max_attempts = 100
         unique_price = price
         
@@ -120,7 +114,7 @@ async def process_select_tariff(callback: CallbackQuery):
         purchase = await crud.create_pending_purchase(
             db=db,
             telegram_id=callback.from_user.id,
-            tariff_name=tariff["name"],
+            tariff_name=tariff.name,
             price_uzs=price,
             unique_price_uzs=unique_price,
             votes_count=votes

@@ -94,6 +94,7 @@ async def init_db():
     
     async with async_session() as db:
         await crud.get_project_settings(db)
+        await crud.seed_default_tariffs(db)
     logger.info("Ma'lumotlar bazasi tayyor!")
 
 

@@ -820,16 +820,7 @@ async def process_admin_broadcast(message: Message, state: FSMContext):
 
 # --- ⚙️ Sozlamalar handlers ---
 
-from keyboards.inline import InlineKeyboardMarkup, InlineKeyboardButton
-
-def get_admin_settings_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Karta raqamini sozlash", callback_data="admin_set_card")],
-            [InlineKeyboardButton(text="📣 To'lov kanalini sozlash", callback_data="admin_set_payment_channel")],
-            [InlineKeyboardButton(text="🔙 Chiqish", callback_data="admin_settings_close")]
-        ]
-    )
+from keyboards import inline
 
 @router.message(F.text == "⚙️ Sozlamalar")
 async def admin_settings_menu(message: Message, state: FSMContext):
@@ -843,7 +834,7 @@ async def admin_settings_menu(message: Message, state: FSMContext):
         f"📣 To'lov kanali ID: `{settings_db.payment_channel_id or 'Sozlanmagan'}`\n\n"
         f"Sozlash uchun quyidagi tugmalarni bosing:"
     )
-    await message.answer(text, reply_markup=get_admin_settings_keyboard(), parse_mode="Markdown")
+    await message.answer(text, reply_markup=inline.get_admin_settings_keyboard(), parse_mode="Markdown")
 
 @router.callback_query(F.data == "admin_settings_close")
 async def admin_settings_close(callback: CallbackQuery, state: FSMContext):
@@ -927,5 +918,96 @@ async def process_admin_channel(message: Message, state: FSMContext):
         reply_markup=reply.get_admin_menu(),
         parse_mode="Markdown"
     )
+
+
+# --- Admin tariflarini tahrirlash handlerlari ---
+
+@router.callback_query(F.data == "admin_set_tariffs")
+async def admin_set_tariffs_start(callback: CallbackQuery):
+    async with async_session() as db:
+        tariffs = await crud.get_all_tariffs(db)
+        
+    await callback.message.edit_text(
+        "💎 **Tahrirlamoqchi bo'lgan tarifingizni tanlang:**",
+        reply_markup=inline.get_admin_tariffs_keyboard(tariffs)
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_settings_back")
+async def admin_settings_back(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    async with async_session() as db:
+        settings_db = await crud.get_project_settings(db)
+        
+    text = (
+        f"⚙️ **Tizim Sozlamalari (API va To'lovlar):**\n\n"
+        f"💳 Karta raqami: `{settings_db.card_number or 'Sozlanmagan'}`\n"
+        f"📣 To'lov kanali ID: `{settings_db.payment_channel_id or 'Sozlanmagan'}`\n\n"
+        f"Sozlash uchun quyidagi tugmalarni bosing:"
+    )
+    await callback.message.edit_text(
+        text, 
+        reply_markup=inline.get_admin_settings_keyboard(), 
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("admin_edit_tariff_"))
+async def admin_edit_tariff_start(callback: CallbackQuery, state: FSMContext):
+    votes = int(callback.data.split("_")[-1])
+    
+    async with async_session() as db:
+        tariff = await crud.get_tariff_by_votes(db, votes)
+        
+    if not tariff:
+        await callback.answer("Tarif topilmadi.", show_alert=True)
+        return
+        
+    await state.set_state(AdminStates.WAITING_FOR_TARIFF_PRICE)
+    await state.update_data(edit_votes=votes)
+    
+    await callback.message.answer(
+        f"✏️ **{tariff.name}** tarifi uchun yangi narxni kiriting (so'mda, faqat raqamlar):\n\n"
+        f"Joriy narx: {tariff.price:,} UZS",
+        reply_markup=reply.get_cancel_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.message(AdminStates.WAITING_FOR_TARIFF_PRICE, F.text)
+async def process_admin_tariff_price(message: Message, state: FSMContext):
+    text_input = message.text.strip()
+    if text_input == "❌ Jarayonni bekor qilish":
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=reply.get_admin_menu())
+        return
+        
+    if not text_input.isdigit():
+        await message.answer("❌ Noto'g'ri qiymat! Iltimos, faqat musbat butun son kiriting (Masalan: 80000):")
+        return
+        
+    new_price = int(text_input)
+    state_data = await state.get_data()
+    votes = state_data.get("edit_votes")
+    
+    if not votes:
+        await message.answer("❌ Xatolik yuz berdi. Iltimos, jarayonni qaytadan boshlang.", reply_markup=reply.get_admin_menu())
+        await state.clear()
+        return
+        
+    async with async_session() as db:
+        updated = await crud.update_tariff_price(db, votes, new_price)
+        
+    await state.clear()
+    if updated:
+        await message.answer(
+            f"✅ **{updated.name} tarifi narxi muvaffaqiyatli yangilandi!**\n\n"
+            f"Yangi narx: {updated.price:,} UZS",
+            reply_markup=reply.get_admin_menu(),
+            parse_mode="Markdown"
+        )
+    else:
+        await message.answer("❌ Tarif narxini yangilashda xato yuz berdi.", reply_markup=reply.get_admin_menu())
+
 
 
