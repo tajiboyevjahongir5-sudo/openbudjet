@@ -230,7 +230,10 @@ class OpenBudgetService:
 
         except Exception as e:
             logger.error(f"Verify SMS Exception: {e}", exc_info=True)
-            return False, f"SMS tasdiqlash jarayonida xatolik: {str(e)}"
+            err_msg = str(e)
+            if "proxy" in err_msg.lower() or "@" in err_msg or "504" in err_msg or "timeout" in err_msg.lower():
+                return False, "Portalga ulanishda tarmoq xatoligi yuz berdi (Proxy/Gateway Timeout). Qayta urinib ko'ring."
+            return False, "SMS tasdiqlash jarayonida tarmoq xatoligi yuz berdi."
 
     @classmethod
     async def cast_vote(
@@ -285,4 +288,7 @@ class OpenBudgetService:
 
         except Exception as e:
             logger.error(f"Cast Vote Exception: {e}", exc_info=True)
-            return False, f"Ovoz berish jarayonida xatolik: {str(e)}"
+            err_msg = str(e)
+            if "proxy" in err_msg.lower() or "@" in err_msg or "504" in err_msg or "timeout" in err_msg.lower():
+                return False, "Ovoz berishda tarmoq xatoligi yuz berdi (Proxy/Gateway Timeout). Qayta urinib ko'ring."
+            return False, "Ovoz berish jarayonida tarmoq xatoligi yuz berdi."
