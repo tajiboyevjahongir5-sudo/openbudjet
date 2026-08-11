@@ -49,12 +49,36 @@ async def process_get_code(callback: CallbackQuery):
             caption=(
                 "💻 **Open Budget Klient Bot kodi!**\n\n"
                 "Ushbu kod siz o'z botingizni ochishingiz uchun soddalashtirilgan to'liq dasturiy koddir. "
-                "Bot ishlashi uchun unga o'zingizning API kalitingizni (API_KEY) ulab qo'yishingiz shart.\n\n"
-                "💡 **Ishga tushirish tartibi:** `.env` faylida `BOT_TOKEN`, `PROJECT_ID` va bizdan sotib olgan "
-                "`API_KEY`ni yozib python dasturi orqali ishga tushirasiz."
+                "Bot ishlashi uchun unga o'zingizning API kalitingizni (API_KEY) ulab qo'yishingiz shart."
             ),
             reply_markup=reply.get_user_menu()
         )
+        
+        instruction_text = (
+            "⚙️ **Botni Serverga yuklash va sozlash bo'yicha to'liq qo'llanma:**\n\n"
+            "Bot 24/7 rejimida uzluksiz ishlashi uchun uni serverga yuklashingiz kerak. Quyidagi qadamlarni bajaring:\n\n"
+            "### 1️⃣ O'zgaruvchilarni (Variables) Sozlash\n"
+            "Server sozlamalarida (yoki kod bilan birga `.env` faylida) quyidagi o'zgaruvchilarni (Environment Variables) aniq ko'rsatishingiz shart:\n\n"
+            "🔹 <b>BOT_TOKEN</b>: @BotFather orqali yaratilgan botingizning maxfiy tokeni.\n"
+            "🔹 <b>API_KEY</b>: Bizning botimizdan sotib olgan API kalitingiz (masalan: <code>ob_api_...</code>).\n"
+            "🔹 <b>API_URL</b>: Bizning API wrapper serverimiz manzili (masalan: <code>https://sizning_botingiz.app/api/v1</code>).\n"
+            "🔹 <b>PROJECT_ID</b>: Siz ovoz yig'ayotgan Open Budget tashabbusi (loyihasi) ID raqami.\n\n"
+            "### 2️⃣ Kerakli kutubxonalarni o'rnatish\n"
+            "Terminalda quyidagi buyruqni ishga tushiring:\n"
+            "<code>pip install aiogram aiohttp</code>\n\n"
+            "### 3️⃣ Serverga yuklash (Deploy):\n"
+            "<b>Railway yoki Render orqali (Tavsiya etiladi - oson):</b>\n"
+            "1. GitHub'da yangi yopiq (Private) repo ochib, ushbu kodni yuklang.\n"
+            "2. Railway.app saytiga kirib GitHub repongizni ulang.\n"
+            "3. Settings (Variables) bo'limida yuqoridagi 4 ta o'zgaruvchini kiriting.\n"
+            "4. Bot avtomatik ishga tushadi!\n\n"
+            "<b>Ubuntu/Linux (VPS) orqali:</b>\n"
+            "1. Faylni serverga yuklang.\n"
+            "2. <code>.env</code> faylini yarating.\n"
+            "3. Fondagi rejimda ishga tushirish uchun quyidagi buyruqni yozing:\n"
+            "   <code>nohup python open_budget_client_bot.py &</code>"
+        )
+        await callback.message.answer(instruction_text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Fayl yuborishda xato: {e}")
         await callback.message.answer(
