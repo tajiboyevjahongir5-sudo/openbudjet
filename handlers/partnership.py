@@ -39,7 +39,9 @@ async def process_get_code(callback: CallbackQuery):
     await callback.message.delete()
     
     # resources dagi open_budget_client_bot.py faylini yuboramiz
-    file_path = r"c:\Users\user\Downloads\open_budget_bot\resources\open_budget_client_bot.py"
+    import os
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    file_path = os.path.join(BASE_DIR, "resources", "open_budget_client_bot.py")
     try:
         input_file = FSInputFile(file_path, filename="open_budget_client_bot.py")
         await callback.message.answer_document(
