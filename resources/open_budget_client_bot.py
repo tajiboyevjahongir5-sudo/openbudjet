@@ -3,6 +3,7 @@ import asyncio
 import os
 import aiohttp
 import sqlite3
+from datetime import datetime
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -19,13 +20,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 # --- Boshlang'ich Sozlamalar ---
-# Faqat BOT_TOKEN va ADMIN_ID ni .env orqali yoki bu yerda kiritsangiz kifoya.
-# Qolgan sozlamalar (API_KEY, PROJECT_ID) bot ichidagi /admin panel orqali sozlanadi.
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN_SHU_YERGA_YOZILADI")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # Bot egasining Telegram ID raqami (masalan: 12345678)
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # Bot egasining Telegram ID raqami
 API_URL = os.getenv("API_URL", "https://openbudjet-production.up.railway.app/api/v1")
 
-# --- Ma'lumotlar Bazasi (SQLite - Kutubxona talab qilmaydi, standart o'rnatilgan) ---
+# --- Ma'lumotlar Bazasi (SQLite) ---
 DB_PATH = "client_bot.db"
 
 def init_local_db():
@@ -43,6 +42,14 @@ def init_local_db():
         CREATE TABLE IF NOT EXISTS stats (
             key TEXT PRIMARY KEY,
             val_int INTEGER
+        )
+    """)
+    # Muvaffaqiyatli ovozlar tarixi jadvali (telefon va sana)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS votes_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone_number TEXT NOT NULL,
+            voted_at TEXT NOT NULL
         )
     """)
     # Boshlang'ich qiymatlar
@@ -81,6 +88,22 @@ def increment_votes_count():
     cursor.execute("UPDATE stats SET val_int = val_int + 1 WHERE key = 'successful_votes'")
     conn.commit()
     conn.close()
+
+def add_vote_to_history(phone_number: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("INSERT INTO votes_history (phone_number, voted_at) VALUES (?, ?)", (phone_number, now_str))
+    conn.commit()
+    conn.close()
+
+def get_votes_history_list() -> list[tuple]:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT phone_number, voted_at FROM votes_history ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
 # Baza yaratamiz
 init_local_db()
@@ -129,7 +152,7 @@ def get_admin_keyboard():
         inline_keyboard=[
             [InlineKeyboardButton(text="🔑 API Kalitni sozlash", callback_data="client_admin_set_api")],
             [InlineKeyboardButton(text="📌 Loyiha ID sini sozlash", callback_data="client_admin_set_project")],
-            [InlineKeyboardButton(text="📈 Statistika", callback_data="client_admin_view_stats")],
+            [InlineKeyboardButton(text="📊 Hisobot yuklab olish", callback_data="client_admin_view_stats")],
             [InlineKeyboardButton(text="❌ Menyuni yopish", callback_data="client_admin_close")]
         ]
     )
@@ -176,7 +199,7 @@ async def cmd_admin(message: Message, state: FSMContext):
         f"🔑 API Kalit: <code>{api_key or 'Kiritilmagan'}</code>\n"
         f"📌 Loyiha IDsi: <code>{project_id or 'Kiritilmagan'}</code>\n"
         f"📈 Ovozlar soni: <b>{votes_count} ta</b>\n\n"
-        "O'zgartirish uchun quyidagi tugmalardan foydalaning:"
+        "Boshqarish va Excel/Txt hisobot yuklab olish uchun quyidagi tugmalarni bosing:"
     )
     await message.answer(text, reply_markup=get_admin_keyboard(), parse_mode="HTML")
 
@@ -188,8 +211,39 @@ async def client_admin_close(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "client_admin_view_stats")
 async def client_admin_view_stats(callback: CallbackQuery):
-    votes_count = get_votes_count()
-    await callback.answer(f"Bot orqali jami {votes_count} ta muvaffaqiyatli ovoz berilgan.", show_alert=True)
+    # Ovoz bergan telefonlar tarixi
+    history = get_votes_history_list()
+    
+    if not history:
+        await callback.answer("Hozircha muvaffaqiyatli ovozlar tarixi mavjud emas.", show_alert=True)
+        return
+        
+    # TXT ko'rinishida hisobot faylini tayyorlaymiz
+    report_lines = [
+        "========================================",
+        f"      OPEN BUDGET OVOZ BERISH HISOBOTI",
+        "========================================",
+        f"Yaratilgan sana: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Jami muvaffaqiyatli ovozlar: {len(history)} ta\n",
+        "T/R | Telefon raqam | Sana va Vaqt",
+        "----------------------------------------"
+    ]
+    
+    for idx, (phone, date_str) in enumerate(history, 1):
+        report_lines.append(f"{idx:03d} | +{phone} | {date_str}")
+        
+    report_lines.append("\n========================================")
+    report_text = "\n".join(report_lines)
+    
+    # Faylni yuborish
+    file_bytes = report_text.encode("utf-8")
+    report_file = BufferedInputFile(file_bytes, filename=f"ovozlar_hisoboti_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+    
+    await callback.message.answer_document(
+        document=report_file,
+        caption="📊 **Sizning botingiz orqali berilgan barcha muvaffaqiyatli ovozlar hisoboti (TXT formatda)**"
+    )
+    await callback.answer()
 
 @router.callback_query(F.data == "client_admin_set_api")
 async def client_admin_set_api(callback: CallbackQuery, state: FSMContext):
@@ -430,6 +484,7 @@ async def process_captcha_2(message: Message, state: FSMContext):
         return
         
     data = await state.get_data()
+    phone = data["phone"]
     access_token = data["access_token"]
     captcha_key_2 = data["captcha_key_2"]
     project_id = get_setting("project_id")
@@ -449,8 +504,9 @@ async def process_captcha_2(message: Message, state: FSMContext):
         error_msg = res.get("detail", "Ovoz berish muvaffaqiyatsiz yakunlandi.")
         await message.answer(f"❌ Xatolik: {error_msg}", reply_markup=get_main_menu())
     else:
-        # Ovoz berish muvaffaqiyatli bo'lsa, statistika oshiriladi
+        # Ovoz berish muvaffaqiyatli bo'lsa, statistika va tarix yoziladi
         increment_votes_count()
+        add_vote_to_history(phone)
         await message.answer("🎉 **Tabriklaymiz! Ovoz muvaffaqiyatli hisoblandi.**", reply_markup=get_main_menu())
         
     await state.clear()
