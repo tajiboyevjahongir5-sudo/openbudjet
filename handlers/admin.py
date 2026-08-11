@@ -15,6 +15,7 @@ from database.models import WithdrawalStatus, OpenBudgetProject
 from sqlalchemy import select
 from states.user_states import AdminStates
 from keyboards import reply, inline
+from services.openbudget import OpenBudgetService
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -94,58 +95,111 @@ async def process_admin_project_id(message: Message, state: FSMContext):
         await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
         return
 
-    await state.update_data(project_id=project_id)
-    await state.set_state(AdminStates.WAITING_FOR_PROJECT_URL)
-    await message.answer(
-        "🔗 Endi loyihaning to'liq <b>havolasini (URL)</b> kiriting:\n"
-        "(Masalan: https://openbudget.uz/boards/initiatives/31/details?initiativeId=32541)",
-        reply_markup=reply.get_cancel_keyboard(),
-        parse_mode="HTML"
+    # Loyiha ID faqat raqamdan iborat bo'lishi shart
+    if not project_id.isdigit():
+        await message.answer(
+            "❌ Noto'g'ri ID. Loyiha ID raqami faqat raqamlardan iborat bo'lishi kerak.\n"
+            "Iltimos, qayta kiriting (masalan: 538436):"
+        )
+        return
+
+    waiting_msg = await message.answer("🔍 Loyiha saytdan tekshirilmoqda, iltimos kuting...")
+
+    try:
+        # Loyihani Open Budget API orqali qidiramiz
+        initiative = await OpenBudgetService.find_initiative(project_id)
+    except Exception as e:
+        logger.error(f"Loyiha qidirishda xatolik: {e}")
+        initiative = None
+
+    await waiting_msg.delete()
+
+    if not initiative:
+        await message.answer(
+            "❌ Ushbu ID raqami bo'yicha loyiha topilmadi.\n"
+            "Iltimos, ID to'g'ri kiritilganligini tekshirib, qayta kiriting:"
+        )
+        return
+
+    # Havolani avtomat yaratamiz
+    board_id = initiative.get("boardId")
+    project_url = f"https://openbudget.uz/boards/initiatives/{board_id}/details?initiativeId={project_id}"
+
+    # FSM ma'lumotlarini yangilaymiz
+    await state.update_data(
+        project_id=project_id,
+        project_url=project_url,
+        initiative_title=initiative.get("boardTitle", "Tashabbusli Budjet"),
+        region_name=initiative.get("regionName", ""),
+        district_name=initiative.get("districtName", ""),
+        quarter_name=initiative.get("quarterName", ""),
+        category_name=initiative.get("categoryName", ""),
+        vote_count=initiative.get("voteCount", 0),
+        description=initiative.get("description", "")
     )
 
-@router.message(AdminStates.WAITING_FOR_PROJECT_URL, F.text)
-async def process_admin_project_url(message: Message, state: FSMContext):
-    project_url = message.text.strip()
-    if project_url == "❌ Jarayonni bekor qilish":
-        await state.clear()
-        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
-        return
+    await state.set_state(AdminStates.WAITING_FOR_PROJECT_CONFIRM)
 
-    # Qat'iy URL tekshiruvi (urllib.parse)
-    try:
-        parsed = urlparse(project_url)
-        if parsed.scheme != "https":
-            await message.answer("❌ Noto'g'ri havola. Havola faqat secure HTTPS sxemasi bilan boshlanishi kerak (https://...). Qayta kiriting:")
-            return
-        netloc = parsed.netloc.lower()
-        if netloc != "openbudget.uz" and not netloc.endswith(".openbudget.uz"):
-            await message.answer("❌ Noto'g'ri havola. Faqat rasmiy 'openbudget.uz' havolalariga ruxsat etiladi. Qayta kiriting:")
-            return
-        if parsed.username or parsed.password:
-            await message.answer("❌ Noto'g'ri havola. Havolada foydalanuvchi ma'lumotlari (credentials) bo'lmasligi kerak. Qayta kiriting:")
-            return
-    except Exception:
-        await message.answer("❌ Havola formati noto'g'ri. Iltimos to'g'ri havolani kiriting:")
-        return
+    # Loyiha ma'lumotlarini chiroyli ko'rsatamiz
+    details_text = (
+        "📋 <b>Loyiha ma'lumotlari topildi:</b>\n\n"
+        f"📅 <b>Mavsum:</b> {html.escape(str(initiative.get('boardTitle', 'Tashabbusli Budjet')))}\n"
+        f"🏢 <b>Hudud:</b> {html.escape(str(initiative.get('regionName', '')))}, {html.escape(str(initiative.get('districtName', '')))}\n"
+        f"🏡 <b>Mahalla:</b> {html.escape(str(initiative.get('quarterName', '')))}\n"
+        f"📂 <b>Kategoriya:</b> {html.escape(str(initiative.get('categoryName', '')))}\n"
+        f"🗳️ <b>Ovozlar soni:</b> {initiative.get('voteCount', 0)} ta\n"
+        f"📝 <b>Tavsif:</b> {html.escape(str(initiative.get('description', ''))[:300])}...\n\n"
+        f"📌 <b>Loyiha ID:</b> <code>{project_id}</code>\n\n"
+        "Loyiha ma'lumotlari to'g'rimi? Tasdiqlasangiz, loyiha botga qo'shiladi va faollashtiriladi."
+    )
 
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    confirm_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Tasdiqlash", callback_data="admin_confirm_proj_add"),
+                InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin_cancel_proj_add")
+            ]
+        ]
+    )
+
+    await message.answer(details_text, reply_markup=confirm_keyboard, parse_mode="HTML")
+
+
+@router.callback_query(AdminStates.WAITING_FOR_PROJECT_CONFIRM, F.data == "admin_confirm_proj_add")
+async def process_admin_confirm_project_add(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     project_id = data.get("project_id")
+    project_url = data.get("project_url")
 
     async with async_session() as db:
+        # Loyihani qo'shish
         await crud.add_project(
             db=db,
             project_id=project_id,
             project_url=project_url
         )
+        # Faollashtirish
+        await crud.activate_project(db=db, project_id=project_id)
 
     await state.clear()
-    await message.answer(
-        f"✅ Yangi loyiha muvaffaqiyatli qo'shildi!\n\n"
-        f"📌 Loyiha ID: <code>{html.escape(str(project_id))}</code>\n"
-        f"🔗 Havola: {html.escape(str(project_url))}",
-        reply_markup=reply.get_admin_menu(),
+    await callback.message.edit_text(
+        f"✅ Yangi loyiha muvaffaqiyatli qo'shildi va faollashtirildi!\n\n"
+        f"📌 <b>ID:</b> <code>{html.escape(str(project_id))}</code>\n"
+        f"🔗 <b>Havola:</b> {html.escape(str(project_url))}",
         parse_mode="HTML"
     )
+    # Asosiy menyuni chiqarish
+    await callback.message.answer("Boshqaruv menyusi:", reply_markup=reply.get_admin_menu())
+    await callback.answer()
+
+
+@router.callback_query(AdminStates.WAITING_FOR_PROJECT_CONFIRM, F.data == "admin_cancel_proj_add")
+async def process_admin_cancel_project_add(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("Loyiha qo'shish jarayoni bekor qilindi.")
+    await callback.message.answer("Boshqaruv menyusi:", reply_markup=reply.get_admin_menu())
+    await callback.answer()
 @router.callback_query(F.data.startswith("admin_proj_view_"))
 async def process_admin_project_view(callback: CallbackQuery):
     """Loyiha tafsilotlarini ko'rish va boshqarish"""

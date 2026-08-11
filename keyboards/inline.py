@@ -1,4 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from config import settings
+from utils.security import generate_session_signature
 from database.models import OpenBudgetProject
 
 def get_user_inline_menu() -> InlineKeyboardMarkup:
@@ -39,7 +41,8 @@ def get_withdraw_action_keyboard(withdraw_id: int) -> InlineKeyboardMarkup:
 
 def get_captcha_keyboard(session_id: str, web_url: str) -> InlineKeyboardMarkup:
     """Puzzle captchani yechish uchun Web App tugmasi"""
-    url = f"{web_url}/captcha?session_id={session_id}"
+    sign = generate_session_signature(session_id, settings.BOT_TOKEN)
+    url = f"{web_url}/captcha?session_id={session_id}&sign={sign}"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🧩 Captchani yechish", web_app=WebAppInfo(url=url), style="success")]

@@ -1,7 +1,7 @@
 import os
 from typing import List
 from urllib.parse import urlparse
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -57,6 +57,13 @@ class Settings(BaseSettings):
         if parsed.username or parsed.password:
             raise ValueError("Proxy URL cannot contain credentials")
         return v
+
+    @model_validator(mode="after")
+    def secure_webhook_token(self) -> "Settings":
+        if self.WEBHOOK_SECRET_TOKEN == "default_secret_token_ob_bot_998" and self.BOT_TOKEN:
+            import hashlib
+            self.WEBHOOK_SECRET_TOKEN = hashlib.sha256(self.BOT_TOKEN.encode()).hexdigest()
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",

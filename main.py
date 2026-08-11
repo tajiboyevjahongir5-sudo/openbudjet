@@ -138,8 +138,13 @@ async def health_check():
     return {"status": "running", "mode": "webhook" if settings.WEBHOOK_URL else "polling"}
 
 @app.get("/captcha", response_class=HTMLResponse)
-async def get_captcha_page(request: Request, session_id: str = "default"):
+async def get_captcha_page(request: Request, session_id: str = "default", sign: str = ""):
     """Foydalanuvchilar captchani yechishi uchun chiroyli HTML sahifasi"""
+    if session_id != "default":
+        from utils.security import verify_session_signature
+        if not verify_session_signature(session_id, sign, settings.BOT_TOKEN):
+            return HTMLResponse("<h1>403 Forbidden: Noto'g'ri yoki yo'q imzo</h1>", status_code=403)
+
     captcha_image = None
     captcha_key = None
     try:

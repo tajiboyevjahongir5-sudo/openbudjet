@@ -292,3 +292,82 @@ class OpenBudgetService:
             if "proxy" in err_msg.lower() or "@" in err_msg or "504" in err_msg or "timeout" in err_msg.lower():
                 return False, "Ovoz berishda tarmoq xatoligi yuz berdi (Proxy/Gateway Timeout). Qayta urinib ko'ring."
             return False, "Ovoz berish jarayonida tarmoq xatoligi yuz berdi."
+
+    @classmethod
+    async def get_boards(cls) -> list[dict]:
+        """Barcha faol va arxivlangan taxtalar ro'yxatini yuklab oladi"""
+        if settings.MOCK_OPENBUDGET:
+            return [{"id": 55, "type": "INITIATIVE", "is_active": True, "title": "Mock Board (Tashabbusli Budjet)"}]
+
+        url = cls._get_url("/v1/boards")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Referer": "https://openbudget.uz/",
+            "Origin": "https://openbudget.uz"
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return data.get("boards", [])
+        except Exception as e:
+            logger.error(f"Boards yuklashda xatolik: {e}")
+        return []
+
+    @classmethod
+    async def find_initiative(cls, project_id: str) -> dict | None:
+        """
+        Open Budget portalidan loyihani ID orqali qidirib topadi.
+        Faol va boshqa INITIATIVE taxtalarini tekshiradi.
+        """
+        if settings.MOCK_OPENBUDGET:
+            return {
+                "boardId": 55,
+                "categoryName": "Mock Kategoriya (Yo'llarni ta'mirlash)",
+                "description": "Mock loyiha tavsifi. Ko'chamizga asfalt yotqizish zarur.",
+                "districtName": "Koson tumani",
+                "quarterName": "Xalqobod MFY",
+                "regionName": "Qashqadaryo viloyati",
+                "voteCount": 120,
+                "id": "mock-uuid-12345-67890",
+                "publicId": f"055{project_id}5005",
+                "boardTitle": "Mock Board (Tashabbusli Budjet)"
+            }
+
+        boards = await cls.get_boards()
+        initiative_boards = [b for b in boards if b.get("type") == "INITIATIVE"]
+        
+        # Boardlarni ID bo'yicha kamayish tartibida saralaymiz (oxirgisi birinchi)
+        initiative_boards.sort(key=lambda x: x.get("id", 0), reverse=True)
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Referer": "https://openbudget.uz/",
+            "Origin": "https://openbudget.uz"
+        }
+
+        # Barcha boardlarda qidirib chiqamiz
+        for board in initiative_boards:
+            board_id = board.get("id")
+            url = cls._get_url(f"/v2/info/board/{board_id}?search={project_id}")
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers, timeout=12, proxy=settings.PROXY_URL or None) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            content = data.get("content", [])
+                            # Qidiruv natijalari orasidan publicId kiritilgan project_id ni o'z ichiga olganini topamiz
+                            for item in content:
+                                pub_id = str(item.get("publicId", ""))
+                                expected_prefix = f"0{board_id}{project_id}"
+                                if pub_id.startswith(expected_prefix) or project_id in pub_id:
+                                    item["boardTitle"] = board.get("title", "Tashabbusli Budjet")
+                                    return item
+            except Exception as e:
+                logger.error(f"Board {board_id} dan loyiha qidirishda xatolik: {e}")
+                
+        return None
+
