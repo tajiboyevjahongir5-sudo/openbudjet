@@ -129,6 +129,7 @@ async def process_admin_project_id(message: Message, state: FSMContext):
     await state.update_data(
         project_id=project_id,
         project_url=project_url,
+        project_uuid=initiative.get("id"),  # Loyihaning haqiqiy UUID kaliti
         initiative_title=initiative.get("boardTitle", "Tashabbusli Budjet"),
         region_name=initiative.get("regionName", ""),
         district_name=initiative.get("districtName", ""),
@@ -170,22 +171,24 @@ async def process_admin_project_id(message: Message, state: FSMContext):
 async def process_admin_confirm_project_add(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     project_id = data.get("project_id")
+    project_uuid = data.get("project_uuid")
     project_url = data.get("project_url")
 
     async with async_session() as db:
-        # Loyihani qo'shish
+        # Loyihani qo'shish (project_id o'rniga UUID ni saqlaymiz!)
         await crud.add_project(
             db=db,
-            project_id=project_id,
+            project_id=project_uuid,
             project_url=project_url
         )
         # Faollashtirish
-        await crud.activate_project(db=db, project_id=project_id)
+        await crud.activate_project(db=db, project_id=project_uuid)
 
     await state.clear()
     await callback.message.edit_text(
         f"✅ Yangi loyiha muvaffaqiyatli qo'shildi va faollashtirildi!\n\n"
         f"📌 <b>ID:</b> <code>{html.escape(str(project_id))}</code>\n"
+        f"🔑 <b>UUID:</b> <code>{html.escape(str(project_uuid))}</code>\n"
         f"🔗 <b>Havola:</b> {html.escape(str(project_url))}",
         parse_mode="HTML"
     )
