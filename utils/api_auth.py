@@ -22,20 +22,33 @@ def verify_telegram_init_data(init_data: str) -> dict | None:
         return None
         
     try:
-        # Decode first if double URL encoded
-        if "%3D" in init_data or "%26" in init_data:
+        # Mini App raw data strings might be URL-encoded, let's decode once if it is double encoded
+        if init_data.startswith("query_id%3D") or "user%3D" in init_data or "hash%3D" in init_data:
             init_data = urllib.parse.unquote(init_data)
             
-        parsed = dict(urllib.parse.parse_qsl(init_data))
-        if "hash" not in parsed:
-            logger.warning(f"verify_telegram_init_data: 'hash' not found in parsed data: {list(parsed.keys())}")
+        # Parse the raw pairs to find the hash
+        pairs = init_data.split("&")
+        parsed_dict = {}
+        tg_hash = None
+        other_pairs = []
+        
+        for pair in pairs:
+            if not pair or "=" not in pair:
+                continue
+            k, v = pair.split("=", 1)
+            if k == "hash":
+                tg_hash = v
+            else:
+                other_pairs.append((k, v))
+                parsed_dict[k] = urllib.parse.unquote(v)
+                
+        if not tg_hash:
+            logger.warning(f"verify_telegram_init_data: hash not found in parsed data.")
             return None
             
-        tg_hash = parsed.pop("hash")
-        
-        # Qolgan parametrlarni alifbo tartibida saralaymiz
-        sorted_params = sorted(parsed.items())
-        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted_params)
+        # Sort keys alphabetically and reconstruct data_check_string using the original raw values
+        other_pairs.sort(key=lambda x: x[0])
+        data_check_string = "\n".join(f"{k}={v}" for k, v in other_pairs)
         
         # Secret key yaratamiz (HMAC-SHA256 "WebappData" bilan)
         secret_key = hmac.new(b"WebappData", settings.BOT_TOKEN.encode(), hashlib.sha256).digest()
@@ -48,7 +61,7 @@ def verify_telegram_init_data(init_data: str) -> dict | None:
             return None
             
         # User ma'lumotlarini JSON qilib o'qiymiz
-        user_str = parsed.get("user")
+        user_str = parsed_dict.get("user")
         if not user_str:
             logger.warning("verify_telegram_init_data: 'user' field not found in parsed data.")
             return None
