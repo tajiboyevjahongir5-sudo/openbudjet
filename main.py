@@ -529,16 +529,27 @@ async def update_settings_api(
             content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
         )
         
-    updated = await crud.update_project_settings(
-        db, 
-        card_number=schema.card_number, 
-        payment_channel_id=schema.payment_channel_id
-    )
-    if not updated:
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"status": "error", "message": "Sozlamalarni saqlab bo'lmadi."}
-        )
+    card_number_val = schema.card_number.strip() if schema.card_number else None
+    if not card_number_val:
+        card_number_val = None
+
+    channel_id = None
+    if schema.payment_channel_id:
+        val = str(schema.payment_channel_id).strip()
+        if val:
+            try:
+                channel_id = int(val)
+            except ValueError:
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={"status": "error", "message": "To'lov kanali IDsi faqat butun son bo'lishi shart (masalan: -1001234567890)!"}
+                )
+                
+    settings_db = await crud.get_project_settings(db)
+    settings_db.card_number = card_number_val
+    settings_db.payment_channel_id = channel_id
+    await db.commit()
+    await db.refresh(settings_db)
         
     return {"status": "success", "message": "Tizim sozlamalari muvaffaqiyatli saqlandi!"}
 
