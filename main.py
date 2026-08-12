@@ -215,9 +215,10 @@ async def get_keys_api(
         )
         
     if not telegram_id:
+        token_status = "yo'q (empty)" if not admin_token else f"mavjud ({admin_token[:15]}...)"
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": "Avtorizatsiya ma'lumotlari topilmadi. Bot orqali qayta kiring."}
+            content={"status": "error", "message": f"Avtorizatsiya ma'lumotlari topilmadi (initData: bo'sh, admin_token: {token_status}). Botga qaytib, /admin buyrug'ini yuboring va menyuni yangilang!"}
         )
         
     if not is_admin_user(telegram_id):
