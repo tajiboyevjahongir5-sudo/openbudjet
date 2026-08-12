@@ -105,13 +105,34 @@ async def lifespan(app: FastAPI):
     
     if settings.WEBHOOK_URL:
         # Webhook rejimi
-        webhook_url = f"{settings.WEBHOOK_URL}/webhook"
+        webhook_url = f"{settings.WEBHOOK_URL.rstrip('/')}/webhook"
         logger.info(f"Webhook o'rnatilmoqda: {webhook_url}")
-        await bot.set_webhook(
-            url=webhook_url,
-            drop_pending_updates=True,
-            secret_token=settings.WEBHOOK_SECRET_TOKEN
-        )
+        from aiogram.exceptions import TelegramRetryAfter, TelegramNetworkError
+        try:
+            await bot.set_webhook(
+                url=webhook_url,
+                drop_pending_updates=True,
+                secret_token=settings.WEBHOOK_SECRET_TOKEN,
+                request_timeout=30
+            )
+            logger.info("Webhook muvaffaqiyatli o'rnatildi.")
+        except TelegramRetryAfter as e:
+            logger.warning(f"Telegram Flood Control: {e.retry_after} soniya kutilmoqda...")
+            await asyncio.sleep(e.retry_after)
+            try:
+                await bot.set_webhook(
+                    url=webhook_url,
+                    drop_pending_updates=True,
+                    secret_token=settings.WEBHOOK_SECRET_TOKEN
+                )
+                logger.info("Webhook qayta urinishda muvaffaqiyatli o'rnatildi.")
+            except Exception as e_retry:
+                logger.error(f"Webhook qayta urinishda o'rnatilmadi: {e_retry}")
+        except TelegramNetworkError as e:
+            logger.error(f"Telegram tarmoq xatoligi (set_webhook): {e}")
+        except Exception as e:
+            logger.error(f"Webhook o'rnatishda kutilmagan xatolik: {e}")
+
     else:
         # Polling rejimi (FastAPI ichida background task sifatida)
         logger.info("WEBHOOK_URL topilmadi. Bot polling rejimida ishga tushmoqda...")
