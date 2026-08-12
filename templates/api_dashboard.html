@@ -410,6 +410,22 @@
             </div>
         </div>
 
+        <!-- System Settings Section -->
+        <div class="action-section" style="margin-top: 24px;">
+            <div class="section-title">💳 Tizim sozlamalari (To'lovlar)</div>
+            <div class="form-group" style="flex-direction: column; gap: 12px; align-items: stretch;">
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <label style="font-size: 13px; color: var(--text-muted); text-align: left;">Karta raqami (Tarif to'lovlari uchun):</label>
+                    <input type="text" id="settings-card-number" class="form-input" placeholder="Karta raqami (masalan: 8600...)" style="width: 100%; margin: 0; height: 38px;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <label style="font-size: 13px; color: var(--text-muted); text-align: left;">To'lov kanali IDsi (Avtomat tekshirish uchun):</label>
+                    <input type="text" id="settings-channel-id" class="form-input" placeholder="Kanal ID (masalan: -100...)" style="width: 100%; margin: 0; height: 38px;">
+                </div>
+                <button onclick="saveSystemSettings()" class="btn" style="margin-top: 8px; width: 100%; height: 38px;">💾 Sozlamalarni saqlash</button>
+            </div>
+        </div>
+
         <!-- API Keys List -->
         <div class="keys-section" style="margin-top: 24px;">
             <div class="section-title">📂 API kalitlar ro'yxati</div>
@@ -469,6 +485,15 @@
                     renderStats(data.stats);
                     renderKeys(data.keys);
                     renderTariffs(data.tariffs);
+                    
+                    const cardInput = document.getElementById("settings-card-number");
+                    const channelInput = document.getElementById("settings-channel-id");
+                    if (document.activeElement !== cardInput) {
+                        cardInput.value = data.settings.card_number || "";
+                    }
+                    if (document.activeElement !== channelInput) {
+                        channelInput.value = data.settings.payment_channel_id || "";
+                    }
                 } else {
                     alert("Xatolik yuz berdi: " + data.message);
                 }
@@ -716,9 +741,35 @@
             }
         }
 
+        async function saveSystemSettings() {
+            const cardNumber = document.getElementById("settings-card-number").value.trim();
+            const channelId = document.getElementById("settings-channel-id").value.trim();
+
+            showLoader(true);
+            try {
+                const response = await fetch("/admin/api/settings?init_data=" + encodeURIComponent(tg.initData || "") + "&admin_token=" + encodeURIComponent(adminToken), {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify({
+                        card_number: cardNumber || null,
+                        payment_channel_id: channelId || null
+                    })
+                });
+                const data = await response.json();
+                if (response.ok && data.status === "success") {
+                    alert(data.message);
+                    fetchDashboardData();
+                } else {
+                    alert("Xatolik: " + (data.message || "Sozlamalarni saqlab bo'lmadi."));
+                }
+            } catch (err) {
+                alert("Server bilan bog'lanishda xato: " + err.message);
+            } finally {
+                showLoader(false);
+            }
+        }
+
         fetchDashboardData();
     </script>
-</body>
-</html>
 </body>
 </html>

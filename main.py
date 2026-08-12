@@ -264,6 +264,12 @@ async def get_keys_api(
         "price": t.price
     } for t in tariffs]
     
+    settings_db = await crud.get_project_settings(db)
+    serialized_settings = {
+        "card_number": settings_db.card_number or "",
+        "payment_channel_id": settings_db.payment_channel_id or ""
+    }
+    
     return {
         "status": "success",
         "stats": {
@@ -272,7 +278,8 @@ async def get_keys_api(
             "total_votes": total_votes
         },
         "keys": serialized_keys,
-        "tariffs": serialized_tariffs
+        "tariffs": serialized_tariffs,
+        "settings": serialized_settings
     }
 
 @app.post("/admin/api/keys")
@@ -487,6 +494,53 @@ async def update_tariff_price_api(
         )
         
     return {"status": "success", "message": f"{updated.name} tarifi narxi muvaffaqiyatli yangilandi!"}
+
+
+class UpdateSettingsSchema(BaseModel):
+    card_number: str | None = None
+    payment_channel_id: str | None = None
+
+@app.post("/admin/api/settings")
+async def update_settings_api(
+    schema: UpdateSettingsSchema,
+    init_data: str = None,
+    admin_token: str = None,
+    tg_init_data: str = Header(None, alias="tg-init-data"),
+    db: AsyncSession = Depends(get_db)
+):
+    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
+    
+    user_data = None
+    auth_error = None
+    raw_data = init_data or tg_init_data
+    
+    if raw_data:
+        user_data, auth_error = verify_telegram_init_data_detailed(raw_data)
+        
+    telegram_id = None
+    if user_data:
+        telegram_id = user_data.get("id", 0)
+    elif admin_token:
+        telegram_id = verify_admin_token(admin_token)
+        
+    if (auth_error and not telegram_id) or not telegram_id or not is_admin_user(telegram_id):
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
+        )
+        
+    updated = await crud.update_project_settings(
+        db, 
+        card_number=schema.card_number, 
+        payment_channel_id=schema.payment_channel_id
+    )
+    if not updated:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"status": "error", "message": "Sozlamalarni saqlab bo'lmadi."}
+        )
+        
+    return {"status": "success", "message": "Tizim sozlamalari muvaffaqiyatli saqlandi!"}
 
 
 # FastAPI ilovasini ishga tushirish

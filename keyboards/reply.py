@@ -60,10 +60,7 @@ def get_admin_menu(telegram_id: int = None) -> ReplyKeyboardMarkup:
         ],
         [
             KeyboardButton(text="📣 Reklama yuborish", style="success"),
-            KeyboardButton(text="⚙️ Sozlamalar", style="success")
-        ],
-        [
-            KeyboardButton(text="🔙 Asosiy menyu", style="primary")
+            KeyboardButton(text="🔙 Asosiy menyu", style="danger")
         ]
     ]
     return ReplyKeyboardMarkup(
