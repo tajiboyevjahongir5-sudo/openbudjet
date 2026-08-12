@@ -699,22 +699,35 @@
 
             tariffs.forEach(t => {
                 const item = document.createElement("div");
-                item.style.cssText = "display: flex; align-items: center; justify-content: space-between; gap: 12px; background: rgba(255,255,255,0.03); padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);";
+                item.style.cssText = "display: flex; align-items: center; justify-content: space-between; gap: 12px; background: rgba(255,255,255,0.03); padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap;";
                 
                 item.innerHTML = `
-                    <div style="font-weight: 600; color: #ffffff; font-size: 15px;">${t.name}</div>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <input type="number" id="tariff-price-${t.votes}" class="form-input" style="width: 130px; text-align: center; margin: 0; height: 38px;" value="${t.price}">
-                        <button onclick="updateTariffPrice(${t.votes})" class="btn" style="height: 38px; font-size: 13px; padding: 0 16px; width: auto; margin: 0;">💾 Saqlash</button>
+                        <span style="font-size: 14px; font-weight: 500; color: #ffffff;">ID: ${t.id}</span>
+                        <input type="number" id="tariff-votes-${t.id}" class="form-input" style="width: 80px; text-align: center; margin: 0; height: 38px;" value="${t.votes}" placeholder="Ovoz">
+                        <span style="font-size: 13px; color: var(--text-muted);">Ovoz</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-grow: 1; justify-content: flex-end;">
+                        <input type="number" id="tariff-price-${t.id}" class="form-input" style="width: 120px; text-align: center; margin: 0; height: 38px;" value="${t.price}" placeholder="Narxi">
+                        <span style="font-size: 13px; color: var(--text-muted);">UZS</span>
+                        <button onclick="updateTariff(${t.id})" class="btn" style="height: 38px; font-size: 13px; padding: 0 16px; width: auto; margin: 0;">💾 Saqlash</button>
                     </div>
                 `;
                 container.appendChild(item);
             });
         }
 
-        async function updateTariffPrice(votes) {
-            const priceInput = document.getElementById("tariff-price-" + votes);
+        async function updateTariff(tariffId) {
+            const votesInput = document.getElementById("tariff-votes-" + tariffId);
+            const priceInput = document.getElementById("tariff-price-" + tariffId);
+            
+            const votes = parseInt(votesInput.value);
             const price = parseInt(priceInput.value);
+            
+            if (isNaN(votes) || votes <= 0) {
+                alert("Iltimos, to'g'ri ovoz sonini kiriting!");
+                return;
+            }
             if (isNaN(price) || price <= 0) {
                 alert("Iltimos, to'g'ri narx kiriting!");
                 return;
@@ -722,17 +735,17 @@
 
             showLoader(true);
             try {
-                const response = await fetch(`/admin/api/tariffs/${votes}/price?init_data=` + encodeURIComponent(tg.initData || "") + "&admin_token=" + encodeURIComponent(adminToken), {
+                const response = await fetch(`/admin/api/tariffs/${tariffId}?init_data=` + encodeURIComponent(tg.initData || "") + "&admin_token=" + encodeURIComponent(adminToken), {
                     method: "POST",
                     headers,
-                    body: JSON.stringify({ price })
+                    body: JSON.stringify({ votes, price })
                 });
                 const data = await response.json();
                 if (response.ok && data.status === "success") {
                     alert(data.message);
                     fetchDashboardData();
                 } else {
-                    alert("Xatolik: " + (data.message || "Narxni o'zgartirib bo'lmadi."));
+                    alert("Xatolik: " + (data.message || "Tarifni o'zgartirib bo'lmadi."));
                 }
             } catch (err) {
                 alert("Server bilan bog'lanishda xato: " + err.message);

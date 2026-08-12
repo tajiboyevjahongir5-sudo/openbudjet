@@ -259,6 +259,7 @@ async def get_keys_api(
         
     tariffs = await crud.get_all_tariffs(db)
     serialized_tariffs = [{
+        "id": t.id,
         "votes": t.votes,
         "name": t.name,
         "price": t.price
@@ -453,13 +454,14 @@ async def telegram_webhook(request: Request):
             content={"message": "Xatolik yuz berdi"}
         )
 
-class UpdateTariffPriceSchema(BaseModel):
+class UpdateTariffSchema(BaseModel):
+    votes: int
     price: int
 
-@app.post("/admin/api/tariffs/{votes}/price")
-async def update_tariff_price_api(
-    votes: int,
-    schema: UpdateTariffPriceSchema,
+@app.post("/admin/api/tariffs/{tariff_id}")
+async def update_tariff_api(
+    tariff_id: int,
+    schema: UpdateTariffSchema,
     init_data: str = None,
     admin_token: str = None,
     tg_init_data: str = Header(None, alias="tg-init-data"),
@@ -486,14 +488,33 @@ async def update_tariff_price_api(
             content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
         )
         
-    updated = await crud.update_tariff_price(db, votes, schema.price)
-    if not updated:
+    # Boshqa tarifda bu ovozlar soni ishlatilmaganligini tekshiramiz
+    from database.models import Tariff
+    existing = await db.execute(
+        select(Tariff).where(Tariff.votes == schema.votes, Tariff.id != tariff_id)
+    )
+    if existing.scalar_one_or_none():
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"status": "error", "message": f"{schema.votes} ovozli boshqa tarif allaqachon mavjud!"}
+        )
+        
+    result = await db.execute(select(Tariff).where(Tariff.id == tariff_id))
+    tariff = result.scalar_one_or_none()
+    if not tariff:
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content={"status": "error", "message": "Tarif topilmadi."}
         )
         
-    return {"status": "success", "message": f"{updated.name} tarifi narxi muvaffaqiyatli yangilandi!"}
+    tariff.votes = schema.votes
+    tariff.name = f"{schema.votes} Ovoz"
+    tariff.price = schema.price
+    
+    await db.commit()
+    await db.refresh(tariff)
+        
+    return {"status": "success", "message": "Tarif muvaffaqiyatli yangilandi!"}
 
 
 class UpdateSettingsSchema(BaseModel):
