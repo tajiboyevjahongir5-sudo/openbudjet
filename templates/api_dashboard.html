@@ -138,78 +138,104 @@
         .form-group {
             display: flex;
             gap: 12px;
-            flex-wrap: wrap;
+            flex-direction: column;
+            align-items: stretch;
         }
 
-        /* White Inset Inputs inside Black Cards */
+        /* High-contrast Elegant Inputs */
         .form-input {
-            flex: 1;
-            min-width: 140px;
-            height: 46px;
+            width: 100%;
+            height: 48px;
             background: var(--component-bg);
-            border: none;
-            border-radius: 12px;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 10px;
             padding: 0 16px;
             color: var(--component-text);
             font-size: 16px;
             font-weight: 600;
             outline: none;
-            box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.25), inset -3px -3px 6px rgba(255, 255, 255, 0.8);
-            transition: box-shadow 0.3s;
+            box-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.05);
+            transition: all 0.2s;
+            -webkit-appearance: none;
+            appearance: none;
         }
 
         .form-input:focus {
-            box-shadow: inset 4px 4px 8px rgba(0, 0, 0, 0.35), inset -4px -4px 8px rgba(255, 255, 255, 0.95);
+            border-color: #111111;
+            box-shadow: inset 1px 1px 4px rgba(0, 0, 0, 0.1), 0 0 0 3px rgba(17, 17, 17, 0.08);
         }
 
-        /* White Embossed Buttons inside Black Cards */
+        /* High-contrast Embossed Buttons */
         .btn {
-            height: 46px;
+            height: 48px;
             padding: 0 22px;
             background: var(--component-bg);
-            border: none;
-            border-radius: 12px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
             color: var(--component-text);
-            font-size: 14px;
+            font-size: 15px;
             font-weight: 800;
             cursor: pointer;
-            box-shadow: 3px 3px 6px rgba(0, 0, 0, 0.35), -3px -3px 6px rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.05);
             transition: all 0.2s, transform 0.1s;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
+            -webkit-appearance: none;
+            appearance: none;
         }
 
         .btn:hover {
-            background: #f3f4f6;
+            background: #f8fafc;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
             transform: translateY(-1px);
         }
 
         .btn:active {
-            box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.4), inset -2px -2px 4px rgba(255, 255, 255, 0.8);
+            box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.15);
             transform: translateY(1px);
         }
 
+        /* Buttons and Inputs on Dark Cards */
+        .action-section .btn, .keys-section .btn {
+            background: #ffffff;
+            color: #111111;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.65), 0 2px 4px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .action-section .btn:hover, .keys-section .btn:hover {
+            background: #f3f4f6;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.75), 0 3px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .action-section .btn:active, .keys-section .btn:active {
+            box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.4);
+        }
+
         .btn-secondary {
-            background: #222222;
-            color: #ffffff;
-            box-shadow: 3px 3px 6px rgba(0, 0, 0, 0.4), -3px -3px 6px rgba(255, 255, 255, 0.05);
+            background: #222222 !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5) !important;
         }
         
         .btn-secondary:hover {
-            background: #333333;
-            color: #ffffff;
+            background: #2d2d2d !important;
+            box-shadow: 0 6px 14px rgba(0, 0, 0, 0.6) !important;
         }
 
         .btn-danger {
-            background: var(--danger-color);
-            color: #ffffff;
-            box-shadow: 3px 3px 6px rgba(0, 0, 0, 0.4), -3px -3px 6px rgba(255, 255, 255, 0.05);
+            background: var(--danger-color) !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3) !important;
         }
         
         .btn-danger:hover {
-            background: #d93856;
+            background: #dc2626 !important;
+            box-shadow: 0 6px 14px rgba(239, 68, 68, 0.4) !important;
         }
 
         /* Table Section (Black Card) */
@@ -450,13 +476,13 @@
             <div class="form-group" style="flex-direction: column; gap: 12px; align-items: stretch;">
                 <div style="display: flex; flex-direction: column; gap: 4px;">
                     <label style="font-size: 13px; color: var(--text-muted); text-align: left;">Karta raqami (Tarif to'lovlari uchun):</label>
-                    <input type="text" id="settings-card-number" class="form-input" placeholder="Karta raqami (masalan: 8600...)" style="width: 100%; margin: 0; height: 38px;">
+                    <input type="text" id="settings-card-number" class="form-input" placeholder="Karta raqami (masalan: 8600...)" style="width: 100%; margin: 0;">
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 4px;">
                     <label style="font-size: 13px; color: var(--text-muted); text-align: left;">To'lov kanali IDsi (Avtomat tekshirish uchun):</label>
-                    <input type="text" id="settings-channel-id" class="form-input" placeholder="Kanal ID (masalan: -100...)" style="width: 100%; margin: 0; height: 38px;">
+                    <input type="text" id="settings-channel-id" class="form-input" placeholder="Kanal ID (masalan: -100...)" style="width: 100%; margin: 0;">
                 </div>
-                <button onclick="saveSystemSettings()" class="btn" style="margin-top: 8px; width: 100%; height: 38px;">💾 Sozlamalarni saqlash</button>
+                <button onclick="saveSystemSettings()" class="btn" style="margin-top: 8px; width: 100%;">💾 Sozlamalarni saqlash</button>
             </div>
         </div>
 
@@ -738,13 +764,13 @@
                 item.innerHTML = `
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 14px; font-weight: 800; color: var(--component-text);">ID: ${t.id}</span>
-                        <input type="number" id="tariff-votes-${t.id}" class="form-input" style="width: 80px; text-align: center; margin: 0; height: 38px; box-shadow: 2px 2px 4px rgba(0,0,0,0.1), -2px -2px 4px #ffffff;" value="${t.votes}" placeholder="Ovoz">
+                        <input type="number" id="tariff-votes-${t.id}" class="form-input" style="width: 80px; text-align: center; margin: 0; height: 38px; border-radius: 8px; border: 1.5px solid #e2e8f0; box-shadow: inset 1px 1px 3px rgba(0,0,0,0.05);" value="${t.votes}" placeholder="Ovoz">
                         <span style="font-size: 13px; color: var(--component-muted); font-weight: 600;">Ovoz</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px; flex-grow: 1; justify-content: flex-end;">
-                        <input type="number" id="tariff-price-${t.id}" class="form-input" style="width: 120px; text-align: center; margin: 0; height: 38px; box-shadow: 2px 2px 4px rgba(0,0,0,0.1), -2px -2px 4px #ffffff;" value="${t.price}" placeholder="Narxi">
+                        <input type="number" id="tariff-price-${t.id}" class="form-input" style="width: 120px; text-align: center; margin: 0; height: 38px; border-radius: 8px; border: 1.5px solid #e2e8f0; box-shadow: inset 1px 1px 3px rgba(0,0,0,0.05);" value="${t.price}" placeholder="Narxi">
                         <span style="font-size: 13px; color: var(--component-muted); font-weight: 600;">UZS</span>
-                        <button onclick="updateTariff(${t.id})" class="btn" style="height: 38px; font-size: 13px; padding: 0 16px; width: auto; margin: 0; box-shadow: 2px 2px 4px rgba(0,0,0,0.15), -2px -2px 4px #ffffff;">💾 Saqlash</button>
+                        <button onclick="updateTariff(${t.id})" class="btn" style="height: 38px; font-size: 13px; padding: 0 16px; width: auto; margin: 0; border-radius: 8px; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);">💾 Saqlash</button>
                     </div>
                 `;
                 container.appendChild(item);
