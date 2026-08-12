@@ -56,10 +56,15 @@ def get_admin_projects_keyboard(projects: list[str]) -> InlineKeyboardMarkup:
         buttons.append([InlineKeyboardButton(text=f"Loyiha: {p}", callback_data=f"admin_report_{p}", style="primary")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_admin_inline_menu() -> InlineKeyboardMarkup:
+def get_admin_inline_menu(telegram_id: int = None) -> InlineKeyboardMarkup:
     """Adminlar uchun boshqaruv panelining inline menyusi"""
     web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
-    dashboard_url = f"{web_url}/admin/api-dashboard"
+    if telegram_id:
+        from utils.api_auth import generate_admin_token
+        token = generate_admin_token(telegram_id)
+        dashboard_url = f"{web_url.rstrip('/')}/admin/api-dashboard?admin_token={token}"
+    else:
+        dashboard_url = f"{web_url.rstrip('/')}/admin/api-dashboard"
     
     return InlineKeyboardMarkup(
         inline_keyboard=[

@@ -45,7 +45,7 @@ async def cmd_admin(message: Message, state: FSMContext):
     await message.answer(
         "🛠️ <b>Admin boshqaruv paneliga xush kelibsiz!</b>\n\n"
         "Quyidagi tugmalar orqali bot sozlamalarini boshqarishingiz mumkin:",
-        reply_markup=reply.get_admin_menu(),
+        reply_markup=reply.get_admin_menu(message.from_user.id),
         parse_mode="HTML"
     )
 
@@ -92,7 +92,7 @@ async def process_admin_project_id(message: Message, state: FSMContext):
     project_id = message.text.strip()
     if project_id == "❌ Jarayonni bekor qilish":
         await state.clear()
-        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
+        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu(message.from_user.id))
         return
 
     # Loyiha ID faqat raqamdan iborat bo'lishi shart
@@ -193,7 +193,7 @@ async def process_admin_confirm_project_add(callback: CallbackQuery, state: FSMC
         parse_mode="HTML"
     )
     # Asosiy menyuni chiqarish
-    await callback.message.answer("Boshqaruv menyusi:", reply_markup=reply.get_admin_menu())
+    await callback.message.answer("Boshqaruv menyusi:", reply_markup=reply.get_admin_menu(callback.from_user.id))
     await callback.answer()
 
 
@@ -201,7 +201,7 @@ async def process_admin_confirm_project_add(callback: CallbackQuery, state: FSMC
 async def process_admin_cancel_project_add(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text("Loyiha qo'shish jarayoni bekor qilindi.")
-    await callback.message.answer("Boshqaruv menyusi:", reply_markup=reply.get_admin_menu())
+    await callback.message.answer("Boshqaruv menyusi:", reply_markup=reply.get_admin_menu(callback.from_user.id))
     await callback.answer()
 @router.callback_query(F.data.startswith("admin_proj_view_"))
 async def process_admin_project_view(callback: CallbackQuery):
@@ -285,7 +285,7 @@ async def process_admin_voter_reward(message: Message, state: FSMContext):
     price_text = message.text.strip()
     if price_text == "❌ Jarayonni bekor qilish":
         await state.clear()
-        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
+        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu(message.from_user.id))
         return
 
     try:
@@ -303,7 +303,7 @@ async def process_admin_voter_reward(message: Message, state: FSMContext):
     await message.answer(
         f"✅ Ovoz mukofoti narxi muvaffaqiyatli o'zgartirildi!\n"
         f"💵 Yangi narx: <b>{price} so'm</b>",
-        reply_markup=reply.get_admin_menu(),
+        reply_markup=reply.get_admin_menu(message.from_user.id),
         parse_mode="HTML"
     )
 
@@ -323,7 +323,7 @@ async def process_admin_price(message: Message, state: FSMContext):
     price_text = message.text.strip()
     if price_text == "❌ Jarayonni bekor qilish":
         await state.clear()
-        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
+        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu(message.from_user.id))
         return
 
     try:
@@ -341,7 +341,7 @@ async def process_admin_price(message: Message, state: FSMContext):
     await message.answer(
         f"✅ Referal mukofoti narxi muvaffaqiyatli o'zgartirildi!\n"
         f"💵 Yangi narx: <b>{price} so'm</b>",
-        reply_markup=reply.get_admin_menu(),
+        reply_markup=reply.get_admin_menu(message.from_user.id),
         parse_mode="HTML"
     )
 
@@ -362,7 +362,7 @@ async def process_admin_min_withdraw(message: Message, state: FSMContext):
     min_text = message.text.strip()
     if min_text == "❌ Jarayonni bekor qilish":
         await state.clear()
-        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
+        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu(message.from_user.id))
         return
 
     try:
@@ -380,7 +380,7 @@ async def process_admin_min_withdraw(message: Message, state: FSMContext):
     await message.answer(
         f"✅ Minimal pul yechib olish chegarasi muvaffaqiyatli o'zgartirildi!\n"
         f"💳 Yangi chegara: <b>{min_withdrawal} so'm</b>",
-        reply_markup=reply.get_admin_menu(),
+        reply_markup=reply.get_admin_menu(message.from_user.id),
         parse_mode="HTML"
     )
 
@@ -412,7 +412,7 @@ async def process_admin_channel_username(message: Message, state: FSMContext):
     channel_text = message.text.strip()
     if channel_text == "❌ Jarayonni bekor qilish":
         await state.clear()
-        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
+        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu(message.from_user.id))
         return
 
     # Kiruvchi ma'lumotni tozalaymiz
@@ -426,7 +426,7 @@ async def process_admin_channel_username(message: Message, state: FSMContext):
     await message.answer(
         f"✅ Maxfiy kanal muvaffaqiyatli o'zgartirildi!\n"
         f"🔒 Yangi kanal: <code>{html.escape(channel_text)}</code>",
-        reply_markup=reply.get_admin_menu(),
+        reply_markup=reply.get_admin_menu(message.from_user.id),
         parse_mode="HTML"
     )
 
@@ -456,7 +456,7 @@ async def admin_statistics(message: Message):
         f"📈 <b>Tarixiy ovozlar ro'yxati (Loyihalar bo'yicha):</b>\n"
         f"{history_text}"
     )
-    await message.answer(stats_text, reply_markup=reply.get_admin_menu(), parse_mode="HTML")
+    await message.answer(stats_text, reply_markup=reply.get_admin_menu(message.from_user.id), parse_mode="HTML")
 
 # --- 5. Pul Yechishni Tasdiqlash / Rad etish Callback Handler ---
 
@@ -723,7 +723,7 @@ async def admin_statistics_callback(callback: CallbackQuery):
         f"📈 <b>Tarixiy ovozlar ro'yxati (Loyihalar bo'yicha):</b>\n"
         f"{history_text}"
     )
-    await callback.message.answer(stats_text, reply_markup=reply.get_admin_menu(), parse_mode="HTML")
+    await callback.message.answer(stats_text, reply_markup=reply.get_admin_menu(callback.from_user.id), parse_mode="HTML")
     await callback.answer()
 
 @router.callback_query(F.data == "admin_select_report")
@@ -764,7 +764,7 @@ async def process_admin_broadcast(message: Message, state: FSMContext):
     """Kiritilgan reklama xabarini barcha foydalanuvchilarga yuborish"""
     if message.text == "❌ Jarayonni bekor qilish":
         await state.clear()
-        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu())
+        await message.answer("Amal bekor qilindi.", reply_markup=reply.get_admin_menu(message.from_user.id))
         return
 
     await state.clear()
@@ -808,7 +808,7 @@ async def process_admin_broadcast(message: Message, state: FSMContext):
         f"✅ **Reklama yuborish yakunlandi!**\n\n"
         f"🎉 Muvaffaqiyatli yuborildi: **{success_count} ta** foydalanuvchiga\n"
         f"❌ Yuborib bo'lmadi: **{failed_count} ta** (botni bloklaganlar)",
-        reply_markup=reply.get_admin_menu(),
+        reply_markup=reply.get_admin_menu(message.from_user.id),
         parse_mode="Markdown"
     )
     
@@ -840,7 +840,7 @@ async def admin_settings_menu(message: Message, state: FSMContext):
 async def admin_settings_close(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.delete()
-    await callback.message.answer("Asosiy admin paneliga qaytdingiz.", reply_markup=reply.get_admin_menu())
+    await callback.message.answer("Asosiy admin paneliga qaytdingiz.", reply_markup=reply.get_admin_menu(callback.from_user.id))
     await callback.answer()
 
 @router.callback_query(F.data == "admin_set_card")
@@ -859,7 +859,7 @@ async def process_admin_card(message: Message, state: FSMContext):
     card = message.text.strip()
     if card == "❌ Jarayonni bekor qilish":
         await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=reply.get_admin_menu())
+        await message.answer("Bekor qilindi.", reply_markup=reply.get_admin_menu(message.from_user.id))
         return
         
     # Karta raqami tekshiruvi (faqat raqam bo'lishi shart)
@@ -876,7 +876,7 @@ async def process_admin_card(message: Message, state: FSMContext):
     await message.answer(
         f"✅ **Karta raqami muvaffaqiyatli o'rnatildi!**\n\n"
         f"Yangi karta: `{settings_db.card_number}`",
-        reply_markup=reply.get_admin_menu(),
+        reply_markup=reply.get_admin_menu(message.from_user.id),
         parse_mode="Markdown"
     )
 
@@ -896,7 +896,7 @@ async def process_admin_channel(message: Message, state: FSMContext):
     channel_input = message.text.strip()
     if channel_input == "❌ Jarayonni bekor qilish":
         await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=reply.get_admin_menu())
+        await message.answer("Bekor qilindi.", reply_markup=reply.get_admin_menu(message.from_user.id))
         return
         
     # Kanal ID tekshiruvi
@@ -915,7 +915,7 @@ async def process_admin_channel(message: Message, state: FSMContext):
     await message.answer(
         f"✅ **To'lov kanali ID si o'rnatildi!**\n\n"
         f"Kanal ID: `{settings_db.payment_channel_id}`",
-        reply_markup=reply.get_admin_menu(),
+        reply_markup=reply.get_admin_menu(message.from_user.id),
         parse_mode="Markdown"
     )
 
@@ -979,7 +979,7 @@ async def process_admin_tariff_price(message: Message, state: FSMContext):
     text_input = message.text.strip()
     if text_input == "❌ Jarayonni bekor qilish":
         await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=reply.get_admin_menu())
+        await message.answer("Bekor qilindi.", reply_markup=reply.get_admin_menu(message.from_user.id))
         return
         
     if not text_input.isdigit():
@@ -991,7 +991,7 @@ async def process_admin_tariff_price(message: Message, state: FSMContext):
     votes = state_data.get("edit_votes")
     
     if not votes:
-        await message.answer("❌ Xatolik yuz berdi. Iltimos, jarayonni qaytadan boshlang.", reply_markup=reply.get_admin_menu())
+        await message.answer("❌ Xatolik yuz berdi. Iltimos, jarayonni qaytadan boshlang.", reply_markup=reply.get_admin_menu(message.from_user.id))
         await state.clear()
         return
         
@@ -1003,11 +1003,11 @@ async def process_admin_tariff_price(message: Message, state: FSMContext):
         await message.answer(
             f"✅ **{updated.name} tarifi narxi muvaffaqiyatli yangilandi!**\n\n"
             f"Yangi narx: {updated.price:,} UZS",
-            reply_markup=reply.get_admin_menu(),
+            reply_markup=reply.get_admin_menu(message.from_user.id),
             parse_mode="Markdown"
         )
     else:
-        await message.answer("❌ Tarif narxini yangilashda xato yuz berdi.", reply_markup=reply.get_admin_menu())
+        await message.answer("❌ Tarif narxini yangilashda xato yuz berdi.", reply_markup=reply.get_admin_menu(message.from_user.id))
 
 
 

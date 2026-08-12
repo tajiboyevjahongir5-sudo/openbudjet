@@ -125,3 +125,39 @@ async def get_api_key(
         )
         
     return api_key
+
+
+import time
+
+def generate_admin_token(telegram_id: int) -> str:
+    """Admin uchun 24 soat davomida amal qiladigan vaqtinchalik xavfsiz token yaratadi"""
+    timestamp = int(time.time() // 86400) # Kunlik o'zgaruvchi
+    message = f"{telegram_id}:{timestamp}"
+    signature = hmac.new(settings.BOT_TOKEN.encode(), message.encode(), hashlib.sha256).hexdigest()
+    return f"{telegram_id}:{timestamp}:{signature}"
+
+def verify_admin_token(token: str) -> int | None:
+    """Vaqtinchalik admin tokenini tekshiradi va to'g'ri bo'lsa telegram_id ni qaytaradi"""
+    if not token:
+        return None
+    try:
+        parts = token.split(":")
+        if len(parts) != 3:
+            return None
+        telegram_id = int(parts[0])
+        token_timestamp = int(parts[1])
+        signature = parts[2]
+        
+        current_timestamp = int(time.time() // 86400)
+        # 1 kunlik farq bilan (bugungi yoki kechagi token bo'lsa) qabul qiladi
+        if abs(current_timestamp - token_timestamp) > 1:
+            return None
+            
+        message = f"{telegram_id}:{token_timestamp}"
+        expected_signature = hmac.new(settings.BOT_TOKEN.encode(), message.encode(), hashlib.sha256).hexdigest()
+        if hmac.compare_digest(expected_signature, signature):
+            return telegram_id
+    except Exception:
+        pass
+    return None
+

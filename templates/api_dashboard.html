@@ -429,9 +429,13 @@
             }
         }
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const adminToken = urlParams.get("admin_token") || "";
+
         const headers = {
             "Content-Type": "application/json",
-            "tg-init-data": tg.initData || ""
+            "tg-init-data": tg.initData || "",
+            "admin-token": adminToken
         };
 
         function showLoader(show) {
@@ -441,7 +445,7 @@
         async function fetchDashboardData() {
             showLoader(true);
             try {
-                const response = await fetch("/admin/api/keys?init_data=" + encodeURIComponent(tg.initData || ""), { headers });
+                const response = await fetch("/admin/api/keys?init_data=" + encodeURIComponent(tg.initData || "") + "&admin_token=" + encodeURIComponent(adminToken), { headers });
                 if (response.status === 403) {
                     try {
                         const errData = await response.json();

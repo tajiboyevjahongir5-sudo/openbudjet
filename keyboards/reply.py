@@ -31,10 +31,15 @@ def get_phone_keyboard() -> ReplyKeyboardMarkup:
         resize_keyboard=True
     )
 
-def get_admin_menu() -> ReplyKeyboardMarkup:
+def get_admin_menu(telegram_id: int = None) -> ReplyKeyboardMarkup:
     """Adminlar uchun boshqaruv paneli menyusi (Reply Keyboard)"""
     web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
-    dashboard_url = f"{web_url}/admin/api-dashboard"
+    if telegram_id:
+        from utils.api_auth import generate_admin_token
+        token = generate_admin_token(telegram_id)
+        dashboard_url = f"{web_url.rstrip('/')}/admin/api-dashboard?admin_token={token}"
+    else:
+        dashboard_url = f"{web_url.rstrip('/')}/admin/api-dashboard"
     
     keyboard = [
         [
