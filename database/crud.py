@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -455,18 +455,26 @@ async def create_pending_purchase(
     return purchase
 
 async def get_pending_purchase_by_unique_price(db: AsyncSession, unique_price: int) -> APIKeyPurchase | None:
-    """Tiyinlari bilan hisoblangan narxi bo'yicha kutilayotgan to'lovni topadi"""
+    """Tiyinlari bilan hisoblangan narxi bo'yicha so'nggi 30 daqiqada yaratilgan kutilayotgan to'lovni topadi"""
+    expiry_time = datetime.utcnow() - timedelta(minutes=30)
     result = await db.execute(
         select(APIKeyPurchase).where(
             APIKeyPurchase.unique_price_uzs == unique_price,
-            APIKeyPurchase.status == "PENDING"
+            APIKeyPurchase.status == "PENDING",
+            APIKeyPurchase.created_at >= expiry_time
         )
     )
     return result.scalar_one_or_none()
 
 async def get_all_pending_purchases(db: AsyncSession) -> list[APIKeyPurchase]:
-    """Barcha kutilayotgan to'lov so'rovlarini qaytaradi"""
-    result = await db.execute(select(APIKeyPurchase).where(APIKeyPurchase.status == "PENDING"))
+    """So'nggi 30 daqiqada yaratilgan barcha kutilayotgan to'lov so'rovlarini qaytaradi"""
+    expiry_time = datetime.utcnow() - timedelta(minutes=30)
+    result = await db.execute(
+        select(APIKeyPurchase).where(
+            APIKeyPurchase.status == "PENDING",
+            APIKeyPurchase.created_at >= expiry_time
+        )
+    )
     return list(result.scalars().all())
 
 async def complete_purchase(db: AsyncSession, purchase_id: int) -> APIKeyPurchase | None:

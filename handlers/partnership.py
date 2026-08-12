@@ -154,6 +154,8 @@ async def process_select_tariff(callback: CallbackQuery):
         f"💳 Karta raqami (Uzcard/Humo): `{card_number}`\n\n"
         f"💵 **O'TKAZISHINGIZ KERAK BO'LGAN SUMMA:**\n"
         f"👉 **`{unique_price:,} UZS`** 👈\n\n"
+        f"⏱️ **To'lov muddati: 30 daqiqa!**\n"
+        f"30 daqiqadan so'ng ushbu faktura avtomatik ravishda bekor qilinadi va noyob summa bandligi o'chiriladi.\n\n"
         f"⚠️ **QAT'IY TALAB (DIQQAT):**\n"
         f"Karta hisobiga aynan **`{unique_price:,} UZS`** o'tkazishingiz shart (tiyinlarigacha aniq!). "
         f"Agar 1 so'm bo'lsa ham boshqa summa o'tkazsangiz (masalan, 150,000 UZS), bot to'lovni "
