@@ -287,15 +287,30 @@ async def get_keys_api(
 async def create_key_api(
     req: CreateKeySchema,
     init_data: str = None,
+    admin_token: str = None,
+    admin_token_header: str = Header(None, alias="admin-token"),
     tg_init_data: str = Header(None, alias="tg-init-data"),
     db: AsyncSession = Depends(get_db)
 ):
-    from utils.api_auth import verify_telegram_init_data, is_admin_user
-    user_data = verify_telegram_init_data(init_data or tg_init_data)
-    if not user_data or not is_admin_user(user_data.get("id", 0)):
+    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
+    
+    user_data = None
+    auth_error = None
+    raw_data = init_data or tg_init_data
+    
+    if raw_data:
+        user_data, auth_error = verify_telegram_init_data_detailed(raw_data)
+        
+    telegram_id = None
+    if user_data:
+        telegram_id = user_data.get("id", 0)
+    elif admin_token or admin_token_header:
+        telegram_id = verify_admin_token(admin_token or admin_token_header)
+        
+    if (auth_error and not telegram_id) or not telegram_id or not is_admin_user(telegram_id):
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": "Kirish taqiqlangan."}
+            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
         )
 
     import secrets
@@ -318,15 +333,30 @@ async def topup_key_api(
     key_id: int,
     req: TopUpSchema,
     init_data: str = None,
+    admin_token: str = None,
+    admin_token_header: str = Header(None, alias="admin-token"),
     tg_init_data: str = Header(None, alias="tg-init-data"),
     db: AsyncSession = Depends(get_db)
 ):
-    from utils.api_auth import verify_telegram_init_data, is_admin_user
-    user_data = verify_telegram_init_data(init_data or tg_init_data)
-    if not user_data or not is_admin_user(user_data.get("id", 0)):
+    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
+    
+    user_data = None
+    auth_error = None
+    raw_data = init_data or tg_init_data
+    
+    if raw_data:
+        user_data, auth_error = verify_telegram_init_data_detailed(raw_data)
+        
+    telegram_id = None
+    if user_data:
+        telegram_id = user_data.get("id", 0)
+    elif admin_token or admin_token_header:
+        telegram_id = verify_admin_token(admin_token or admin_token_header)
+        
+    if (auth_error and not telegram_id) or not telegram_id or not is_admin_user(telegram_id):
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": "Kirish taqiqlangan."}
+            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
         )
 
     updated = await crud.update_api_key_balance(db, key_id, req.amount)
@@ -343,15 +373,30 @@ async def toggle_key_api(
     key_id: int,
     req: ToggleSchema,
     init_data: str = None,
+    admin_token: str = None,
+    admin_token_header: str = Header(None, alias="admin-token"),
     tg_init_data: str = Header(None, alias="tg-init-data"),
     db: AsyncSession = Depends(get_db)
 ):
-    from utils.api_auth import verify_telegram_init_data, is_admin_user
-    user_data = verify_telegram_init_data(init_data or tg_init_data)
-    if not user_data or not is_admin_user(user_data.get("id", 0)):
+    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
+    
+    user_data = None
+    auth_error = None
+    raw_data = init_data or tg_init_data
+    
+    if raw_data:
+        user_data, auth_error = verify_telegram_init_data_detailed(raw_data)
+        
+    telegram_id = None
+    if user_data:
+        telegram_id = user_data.get("id", 0)
+    elif admin_token or admin_token_header:
+        telegram_id = verify_admin_token(admin_token or admin_token_header)
+        
+    if (auth_error and not telegram_id) or not telegram_id or not is_admin_user(telegram_id):
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": "Kirish taqiqlangan."}
+            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
         )
 
     updated = await crud.toggle_api_key_status(db, key_id, req.is_active)
@@ -367,15 +412,30 @@ async def toggle_key_api(
 async def delete_key_api(
     key_id: int,
     init_data: str = None,
+    admin_token: str = None,
+    admin_token_header: str = Header(None, alias="admin-token"),
     tg_init_data: str = Header(None, alias="tg-init-data"),
     db: AsyncSession = Depends(get_db)
 ):
-    from utils.api_auth import verify_telegram_init_data, is_admin_user
-    user_data = verify_telegram_init_data(init_data or tg_init_data)
-    if not user_data or not is_admin_user(user_data.get("id", 0)):
+    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
+    
+    user_data = None
+    auth_error = None
+    raw_data = init_data or tg_init_data
+    
+    if raw_data:
+        user_data, auth_error = verify_telegram_init_data_detailed(raw_data)
+        
+    telegram_id = None
+    if user_data:
+        telegram_id = user_data.get("id", 0)
+    elif admin_token or admin_token_header:
+        telegram_id = verify_admin_token(admin_token or admin_token_header)
+        
+    if (auth_error and not telegram_id) or not telegram_id or not is_admin_user(telegram_id):
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": "Kirish taqiqlangan."}
+            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
         )
 
     success = await crud.delete_api_key(db, key_id)
