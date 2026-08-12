@@ -443,7 +443,12 @@
             try {
                 const response = await fetch("/admin/api/keys?init_data=" + encodeURIComponent(tg.initData || ""), { headers });
                 if (response.status === 403) {
-                    alert("Kirish taqiqlangan! Faqat adminlar kirishi mumkin.");
+                    try {
+                        const errData = await response.json();
+                        alert("Kirish taqiqlangan!\n\nSababi: " + errData.message);
+                    } catch (e) {
+                        alert("Kirish taqiqlangan! (403 Forbidden)");
+                    }
                     tg.close();
                     return;
                 }

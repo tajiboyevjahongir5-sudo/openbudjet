@@ -17,9 +17,15 @@ def verify_telegram_init_data(init_data: str) -> dict | None:
     Telegram WebApp initData imzosini bot tokeni orqali tekshiradi.
     Muvaffaqiyatli bo'lsa, user ma'lumotlarini (dict) qaytaradi, aks holda None.
     """
+    user_data, _ = verify_telegram_init_data_detailed(init_data)
+    return user_data
+
+def verify_telegram_init_data_detailed(init_data: str) -> tuple[dict | None, str | None]:
+    """
+    initData imzosini tekshiradi va batafsil xatolik xabarini qaytaradi.
+    """
     if not init_data:
-        logger.warning("verify_telegram_init_data: init_data is empty.")
-        return None
+        return None, "initData is empty"
         
     try:
         # Mini App raw data strings might be URL-encoded, let's decode once if it is double encoded
@@ -43,8 +49,7 @@ def verify_telegram_init_data(init_data: str) -> dict | None:
                 parsed_dict[k] = urllib.parse.unquote(v)
                 
         if not tg_hash:
-            logger.warning(f"verify_telegram_init_data: hash not found in parsed data.")
-            return None
+            return None, "hash field not found"
             
         # Sort keys alphabetically and reconstruct data_check_string using the original raw values
         other_pairs.sort(key=lambda x: x[0])
@@ -57,21 +62,21 @@ def verify_telegram_init_data(init_data: str) -> dict | None:
         calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
         
         if calculated_hash != tg_hash:
+            token_masked = f"{settings.BOT_TOKEN[:6]}...{settings.BOT_TOKEN[-6:]}" if settings.BOT_TOKEN else "None"
             logger.warning(f"verify_telegram_init_data: Signature mismatch! Calculated: {calculated_hash}, Received: {tg_hash}")
-            return None
+            return None, f"Signature mismatch (Token: {token_masked})"
             
         # User ma'lumotlarini JSON qilib o'qiymiz
         user_str = parsed_dict.get("user")
         if not user_str:
-            logger.warning("verify_telegram_init_data: 'user' field not found in parsed data.")
-            return None
+            return None, "user field not found"
             
         user_data = json.loads(user_str)
-        logger.info(f"verify_telegram_init_data: Successful verification for user: {user_data.get('id')}")
-        return user_data
+        return user_data, None
     except Exception as e:
-        logger.error(f"verify_telegram_init_data: Exception during verification: {e}", exc_info=True)
-        return None
+        logger.error(f"verify_telegram_init_data: Exception: {e}", exc_info=True)
+        return None, f"Exception: {str(e)}"
+
 
 def is_admin_user(telegram_id: int) -> bool:
     """Foydalanuvchi bot adminlaridan biri ekanligini tekshiradi"""

@@ -169,13 +169,24 @@ async def get_keys_api(
     tg_init_data: str = Header(None, alias="tg-init-data"),
     db: AsyncSession = Depends(get_db)
 ):
-    from utils.api_auth import verify_telegram_init_data, is_admin_user
-    user_data = verify_telegram_init_data(init_data or tg_init_data)
-    if not user_data or not is_admin_user(user_data.get("id", 0)):
+    from utils.api_auth import verify_telegram_init_data_detailed, is_admin_user
+    raw_data = init_data or tg_init_data
+    user_data, error_msg = verify_telegram_init_data_detailed(raw_data)
+    
+    if error_msg:
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
+            content={"status": "error", "message": f"Auth muvaffaqiyatsiz bo'ldi: {error_msg}"}
         )
+        
+    telegram_id = user_data.get("id", 0)
+    if not is_admin_user(telegram_id):
+        admin_ids = [int(x.strip()) for x in settings.ADMIN_IDS_RAW.split(",") if x.strip().isdigit()]
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            content={"status": "error", "message": f"Admin ro'yxatida emassiz. Sizning ID: {telegram_id}. Ruxsat berilgan: {admin_ids}"}
+        )
+
 
     keys = await crud.get_all_api_keys(db)
     total_balance = sum(k.balance_uzs for k in keys)
