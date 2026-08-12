@@ -215,7 +215,6 @@ def get_admin_settings_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="💳 Karta raqamini sozlash", callback_data="admin_set_card")],
             [InlineKeyboardButton(text="📣 To'lov kanalini sozlash", callback_data="admin_set_payment_channel")],
-            [InlineKeyboardButton(text="💎 Tariflarni tahrirlash", callback_data="admin_set_tariffs")],
             [InlineKeyboardButton(text="🔙 Chiqish", callback_data="admin_settings_close")]
         ]
     )

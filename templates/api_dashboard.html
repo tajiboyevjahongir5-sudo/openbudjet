@@ -402,8 +402,16 @@
             </div>
         </div>
 
+        <!-- API Tariffs Section -->
+        <div class="action-section" style="margin-top: 24px;">
+            <div class="section-title">⚙️ API tariflari narxlarini tahrirlash</div>
+            <div id="tariffs-container" style="display: flex; flex-direction: column; gap: 12px;">
+                <!-- Tariflar shu yerga yuklanadi -->
+            </div>
+        </div>
+
         <!-- API Keys List -->
-        <div class="keys-section">
+        <div class="keys-section" style="margin-top: 24px;">
             <div class="section-title">📂 API kalitlar ro'yxati</div>
             <div class="keys-list" id="keys-container">
                 <!-- Kalitlar shu yerga yuklanadi -->
@@ -460,6 +468,7 @@
                 if (data.status === "success") {
                     renderStats(data.stats);
                     renderKeys(data.keys);
+                    renderTariffs(data.tariffs);
                 } else {
                     alert("Xatolik yuz berdi: " + data.message);
                 }
@@ -654,10 +663,62 @@
             });
         }
 
+        function renderTariffs(tariffs) {
+            const container = document.getElementById("tariffs-container");
+            container.innerHTML = "";
+
+            if (!tariffs || tariffs.length === 0) {
+                container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 10px;">Tariflar topilmadi.</div>`;
+                return;
+            }
+
+            tariffs.forEach(t => {
+                const item = document.createElement("div");
+                item.style.cssText = "display: flex; align-items: center; justify-content: space-between; gap: 12px; background: rgba(255,255,255,0.03); padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);";
+                
+                item.innerHTML = `
+                    <div style="font-weight: 600; color: #ffffff; font-size: 15px;">${t.name}</div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="number" id="tariff-price-${t.votes}" class="form-input" style="width: 130px; text-align: center; margin: 0; height: 38px;" value="${t.price}">
+                        <button onclick="updateTariffPrice(${t.votes})" class="btn" style="height: 38px; font-size: 13px; padding: 0 16px; width: auto; margin: 0;">💾 Saqlash</button>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        async function updateTariffPrice(votes) {
+            const priceInput = document.getElementById("tariff-price-" + votes);
+            const price = parseInt(priceInput.value);
+            if (isNaN(price) || price <= 0) {
+                alert("Iltimos, to'g'ri narx kiriting!");
+                return;
+            }
+
+            showLoader(true);
+            try {
+                const response = await fetch(`/admin/api/tariffs/${votes}/price?init_data=` + encodeURIComponent(tg.initData || "") + "&admin_token=" + encodeURIComponent(adminToken), {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify({ price })
+                });
+                const data = await response.json();
+                if (response.ok && data.status === "success") {
+                    alert(data.message);
+                    fetchDashboardData();
+                } else {
+                    alert("Xatolik: " + (data.message || "Narxni o'zgartirib bo'lmadi."));
+                }
+            } catch (err) {
+                alert("Server bilan bog'lanishda xato: " + err.message);
+            } finally {
+                showLoader(false);
+            }
+        }
+
         fetchDashboardData();
     </script>
 </body>
 </html>
-    </script>
 </body>
 </html>
