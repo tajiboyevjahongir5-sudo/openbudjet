@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Update
-from sqlalchemy import text
+from sqlalchemy import text, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
