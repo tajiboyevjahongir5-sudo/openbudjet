@@ -63,12 +63,13 @@ async def get_or_create_user(
 
 async def add_user_balance(db: AsyncSession, telegram_id: int, amount: float) -> bool:
     """Foydalanuvchi balansiga pul qo'shadi"""
-    user = await get_user(db, telegram_id)
-    if user:
-        user.balance += amount
-        await db.commit()
-        return True
-    return False
+    result = await db.execute(
+        update(User)
+        .where(User.telegram_id == telegram_id)
+        .values(balance=User.balance + amount)
+    )
+    await db.commit()
+    return result.rowcount > 0
 
 # --- Loyiha sozlamalari bilan ishlash ---
 
@@ -164,7 +165,14 @@ async def create_withdrawal(
     if not user or user.balance < amount:
         raise ValueError("Balansda yetarli mablag' mavjud emas!")
     
-    user.balance -= amount
+    # Atomik tarzda balansdan yechish (Race condition oldini olish)
+    update_result = await db.execute(
+        update(User)
+        .where(User.telegram_id == telegram_id, User.balance >= amount)
+        .values(balance=User.balance - amount)
+    )
+    if update_result.rowcount == 0:
+        raise ValueError("Balansda yetarli mablag' mavjud emas!")
     
     withdrawal = Withdrawals(
         telegram_id=telegram_id,
@@ -199,10 +207,12 @@ async def reject_withdrawal(db: AsyncSession, withdrawal_id: int) -> Withdrawals
     if withdrawal and withdrawal.status == WithdrawalStatus.PENDING:
         withdrawal.status = WithdrawalStatus.REJECTED
         
-        # User balansiga qaytarib qo'shamiz
-        user = await get_user(db, withdrawal.telegram_id)
-        if user:
-            user.balance += withdrawal.amount
+        # User balansiga qaytarib qo'shamiz (atomik)
+        await db.execute(
+            update(User)
+            .where(User.telegram_id == withdrawal.telegram_id)
+            .values(balance=User.balance + withdrawal.amount)
+        )
             
         await db.commit()
         await db.refresh(withdrawal)
@@ -397,15 +407,15 @@ async def create_api_key(db: AsyncSession, plain_key: str, owner_id: int | None,
     return new_key
 
 async def update_api_key_balance(db: AsyncSession, key_id: int, amount: int) -> APIKey | None:
-    """API kalit balansini yangilaydi (mablag' qo'shadi yoki ayiradi)"""
+    """API kalit balansini atomik tarzda yangilaydi (Race Condition xavfi yo'q)"""
+    await db.execute(
+        update(APIKey)
+        .where(APIKey.id == key_id)
+        .values(balance_uzs=APIKey.balance_uzs + amount)
+    )
+    await db.commit()
     result = await db.execute(select(APIKey).where(APIKey.id == key_id))
-    api_key = result.scalar_one_or_none()
-    if api_key:
-        api_key.balance_uzs += amount
-        await db.commit()
-        await db.refresh(api_key)
-        return api_key
-    return None
+    return result.scalar_one_or_none()
 
 async def toggle_api_key_status(db: AsyncSession, key_id: int, is_active: bool) -> APIKey | None:
     """API kalit holatini (bloklangan/faol) o'zgartiradi"""

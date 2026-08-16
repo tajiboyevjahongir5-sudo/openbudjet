@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     # Telegram Bot Token
     BOT_TOKEN: str
 
+    # Fernet shifrlash kaliti (bo'sh bo'lsa BOT_TOKEN dan olinadi — tavsiya etilmaydi)
+    FERNET_SECRET_KEY: str = ""
+
     # Webhook autentifikatsiyasi uchun maxfiy kalit
     WEBHOOK_SECRET_TOKEN: str = "default_secret_token_ob_bot_998"
 
