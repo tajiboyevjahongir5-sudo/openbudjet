@@ -53,8 +53,7 @@ async def get_boards(
 
 @router.get("/initiative/{project_id}")
 async def get_initiative_info(
-    project_id: str,
-    api_key: APIKey = Depends(get_api_key)
+    project_id: str
 ):
     """
     Kiritilgan ID (raqamli ID yoki UUID) bo'yicha loyiha ma'lumotlarini qidirib topadi.

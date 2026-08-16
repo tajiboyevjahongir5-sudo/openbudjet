@@ -349,11 +349,11 @@ async def call_api(
     api_key_override: str = None
 ) -> tuple[dict, int]:
     api_key = api_key_override or await get_setting("api_key")
-    if not api_key:
-        return {"detail": "API kalit sozlanmagan."}, 0
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["X-API-Key"] = api_key
 
-    headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
-    url     = f"{API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
+    url = f"{API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
 
     session = await get_http_session()
     try:
