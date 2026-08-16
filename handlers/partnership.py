@@ -125,11 +125,11 @@ async def process_select_tariff(callback: CallbackQuery):
             
         # Unikal to'lov summasini generatsiya qilamiz
         price = tariff.price
-        max_attempts = 100
+        max_attempts = 200
         unique_price = price
         
         for _ in range(max_attempts):
-            random_cents = random.randint(1, 99)
+            random_cents = random.randint(1, 999)
             test_price = price + random_cents
             # Tekshiramiz, bazada bu summa bilan PENDING to'lov bormi
             existing = await crud.get_pending_purchase_by_unique_price(db, test_price)
@@ -261,18 +261,19 @@ async def process_payment_notification(message: Message):
                         logger.error(f"Foydalanuvchiga xabar yuborishda xato: {e}")
                     
                 # 4. Adminga xabar berish
-                admin_ids = settings_db.ADMIN_IDS
+                admin_ids = settings.ADMIN_IDS
                 for admin_id in admin_ids:
                     try:
                         await message.bot.send_message(
                             chat_id=admin_id,
                             text=(
-                                f"🔔 **Avtomatik Xarid Tasdiqlandi!**\n\n"
-                                f"👤 Foydalanuvchi: `{purchase.telegram_id}`\n"
-                                f"📦 Tarif: {purchase.votes_count} ovoz\n"
-                                f"💵 Summa: {purchase.unique_price_uzs:,} UZS\n"
+                                f"🔔 <b>Avtomatik Xarid Tasdiqlandi!</b>\n\n"
+                                f"👤 Foydalanuvchi: <code>{purchase.telegram_id}</code>\n"
+                                f"📦 Tarif: <b>{purchase.votes_count} ovoz</b>\n"
+                                f"💵 Summa: <b>{purchase.unique_price_uzs:,} UZS</b>\n"
                                 f"🔑 Kalit generatsiya qilinib yuborildi."
-                            )
+                            ),
+                            parse_mode="HTML"
                         )
                     except Exception:
                         pass

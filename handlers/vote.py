@@ -7,10 +7,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import StateFilter
 
+from sqlalchemy import update
 from config import settings
 from database.session import async_session
 from database import crud
-from database.models import VoteStatus
+from database.models import VoteStatus, User
 from states.user_states import VoteStates
 from keyboards import reply, inline
 from services.openbudget import OpenBudgetService
@@ -551,16 +552,26 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
 
                 user = await crud.get_user(db, telegram_id)
                 if user:
-                    # Ovoz bergan odamning o'ziga mukofot
-                    user.balance += voter_reward
+                    # Ovoz bergan odamning o'ziga mukofot (atomik)
+                    if voter_reward > 0:
+                        await db.execute(
+                            update(User)
+                            .where(User.telegram_id == telegram_id)
+                            .values(balance=User.balance + voter_reward)
+                        )
                     
-                    # Taklif qilgan referalga mukofot
-                    if user.invited_by:
+                    # Taklif qilgan referalga mukofot (atomik)
+                    if user.invited_by and referral_price > 0:
+                        await db.execute(
+                            update(User)
+                            .where(User.telegram_id == user.invited_by)
+                            .values(
+                                balance=User.balance + referral_price,
+                                total_referrals=User.total_referrals + 1
+                            )
+                        )
                         referrer = await crud.get_user(db, user.invited_by)
                         if referrer:
-                            referrer.balance += referral_price
-                            referrer.total_referrals += 1
-                            
                             try:
                                 referrer_message_text = (
                                     f"🎉 <b>Yangi referal mukofoti!</b>\n\n"

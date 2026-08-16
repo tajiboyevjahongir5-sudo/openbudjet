@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +9,7 @@ from database import crud
 from utils.api_auth import get_api_key
 from services.openbudget import OpenBudgetService
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # --- Pydantic So'rov Modellari ---
@@ -247,8 +250,8 @@ async def create_buy_key_invoice(
     import random
     price = tariff.price
     unique_price = price
-    for _ in range(100):
-        random_cents = random.randint(1, 99)
+    for _ in range(200):
+        random_cents = random.randint(1, 999)
         test_price = price + random_cents
         existing = await crud.get_pending_purchase_by_unique_price(db, test_price)
         if not existing:
