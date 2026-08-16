@@ -153,12 +153,16 @@ async def get_or_create_user(tid: int, username: str = "", full_name: str = "") 
         if not row:
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             await conn.execute(
-                "INSERT INTO users (telegram_id,username,full_name,balance,votes_count,is_blocked,joined_at) "
+                "INSERT OR IGNORE INTO users (telegram_id,username,full_name,balance,votes_count,is_blocked,joined_at) "
                 "VALUES (?,?,?,0,0,0,?)",
                 (tid, username, full_name, now)
             )
             await conn.commit()
-            row = (tid, username, full_name, 0, 0, 0, now)
+            async with conn.execute(
+                "SELECT telegram_id, username, full_name, balance, votes_count, is_blocked, joined_at "
+                "FROM users WHERE telegram_id=?", (tid,)
+            ) as c:
+                row = await c.fetchone()
         elif username and (row[1] != username or row[2] != full_name):
             await conn.execute("UPDATE users SET username=?,full_name=? WHERE telegram_id=?", (username, full_name, tid))
             await conn.commit()

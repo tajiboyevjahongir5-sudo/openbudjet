@@ -47,19 +47,26 @@ async def get_or_create_user(
         if referrer:
             valid_invited_by = invited_by
 
-    new_user = User(
-        telegram_id=telegram_id,
-        username=username,
-        full_name=full_name,
-        invited_by=valid_invited_by,
-        balance=0.0,
-        total_referrals=0,
-        created_at=datetime.utcnow()
-    )
-    db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
-    return new_user, True
+    try:
+        new_user = User(
+            telegram_id=telegram_id,
+            username=username,
+            full_name=full_name,
+            invited_by=valid_invited_by,
+            balance=0.0,
+            total_referrals=0,
+            created_at=datetime.utcnow()
+        )
+        db.add(new_user)
+        await db.commit()
+        await db.refresh(new_user)
+        return new_user, True
+    except Exception:
+        await db.rollback()
+        user = await get_user(db, telegram_id)
+        if user:
+            return user, False
+        raise
 
 async def add_user_balance(db: AsyncSession, telegram_id: int, amount: float) -> bool:
     """Foydalanuvchi balansiga pul qo'shadi"""
