@@ -176,9 +176,11 @@ async def cast_vote(
             captcha_result=req.captcha_result
         )
     except asyncio.CancelledError:
-        # Foydalanuvchi so'rovni uzib qo'ygan holatda ham mablag' bekor bo'lmasdan qaytariladi
-        await asyncio.shield(crud.update_api_key_balance(db, api_key.id, 1500))
-        logger.warning(f"cast_vote so'rovi bekor qilindi (CancelledError). Mablag' qaytarildi.")
+        # Foydalanuvchi so'rovni uzib qo'ygan holatda yangi mustaqil DB sessiyasi orqali kafolatli qaytariladi
+        from database.session import async_session
+        async with async_session() as new_db:
+            await asyncio.shield(crud.update_api_key_balance(new_db, api_key.id, 1500))
+        logger.warning(f"cast_vote so'rovi bekor qilindi (CancelledError). Mablag' yangi sessiyada qaytarildi.")
         raise
     except Exception as e:
         await crud.update_api_key_balance(db, api_key.id, 1500)
@@ -249,24 +251,34 @@ async def create_buy_key_invoice(
         
     import random
     price = tariff.price
-    unique_price = price
-    for _ in range(200):
-        random_cents = random.randint(1, 999)
-        test_price = price + random_cents
-        existing = await crud.get_pending_purchase_by_unique_price(db, test_price)
-        if not existing:
-            unique_price = test_price
+    purchase = None
+    
+    for _ in range(50):
+        try:
+            random_cents = random.randint(1, 999)
+            unique_price = price + random_cents
+            existing = await crud.get_pending_purchase_by_unique_price(db, unique_price)
+            if existing:
+                continue
+            purchase = await crud.create_pending_purchase(
+                db=db,
+                telegram_id=req.telegram_id,
+                tariff_name=tariff.name,
+                price_uzs=price,
+                unique_price_uzs=unique_price,
+                votes_count=req.votes,
+                source="CLIENT_BOT"
+            )
             break
+        except Exception:
+            await db.rollback()
+            continue
             
-    purchase = await crud.create_pending_purchase(
-        db=db,
-        telegram_id=req.telegram_id,
-        tariff_name=tariff.name,
-        price_uzs=price,
-        unique_price_uzs=unique_price,
-        votes_count=req.votes,
-        source="CLIENT_BOT"
-    )
+    if not purchase:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="To'lov summasini band qilishda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
+        )
     
     return {
         "status": "success",
@@ -274,7 +286,7 @@ async def create_buy_key_invoice(
         "tariff_name": tariff.name,
         "votes_count": req.votes,
         "base_price": price,
-        "unique_price": unique_price,
+        "unique_price": purchase.unique_price_uzs,
         "card_number": settings_db.card_number
     }
 

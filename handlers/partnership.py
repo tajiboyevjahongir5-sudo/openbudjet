@@ -123,29 +123,37 @@ async def process_select_tariff(callback: CallbackQuery):
             await callback.answer()
             return
             
-        # Unikal to'lov summasini generatsiya qilamiz
+        # Unikal to'lov summasini generatsiya qilamiz va xaridni yaratamiz (Concurrency safe)
         price = tariff.price
-        max_attempts = 200
-        unique_price = price
+        purchase = None
         
-        for _ in range(max_attempts):
-            random_cents = random.randint(1, 999)
-            test_price = price + random_cents
-            # Tekshiramiz, bazada bu summa bilan PENDING to'lov bormi
-            existing = await crud.get_pending_purchase_by_unique_price(db, test_price)
-            if not existing:
-                unique_price = test_price
+        for _ in range(50):
+            try:
+                random_cents = random.randint(1, 999)
+                unique_price = price + random_cents
+                existing = await crud.get_pending_purchase_by_unique_price(db, unique_price)
+                if existing:
+                    continue
+                purchase = await crud.create_pending_purchase(
+                    db=db,
+                    telegram_id=callback.from_user.id,
+                    tariff_name=tariff.name,
+                    price_uzs=price,
+                    unique_price_uzs=unique_price,
+                    votes_count=votes
+                )
                 break
-                
-        # To'lov yozuvini yaratamiz
-        purchase = await crud.create_pending_purchase(
-            db=db,
-            telegram_id=callback.from_user.id,
-            tariff_name=tariff.name,
-            price_uzs=price,
-            unique_price_uzs=unique_price,
-            votes_count=votes
-        )
+            except Exception:
+                await db.rollback()
+                continue
+
+        if not purchase:
+            await callback.message.edit_text(
+                "❌ To'lov fakturasini yaratishda xatolik yuz berdi. Iltimos, qayta urinib ko'ring.",
+                reply_markup=inline.get_partnership_keyboard()
+            )
+            await callback.answer()
+            return
         
     # Foydalanuvchiga to'lov ko'rsatmalari va qat'iy ogohlantirishni yuboramiz
     await callback.message.edit_text(

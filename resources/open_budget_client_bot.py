@@ -64,53 +64,59 @@ async def get_http_session() -> aiohttp.ClientSession:
     return _http_session
 
 # ══════════════════════════════════════════════
-#  MA'LUMOTLAR BAZASI
+#  MA'LUMOTLAR BAZASI (Doimiy Connection Pooling)
 # ══════════════════════════════════════════════
 
+_db_conn: aiosqlite.Connection | None = None
+
+async def get_db_conn() -> aiosqlite.Connection:
+    global _db_conn
+    if _db_conn is None:
+        _db_conn = await aiosqlite.connect(DB_PATH)
+        await _db_conn.execute("PRAGMA journal_mode=WAL;")
+        await _db_conn.execute("PRAGMA synchronous=NORMAL;")
+    return _db_conn
+
 async def init_db():
-    async with aiosqlite.connect(DB_PATH) as conn:
-        # SQLite'ni yuqori yuklamalarda bloklanishini oldini olish uchun WAL rejimi
-        await conn.execute("PRAGMA journal_mode=WAL;")
-        await conn.execute("PRAGMA synchronous=NORMAL;")
+    conn = await get_db_conn()
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
 
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key   TEXT PRIMARY KEY,
-                value TEXT
-            )
-        """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            telegram_id INTEGER PRIMARY KEY,
+            username    TEXT    DEFAULT '',
+            full_name   TEXT    DEFAULT '',
+            balance     INTEGER DEFAULT 0,
+            votes_count INTEGER DEFAULT 0,
+            is_blocked  INTEGER DEFAULT 0,
+            joined_at   TEXT    NOT NULL
+        )
+    """)
 
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                telegram_id INTEGER PRIMARY KEY,
-                username    TEXT    DEFAULT '',
-                full_name   TEXT    DEFAULT '',
-                balance     INTEGER DEFAULT 0,
-                votes_count INTEGER DEFAULT 0,
-                is_blocked  INTEGER DEFAULT 0,
-                joined_at   TEXT    NOT NULL
-            )
-        """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS votes_history (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id  INTEGER NOT NULL,
+            phone_number TEXT    NOT NULL,
+            voted_at     TEXT    NOT NULL
+        )
+    """)
 
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS votes_history (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                telegram_id  INTEGER NOT NULL,
-                phone_number TEXT    NOT NULL,
-                voted_at     TEXT    NOT NULL
-            )
-        """)
-
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS withdrawals (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                telegram_id INTEGER NOT NULL,
-                amount      INTEGER NOT NULL,
-                card_number TEXT    NOT NULL,
-                status      TEXT    DEFAULT 'PENDING',
-                created_at  TEXT    NOT NULL
-            )
-        """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS withdrawals (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER NOT NULL,
+            amount      INTEGER NOT NULL,
+            card_number TEXT    NOT NULL,
+            status      TEXT    DEFAULT 'PENDING',
+            created_at  TEXT    NOT NULL
+        )
+    """)
 
     defaults = [
         ("api_key",        ""),
@@ -130,177 +136,177 @@ async def init_db():
 # ──────────────────────────────────────────────
 
 async def get_setting(key: str) -> str:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute("SELECT value FROM settings WHERE key=?", (key,)) as c:
-            row = await c.fetchone()
+    conn = await get_db_conn()
+    async with conn.execute("SELECT value FROM settings WHERE key=?", (key,)) as c:
+        row = await c.fetchone()
     return row[0] if row else ""
 
 async def set_setting(key: str, value: str):
-    async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", (key, value))
-        await conn.commit()
+    conn = await get_db_conn()
+    await conn.execute("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", (key, value))
+    await conn.commit()
 
 # ─── Foydalanuvchilar ───
 
 async def get_or_create_user(tid: int, username: str = "", full_name: str = "") -> tuple:
-    async with aiosqlite.connect(DB_PATH) as conn:
+    conn = await get_db_conn()
+    async with conn.execute(
+        "SELECT telegram_id, username, full_name, balance, votes_count, is_blocked, joined_at "
+        "FROM users WHERE telegram_id=?", (tid,)
+    ) as c:
+        row = await c.fetchone()
+    
+    if not row:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        await conn.execute(
+            "INSERT OR IGNORE INTO users (telegram_id,username,full_name,balance,votes_count,is_blocked,joined_at) "
+            "VALUES (?,?,?,0,0,0,?)",
+            (tid, username, full_name, now)
+        )
+        await conn.commit()
         async with conn.execute(
             "SELECT telegram_id, username, full_name, balance, votes_count, is_blocked, joined_at "
             "FROM users WHERE telegram_id=?", (tid,)
         ) as c:
             row = await c.fetchone()
-        
-        if not row:
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            await conn.execute(
-                "INSERT OR IGNORE INTO users (telegram_id,username,full_name,balance,votes_count,is_blocked,joined_at) "
-                "VALUES (?,?,?,0,0,0,?)",
-                (tid, username, full_name, now)
-            )
-            await conn.commit()
-            async with conn.execute(
-                "SELECT telegram_id, username, full_name, balance, votes_count, is_blocked, joined_at "
-                "FROM users WHERE telegram_id=?", (tid,)
-            ) as c:
-                row = await c.fetchone()
-        elif username and (row[1] != username or row[2] != full_name):
-            await conn.execute("UPDATE users SET username=?,full_name=? WHERE telegram_id=?", (username, full_name, tid))
-            await conn.commit()
+    elif username and (row[1] != username or row[2] != full_name):
+        await conn.execute("UPDATE users SET username=?,full_name=? WHERE telegram_id=?", (username, full_name, tid))
+        await conn.commit()
     return row
 
 async def get_user(tid: int) -> Optional[tuple]:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute(
-            "SELECT telegram_id, username, full_name, balance, votes_count, is_blocked, joined_at "
-            "FROM users WHERE telegram_id=?", (tid,)
-        ) as c:
-            row = await c.fetchone()
+    conn = await get_db_conn()
+    async with conn.execute(
+        "SELECT telegram_id, username, full_name, balance, votes_count, is_blocked, joined_at "
+        "FROM users WHERE telegram_id=?", (tid,)
+    ) as c:
+        row = await c.fetchone()
     return row
 
 async def get_all_users() -> list:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute(
-            "SELECT telegram_id, username, full_name, balance, votes_count "
-            "FROM users ORDER BY votes_count DESC"
-        ) as c:
-            rows = await c.fetchall()
+    conn = await get_db_conn()
+    async with conn.execute(
+        "SELECT telegram_id, username, full_name, balance, votes_count "
+        "FROM users ORDER BY votes_count DESC"
+    ) as c:
+        rows = await c.fetchall()
     return rows
 
 async def get_total_users() -> int:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute("SELECT COUNT(*) FROM users") as c:
-            row = await c.fetchone()
-            n = row[0] if row else 0
+    conn = await get_db_conn()
+    async with conn.execute("SELECT COUNT(*) FROM users") as c:
+        row = await c.fetchone()
+        n = row[0] if row else 0
     return n
 
 async def set_user_blocked(tid: int, block: bool):
-    async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute("UPDATE users SET is_blocked=? WHERE telegram_id=?", (1 if block else 0, tid))
-        await conn.commit()
+    conn = await get_db_conn()
+    await conn.execute("UPDATE users SET is_blocked=? WHERE telegram_id=?", (1 if block else 0, tid))
+    await conn.commit()
 
 # ─── Ovozlar ───
 
 async def get_total_votes() -> int:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute("SELECT COUNT(*) FROM votes_history") as c:
-            row = await c.fetchone()
-            n = row[0] if row else 0
+    conn = await get_db_conn()
+    async with conn.execute("SELECT COUNT(*) FROM votes_history") as c:
+        row = await c.fetchone()
+        n = row[0] if row else 0
     return n
 
 async def get_today_votes() -> int:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        today = datetime.now().strftime("%Y-%m-%d")
-        async with conn.execute("SELECT COUNT(*) FROM votes_history WHERE voted_at LIKE ?", (f"{today}%",)) as c:
-            row = await c.fetchone()
-            n = row[0] if row else 0
+    conn = await get_db_conn()
+    today = datetime.now().strftime("%Y-%m-%d")
+    async with conn.execute("SELECT COUNT(*) FROM votes_history WHERE voted_at LIKE ?", (f"{today}%",)) as c:
+        row = await c.fetchone()
+        n = row[0] if row else 0
     return n
 
 async def get_user_last_vote(tid: int) -> Optional[datetime]:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute("SELECT voted_at FROM votes_history WHERE telegram_id=? ORDER BY id DESC LIMIT 1", (tid,)) as c:
-            row = await c.fetchone()
+    conn = await get_db_conn()
+    async with conn.execute("SELECT voted_at FROM votes_history WHERE telegram_id=? ORDER BY id DESC LIMIT 1", (tid,)) as c:
+        row = await c.fetchone()
     return datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S") if row else None
 
 async def get_user_votes_history(tid: int) -> list:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute(
-            "SELECT phone_number, voted_at FROM votes_history "
-            "WHERE telegram_id=? ORDER BY id DESC LIMIT 10", (tid,)
-        ) as c:
-            rows = await c.fetchall()
+    conn = await get_db_conn()
+    async with conn.execute(
+        "SELECT phone_number, voted_at FROM votes_history "
+        "WHERE telegram_id=? ORDER BY id DESC LIMIT 10", (tid,)
+    ) as c:
+        rows = await c.fetchall()
     return rows
 
 async def get_all_votes_history() -> list:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute("SELECT phone_number, voted_at FROM votes_history ORDER BY id DESC") as c:
-            rows = await c.fetchall()
+    conn = await get_db_conn()
+    async with conn.execute("SELECT phone_number, voted_at FROM votes_history ORDER BY id DESC") as c:
+        rows = await c.fetchall()
     return rows
 
 async def add_vote(tid: int, phone: str, reward: int):
-    async with aiosqlite.connect(DB_PATH) as conn:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        await conn.execute(
-            "INSERT INTO votes_history (telegram_id,phone_number,voted_at) VALUES (?,?,?)",
-            (tid, phone, now)
-        )
-        await conn.execute(
-            "UPDATE users SET balance=balance+?, votes_count=votes_count+1 WHERE telegram_id=?",
-            (reward, tid)
-        )
-        await conn.commit()
+    conn = await get_db_conn()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    await conn.execute(
+        "INSERT INTO votes_history (telegram_id,phone_number,voted_at) VALUES (?,?,?)",
+        (tid, phone, now)
+    )
+    await conn.execute(
+        "UPDATE users SET balance=balance+?, votes_count=votes_count+1 WHERE telegram_id=?",
+        (reward, tid)
+    )
+    await conn.commit()
 
 # ─── Pul yechish ───
 
 async def get_total_paid() -> int:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute("SELECT COALESCE(SUM(amount),0) FROM withdrawals WHERE status='APPROVED'") as c:
-            row = await c.fetchone()
-            n = row[0] if row else 0
+    conn = await get_db_conn()
+    async with conn.execute("SELECT COALESCE(SUM(amount),0) FROM withdrawals WHERE status='APPROVED'") as c:
+        row = await c.fetchone()
+        n = row[0] if row else 0
     return n
 
 async def create_withdrawal(tid: int, amount: int, card: str) -> int:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # 1. Balansni atomik tarzda tekshirib yechamiz (Race Condition va Double-Spend oldi olinadi)
-        async with conn.execute(
-            "UPDATE users SET balance = balance - ? WHERE telegram_id = ? AND balance >= ?",
-            (amount, tid, amount)
-        ) as c:
-            if c.rowcount == 0:
-                return 0
-        # 2. Yechish so'rovini bazaga saqlaymiz
-        async with conn.execute(
-            "INSERT INTO withdrawals (telegram_id,amount,card_number,status,created_at) VALUES (?,?,?,'PENDING',?)",
-            (tid, amount, card, now)
-        ) as c:
-            lid = c.lastrowid
-        await conn.commit()
+    conn = await get_db_conn()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # 1. Balansni atomik tarzda tekshirib yechamiz (Race Condition va Double-Spend oldi olinadi)
+    async with conn.execute(
+        "UPDATE users SET balance = balance - ? WHERE telegram_id = ? AND balance >= ?",
+        (amount, tid, amount)
+    ) as c:
+        if c.rowcount == 0:
+            return 0
+    # 2. Yechish so'rovini bazaga saqlaymiz
+    async with conn.execute(
+        "INSERT INTO withdrawals (telegram_id,amount,card_number,status,created_at) VALUES (?,?,?,'PENDING',?)",
+        (tid, amount, card, now)
+    ) as c:
+        lid = c.lastrowid
+    await conn.commit()
     return lid
 
 async def get_pending_withdrawals() -> list:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute(
-            "SELECT id, telegram_id, amount, card_number, created_at "
-            "FROM withdrawals WHERE status='PENDING' ORDER BY id ASC"
-        ) as c:
-            rows = await c.fetchall()
+    conn = await get_db_conn()
+    async with conn.execute(
+        "SELECT id, telegram_id, amount, card_number, created_at "
+        "FROM withdrawals WHERE status='PENDING' ORDER BY id ASC"
+    ) as c:
+        rows = await c.fetchall()
     return rows
 
 async def process_withdrawal(wd_id: int, approve: bool) -> tuple:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        new_status = "APPROVED" if approve else "REJECTED"
-        # Atomik UPDATE orqali bir necha marta bosilganda ikki marta pul qaytarish (Double Refund) oldi olinadi
-        async with conn.execute(
-            "UPDATE withdrawals SET status=? WHERE id=? AND status='PENDING' RETURNING telegram_id, amount",
-            (new_status, wd_id)
-        ) as c:
-            row = await c.fetchone()
-        if not row:
-            return False, 0, 0
-        tid, amount = row
-        if not approve:
-            await conn.execute("UPDATE users SET balance=balance+? WHERE telegram_id=?", (amount, tid))
-        await conn.commit()
+    conn = await get_db_conn()
+    new_status = "APPROVED" if approve else "REJECTED"
+    # Atomik UPDATE orqali bir necha marta bosilganda ikki marta pul qaytarish (Double Refund) oldi olinadi
+    async with conn.execute(
+        "UPDATE withdrawals SET status=? WHERE id=? AND status='PENDING' RETURNING telegram_id, amount",
+        (new_status, wd_id)
+    ) as c:
+        row = await c.fetchone()
+    if not row:
+        return False, 0, 0
+    tid, amount = row
+    if not approve:
+        await conn.execute("UPDATE users SET balance=balance+? WHERE telegram_id=?", (amount, tid))
+    await conn.commit()
     return True, tid, amount
 
 # ══════════════════════════════════════════════
@@ -1566,6 +1572,9 @@ async def main():
     try:
         await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
     finally:
+        global _db_conn, _http_session
+        if _db_conn:
+            await _db_conn.close()
         if _http_session and not _http_session.closed:
             await _http_session.close()
 

@@ -158,7 +158,7 @@ async def check_phone_voted(db: AsyncSession, phone_number: str, project_id: str
             VotesHistory.status == VoteStatus.SUCCESS
         )
     )
-    return result.scalar_one_or_none() is not None
+    return result.scalars().first() is not None
 
 # --- Pul yechish (Withdrawals) operatsiyalari ---
 
