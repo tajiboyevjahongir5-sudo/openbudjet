@@ -1175,7 +1175,7 @@ async def adm_reject_wd(cb: CallbackQuery):
 #  FOYDALANUVCHI HANDLERLARI
 # ══════════════════════════════════════════════
 
-@router.message(F.text.in_({"🔙 Orqaga", "❌ Bekor qilish"}))
+@router.message(F.text.contains("Orqaga") | F.text.contains("Bekor qilish"))
 async def cmd_cancel(msg: Message, state: FSMContext):
     await state.clear()
     await msg.answer("Bekor qilindi.", reply_markup=kb_main())
@@ -1184,7 +1184,7 @@ async def cmd_cancel(msg: Message, state: FSMContext):
 #  💎 MENING HISOBIM
 # ──────────────────────────────────────────────
 
-@router.message(F.text == "💎 Hisobim")
+@router.message(F.text.contains("Hisobim"))
 async def cmd_my_account(msg: Message, state: FSMContext):
     await state.clear()
     tid = msg.from_user.id
@@ -1213,7 +1213,7 @@ async def cmd_my_account(msg: Message, state: FSMContext):
 #  📋 TARIXIM
 # ──────────────────────────────────────────────
 
-@router.message(F.text == "📋 Tarixim")
+@router.message(F.text.contains("Tarixim") | F.text.contains("Tarix"))
 async def cmd_history(msg: Message, state: FSMContext):
     await state.clear()
     if await user_is_blocked(msg.from_user.id):
@@ -1333,7 +1333,7 @@ async def process_wd_amount(msg: Message, state: FSMContext):
 #  OVOZ BERISH JARAYONI
 # ══════════════════════════════════════════════
 
-@router.message(F.text == "🗳️ Ovoz berish")
+@router.message(F.text.contains("Ovoz berish"))
 async def start_vote(msg: Message, state: FSMContext):
     await state.clear()
     uid = msg.from_user.id
