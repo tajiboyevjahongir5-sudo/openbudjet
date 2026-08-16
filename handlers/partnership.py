@@ -42,48 +42,42 @@ async def process_get_code(callback: CallbackQuery):
     import os
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     file_path = os.path.join(BASE_DIR, "resources", "open_budget_client_bot.py")
+    guide_path = os.path.join(BASE_DIR, "resources", "QOLLANMA.txt")
+    
     try:
+        # 1. Dastur kodi faylini yuboramiz
         input_file = FSInputFile(file_path, filename="open_budget_client_bot.py")
         await callback.message.answer_document(
             document=input_file,
             caption=(
-                "💻 **Open Budget Klient Bot kodi!**\n\n"
-                "Ushbu kod siz o'z botingizni ochishingiz uchun soddalashtirilgan to'liq dasturiy koddir. "
-                "Bot ishlashi uchun unga o'zingizning API kalitingizni (API_KEY) ulab qo'yishingiz shart."
+                "💻 <b>Open Budget Mijoz Boti Kodi (v2.0 Premium)</b>\n\n"
+                "Ushbu kod o'zining ichki asinxron ma'lumotlar bazasiga (aiosqlite + WAL) ega "
+                "to'liq tayyor bot dasturidir."
             ),
-            reply_markup=reply.get_user_menu()
+            parse_mode="HTML"
         )
         
+        # 2. O'rnatish va sozlash qo'llanmasini alohida fayl qilib yuboramiz
+        if os.path.exists(guide_path):
+            guide_file = FSInputFile(guide_path, filename="QOLLANMA.txt")
+            await callback.message.answer_document(
+                document=guide_file,
+                caption=(
+                    "📄 <b>Serverga o'rnatish va sozlash bo'yicha to'liq qo'llanma fayli!</b>\n\n"
+                    "Ushbu faylda Railway, Ubuntu Linux (VPS) va Kompyuterda ishga tushirish qadamma-qadam tushuntirilgan."
+                ),
+                parse_mode="HTML",
+                reply_markup=reply.get_user_menu()
+            )
+        
+        # 3. Qisqa xulosa xabari
         instruction_text = (
-            "⚙️ <b>Open Budget Mijoz Botini Serverga O'rnatish Qo'llanmasi</b>\n"
+            "✅ <b>Fayllar muvaffaqiyatli yuborildi!</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Ushbu bot <b>to'liq mustaqil</b> bo'lib, o'zining ichki ma'lumotlar bazasiga (SQLite) ega. "
-            "Sizdan alohida ma'lumotlar bazasi (PostgreSQL/MySQL) o'rnatish <b>talab qilinmaydi</b> — bot ishga tushishi bilan bazani o'zi avtomatik yaratadi!\n\n"
-            "<b>1️⃣ Kerakli O'zgaruvchilar (.env yoki Server Variables):</b>\n"
-            "🔹 <code>BOT_TOKEN</code> — @BotFather orqali yaratilgan botingiz tokeni.\n"
-            "🔹 <code>ADMIN_ID</code> — Botingiz egasi (sizning) Telegram raqamli IDingiz (@userinfobot orqali bilish mumkin).\n"
-            "🔹 <code>API_URL</code> — Asosiy API server manzili: <code>https://openbudjet-production.up.railway.app/api/v1</code>\n"
-            "🔹 <code>VOTE_COOLDOWN_HOURS</code> — Ovoz berish oralig'i (soatlarda, 0 = cheklovsiz).\n\n"
-            "<b>2️⃣ Kerakli Kutubxonalarni O'rnatish:</b>\n"
-            "<code>pip install aiogram aiohttp aiosqlite</code>\n\n"
-            "<b>3️⃣ Serverga Yuklash va Ishga Tushirish:</b>\n\n"
-            "🚀 <b>Railway.app orqali (Tavsiya etiladi - Eng oson):</b>\n"
-            "1. GitHub'da yangi yopiq (Private) repo ochib, <code>open_budget_client_bot.py</code> faylini yuklang.\n"
-            "2. Railway.app ga kirib, <b>New Project</b> -> <b>Deploy from GitHub repo</b> ni tanlang.\n"
-            "3. <b>Variables</b> bo'limiga yuqoridagi <code>BOT_TOKEN</code>, <code>ADMIN_ID</code>, <code>API_URL</code> larni kiriting.\n"
-            "4. <b>Custom Start Command</b> ga: <code>python open_budget_client_bot.py</code> deb yozing.\n"
-            "5. Bot bir zumda ishga tushadi!\n\n"
-            "🖥️ <b>Ubuntu / Linux (VPS) Server orqali:</b>\n"
-            "1. Serveringizga faylni yuklang va <code>.env</code> fayl yarating.\n"
-            "2. Kutubxonalarni o'rnating: <code>pip3 install aiogram aiohttp aiosqlite</code>\n"
-            "3. 24/7 rejimda fonda ishga tushiring:\n"
-            "   <code>nohup python3 open_budget_client_bot.py > bot.log 2>&1 &</code>\n\n"
-            "<b>4️⃣ Botni Sozlash:</b>\n"
-            "Bot ishga tushgach, o'z botingizga kirib <b>/admin</b> buyrug'ini yuborasiz va:\n"
-            "• Sotib olgan <b>API Kalitingizni</b> kiritasiz (bot kalitni real serverda tekshiradi);\n"
-            "• Ovoz to'planayotgan <b>Loyiha ID raqamini</b> kiritasiz;\n"
-            "• Ovoz beruvchilarga to'lanadigan <b>mukofot summasini</b> belgilaysiz.\n\n"
-            "🎉 <i>Botingiz foydalanuvchilardan ovoz qabul qilishga to'liq tayyor!</i>"
+            "1️⃣ <code>open_budget_client_bot.py</code> — Botingizning to'liq dasturiy kodi.\n"
+            "2️⃣ <code>QOLLANMA.txt</code> — Serverga o'rnatish bo'yicha batafsil qo'llanma.\n\n"
+            "🔑 <b>Eslatma:</b> Botni ishga tushirganingizdan so'ng, unga kirib <b>/admin</b> buyrug'i orqali "
+            "sotib olgan API kalitingizni va ovoz yig'ayotgan Loyiha ID raqamingizni kiritasiz."
         )
         await callback.message.answer(instruction_text, parse_mode="HTML")
     except Exception as e:
