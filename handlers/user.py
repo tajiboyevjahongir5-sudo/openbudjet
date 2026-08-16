@@ -51,16 +51,18 @@ async def cmd_start(message: Message, state: FSMContext):
 
     if created:
         welcome_text = (
-            f"👋 Assalomu alaykum, {html.escape(str(message.from_user.full_name))}!\n\n"
-            f"Ovoz yig'ish botimizga xush kelibsiz.\n"
-            f"Siz bu yerda o'z ovozingizni berib va do'stlaringizni taklif qilib pul ishlashingiz mumkin.\n\n"
-            f"💵 Har bir muvaffaqiyatli ovoz uchun taklif qiluvchiga <b>{referral_price} so'm</b> to'lanadi.\n"
-            f"Boshlash uchun quyidagi menyudan foydalaning 👇"
+            f"<tg-emoji emoji-id='5368324170677109746'>👑</tg-emoji> <b>Open Budget Bot</b> <tg-emoji emoji-id='5469950790893946284'>✨</tg-emoji>\n"
+            f"Salom <b>{html.escape(str(message.from_user.full_name))}</b>! <tg-emoji emoji-id='5472164874884394982'>🔥</tg-emoji>\n\n"
+            f"Ovoz berib va do'stlaringizni taklif qilib daromad oling!\n\n"
+            f"<tg-emoji emoji-id='5471971711481666499'>💰</tg-emoji> Har bir ovoz uchun referalga: <b>{referral_price:,} so'm</b>\n\n"
+            f"<tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji> Boshlash uchun quyidagi menyudan foydalaning:"
         )
     else:
         welcome_text = (
-            f"👋 Assalomu alaykum, {html.escape(str(message.from_user.full_name))}!\n\n"
-            f"Qayta tashrifingizdan xursandmiz. Quyidagi menyudan foydalaning 👇"
+            f"<tg-emoji emoji-id='5368324170677109746'>👑</tg-emoji> <b>Open Budget Bot</b> <tg-emoji emoji-id='5469950790893946284'>✨</tg-emoji>\n"
+            f"Salom <b>{html.escape(str(message.from_user.full_name))}</b>! <tg-emoji emoji-id='5472164874884394982'>🔥</tg-emoji>\n\n"
+            f"Qayta tashrifingizdan xursandmiz!\n"
+            f"<tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji> Quyidagi menyudan foydalaning:"
         )
 
     await state.update_data(welcome_text=welcome_text)

@@ -537,10 +537,11 @@ async def cmd_start(msg: Message, state: FSMContext):
         admin_note = "\n\n<i>⚠️ Eslatma (Admin): API kalit ulanmagan. /admin orqali sozlang.</i>"
 
     await msg.answer(
-        f"👋 <b>Assalomu alaykum, xush kelibsiz!</b>\n\n"
+        f"<tg-emoji emoji-id='5368324170677109746'>👑</tg-emoji> <b>Open Budget Bot</b> <tg-emoji emoji-id='5469950790893946284'>✨</tg-emoji>\n"
+        f"Salom <b>{html.escape(str(u.full_name))}</b>! <tg-emoji emoji-id='5472164874884394982'>🔥</tg-emoji>\n\n"
         f"📌 Faol loyiha: <b>{proj}</b>\n\n"
-        f"🗳️ Har bir muvaffaqiyatli ovoz uchun <b>{reward:,} UZS</b> mukofot olasiz.\n\n"
-        f"Boshlash uchun quyidagi tugmani bosing! 👇{admin_note}",
+        f"<tg-emoji emoji-id='5471971711481666499'>💰</tg-emoji> Har bir ovoz uchun mukofot: <b>{reward:,} UZS</b>\n\n"
+        f"<tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji> Boshlash uchun quyidagi menyudan foydalaning:{admin_note}",
         reply_markup=kb_main(),
         parse_mode="HTML"
     )
@@ -1194,11 +1195,11 @@ async def cmd_my_account(msg: Message, state: FSMContext):
     min_wd = int(await get_setting("min_withdrawal") or 5000)
 
     await msg.answer(
-        "💎 <b>Mening hisobim</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"💰 <b>Balans:</b>         <b>{bal:,} UZS</b>\n"
-        f"🗳️ <b>Ovozlar:</b>        <b>{votes} ta</b>\n"
-        f"📈 <b>Jami daromad:</b>   <b>{votes * reward:,} UZS</b>\n\n"
+        f"<tg-emoji emoji-id='5469950790893946284'>💎</tg-emoji> <b>Mening hisobim</b> <tg-emoji emoji-id='5469950790893946284'>✨</tg-emoji>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<tg-emoji emoji-id='5471971711481666499'>💰</tg-emoji> <b>Hamyon balansi:</b> <b>{bal:,} UZS</b>\n"
+        f"<tg-emoji emoji-id='5471983050186938952'>🗳️</tg-emoji> <b>Berilgan ovozlar:</b> <b>{votes} ta</b>\n"
+        f"<tg-emoji emoji-id='5472164874884394982'>📈</tg-emoji> <b>Jami daromad:</b> <b>{votes * reward:,} UZS</b>\n\n"
         f"💳 Minimal yechish: <b>{min_wd:,} UZS</b>",
         reply_markup=kb_balance(bal >= min_wd),
         parse_mode="HTML"
@@ -1555,9 +1556,9 @@ async def vote_captcha2(msg: Message, state: FSMContext):
 
     await casting.delete()
     await msg.answer(
-        "🎉 <b>Ovoz muvaffaqiyatli hisoblandi!</b>\n\n"
-        f"💰 Mukofot:      <b>+{reward:,} UZS</b>\n"
-        f"💎 Joriy balans: <b>{new_bal:,} UZS</b>\n\n"
+        f"<tg-emoji emoji-id='5469950790893946284'>✨</tg-emoji> <b>TABRIKLAYMIZ! Ovoz muvaffaqiyatli qabul qilindi!</b> <tg-emoji emoji-id='5472164874884394982'>🔥</tg-emoji>\n\n"
+        f"<tg-emoji emoji-id='5471971711481666499'>💰</tg-emoji> Sizga berilgan mukofot: <b>+{reward:,} UZS</b>\n"
+        f"<tg-emoji emoji-id='5469950790893946284'>💎</tg-emoji> Yangi hamyon balansi: <b>{new_bal:,} UZS</b>\n\n"
         "Davom eting — qancha ko'p ovoz, shuncha ko'p daromad! 🚀",
         reply_markup=kb_main(), parse_mode="HTML"
     )
