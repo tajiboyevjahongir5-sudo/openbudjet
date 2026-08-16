@@ -537,11 +537,11 @@ async def cmd_start(msg: Message, state: FSMContext):
         admin_note = "\n\n<i>⚠️ Eslatma (Admin): API kalit ulanmagan. /admin orqali sozlang.</i>"
 
     await msg.answer(
-        f"<tg-emoji emoji-id='5368324170677109746'>👑</tg-emoji> <b>Open Budget Bot</b> <tg-emoji emoji-id='5469950790893946284'>✨</tg-emoji>\n"
-        f"Salom <b>{html.escape(str(u.full_name))}</b>! <tg-emoji emoji-id='5472164874884394982'>🔥</tg-emoji>\n\n"
-        f"📌 Faol loyiha: <b>{proj}</b>\n\n"
-        f"<tg-emoji emoji-id='5471971711481666499'>💰</tg-emoji> Har bir ovoz uchun mukofot: <b>{reward:,} UZS</b>\n\n"
-        f"<tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji> Boshlash uchun quyidagi menyudan foydalaning:{admin_note}",
+        f"<tg-emoji emoji-id='5471983050186938952'>🗳️</tg-emoji> <b>Open Budget — Ovoz Berish Tizimi</b>\n\n"
+        f"Assalomu alaykum, <b>{html.escape(str(u.full_name))}</b>!\n\n"
+        f"<tg-emoji emoji-id='5471983050186938952'>📌</tg-emoji> <b>Faol loyiha:</b> <code>{proj}</code>\n\n"
+        f"<tg-emoji emoji-id='5471971711481666499'>💰</tg-emoji> <b>Har bir ovoz uchun mukofot:</b> <b>{reward:,} UZS</b>\n\n"
+        f"<tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji> Boshlash uchun quyidagi tugmani bosing!{admin_note}",
         reply_markup=kb_main(),
         parse_mode="HTML"
     )
