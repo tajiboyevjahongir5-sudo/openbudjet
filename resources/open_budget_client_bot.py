@@ -532,15 +532,18 @@ async def cmd_start(msg: Message, state: FSMContext):
     if not await bot_is_ready():
         if u.id == ADMIN_ID:
             return await msg.answer(
-                "⚠️ <b>Bot hali sozlanmagan!</b>\n\n"
-                "Boshlash uchun /admin buyrug'ini yuboring va:\n"
-                "1️⃣ API Kalitni kiriting\n"
-                "2️⃣ Loyiha IDni kiriting",
+                "👋 <b>Assalomu alaykum, Administrator!</b>\n\n"
+                "⚠️ <b>Bot to'liq faollashishi uchun:</b>\n"
+                "1️⃣ <b>💳 API Kalit sotib olish</b> (yoki ulash)\n"
+                "2️⃣ <b>📌 Loyiha IDni kiritish</b>\n\n"
+                "Boshqaruv uchun /admin buyrug'ini yuboring.",
+                reply_markup=kb_main(),
                 parse_mode="HTML"
             )
         return await msg.answer(
             "🔧 <b>Bot sozlanmoqda.</b>\n\n"
-            "Tez orada ishga tushadi, kuting! ⏳",
+            "Tez orada ovoz berish tizimi ishga tushadi, kuting! ⏳",
+            reply_markup=kb_main(),
             parse_mode="HTML"
         )
 
