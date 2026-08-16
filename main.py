@@ -2,7 +2,7 @@ import os
 import logging
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status, Depends, Header
+from fastapi import FastAPI, Request, status, Depends, Header, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -22,6 +22,32 @@ from handlers import user, vote, admin, partnership
 from middlewares import ThrottlingMiddleware
 from api.v1 import router as api_router
 
+async def require_admin(
+    init_data: str = None,
+    admin_token: str = None,
+    admin_token_header: str = Header(None, alias="admin-token"),
+    tg_init_data: str = Header(None, alias="tg-init-data"),
+) -> int:
+    """FastAPI Dependency: Admin autentifikatsiyasini tekshiradi va telegram_id qaytaradi"""
+    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
+    
+    user_data = None
+    raw_data = init_data or tg_init_data
+    if raw_data:
+        user_data, _ = verify_telegram_init_data_detailed(raw_data)
+    
+    telegram_id = None
+    if user_data:
+        telegram_id = user_data.get("id", 0)
+    elif admin_token or admin_token_header:
+        telegram_id = verify_admin_token(admin_token or admin_token_header)
+    
+    if not telegram_id or not is_admin_user(telegram_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
+        )
+    return telegram_id
 
 # Logger sozlamalari
 logging.basicConfig(
@@ -162,6 +188,14 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled server error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"status": "error", "message": "Server ichki xatosi yuz berdi."},
+    )
+
 # FastAPI endpointlari
 app.include_router(api_router, prefix="/api/v1", tags=["Commercial API"])
 
@@ -186,47 +220,9 @@ async def get_admin_dashboard(request: Request):
 
 @app.get("/admin/api/keys")
 async def get_keys_api(
-    init_data: str = None,
-    admin_token: str = None,
-    tg_init_data: str = Header(None, alias="tg-init-data"),
+    admin_id: int = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
-    
-    user_data = None
-    auth_error = None
-    raw_data = init_data or tg_init_data
-    
-    if raw_data:
-        user_data, auth_error = verify_telegram_init_data_detailed(raw_data)
-        
-    telegram_id = None
-    if user_data:
-        telegram_id = user_data.get("id", 0)
-    elif admin_token:
-        telegram_id = verify_admin_token(admin_token)
-        if telegram_id:
-            auth_error = None
-            
-    if auth_error and not telegram_id:
-        return JSONResponse(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": f"Auth muvaffaqiyatsiz: {auth_error}"}
-        )
-        
-    if not telegram_id:
-        token_status = "yo'q (empty)" if not admin_token else f"mavjud ({admin_token[:15]}...)"
-        return JSONResponse(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": f"Avtorizatsiya ma'lumotlari topilmadi (initData: bo'sh, admin_token: {token_status}). Botga qaytib, /admin buyrug'ini yuboring va menyuni yangilang!"}
-        )
-        
-    if not is_admin_user(telegram_id):
-        admin_ids = [int(x.strip()) for x in settings.ADMIN_IDS_RAW.split(",") if x.strip().isdigit()]
-        return JSONResponse(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": f"Admin ro'yxatida emassiz. ID: {telegram_id}. Ruxsat berilgan: {admin_ids}"}
-        )
 
 
     keys = await crud.get_all_api_keys(db)
@@ -286,32 +282,9 @@ async def get_keys_api(
 @app.post("/admin/api/keys")
 async def create_key_api(
     req: CreateKeySchema,
-    init_data: str = None,
-    admin_token: str = None,
-    admin_token_header: str = Header(None, alias="admin-token"),
-    tg_init_data: str = Header(None, alias="tg-init-data"),
+    admin_id: int = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
-    
-    user_data = None
-    auth_error = None
-    raw_data = init_data or tg_init_data
-    
-    if raw_data:
-        user_data, auth_error = verify_telegram_init_data_detailed(raw_data)
-        
-    telegram_id = None
-    if user_data:
-        telegram_id = user_data.get("id", 0)
-    elif admin_token or admin_token_header:
-        telegram_id = verify_admin_token(admin_token or admin_token_header)
-        
-    if (auth_error and not telegram_id) or not telegram_id or not is_admin_user(telegram_id):
-        return JSONResponse(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
-        )
 
     import secrets
     plain_key = f"ob_api_{secrets.token_hex(16)}"
@@ -332,32 +305,9 @@ async def create_key_api(
 async def topup_key_api(
     key_id: int,
     req: TopUpSchema,
-    init_data: str = None,
-    admin_token: str = None,
-    admin_token_header: str = Header(None, alias="admin-token"),
-    tg_init_data: str = Header(None, alias="tg-init-data"),
+    admin_id: int = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
-    
-    user_data = None
-    auth_error = None
-    raw_data = init_data or tg_init_data
-    
-    if raw_data:
-        user_data, auth_error = verify_telegram_init_data_detailed(raw_data)
-        
-    telegram_id = None
-    if user_data:
-        telegram_id = user_data.get("id", 0)
-    elif admin_token or admin_token_header:
-        telegram_id = verify_admin_token(admin_token or admin_token_header)
-        
-    if (auth_error and not telegram_id) or not telegram_id or not is_admin_user(telegram_id):
-        return JSONResponse(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
-        )
 
     updated = await crud.update_api_key_balance(db, key_id, req.amount)
     if not updated:
@@ -372,32 +322,9 @@ async def topup_key_api(
 async def toggle_key_api(
     key_id: int,
     req: ToggleSchema,
-    init_data: str = None,
-    admin_token: str = None,
-    admin_token_header: str = Header(None, alias="admin-token"),
-    tg_init_data: str = Header(None, alias="tg-init-data"),
+    admin_id: int = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
-    
-    user_data = None
-    auth_error = None
-    raw_data = init_data or tg_init_data
-    
-    if raw_data:
-        user_data, auth_error = verify_telegram_init_data_detailed(raw_data)
-        
-    telegram_id = None
-    if user_data:
-        telegram_id = user_data.get("id", 0)
-    elif admin_token or admin_token_header:
-        telegram_id = verify_admin_token(admin_token or admin_token_header)
-        
-    if (auth_error and not telegram_id) or not telegram_id or not is_admin_user(telegram_id):
-        return JSONResponse(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
-        )
 
     updated = await crud.toggle_api_key_status(db, key_id, req.is_active)
     if not updated:
@@ -411,32 +338,9 @@ async def toggle_key_api(
 @app.delete("/admin/api/keys/{key_id}")
 async def delete_key_api(
     key_id: int,
-    init_data: str = None,
-    admin_token: str = None,
-    admin_token_header: str = Header(None, alias="admin-token"),
-    tg_init_data: str = Header(None, alias="tg-init-data"),
+    admin_id: int = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
-    
-    user_data = None
-    auth_error = None
-    raw_data = init_data or tg_init_data
-    
-    if raw_data:
-        user_data, auth_error = verify_telegram_init_data_detailed(raw_data)
-        
-    telegram_id = None
-    if user_data:
-        telegram_id = user_data.get("id", 0)
-    elif admin_token or admin_token_header:
-        telegram_id = verify_admin_token(admin_token or admin_token_header)
-        
-    if (auth_error and not telegram_id) or not telegram_id or not is_admin_user(telegram_id):
-        return JSONResponse(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
-        )
 
     success = await crud.delete_api_key(db, key_id)
     if not success:
@@ -522,31 +426,9 @@ class UpdateTariffSchema(BaseModel):
 async def update_tariff_api(
     tariff_id: int,
     schema: UpdateTariffSchema,
-    init_data: str = None,
-    admin_token: str = None,
-    tg_init_data: str = Header(None, alias="tg-init-data"),
+    admin_id: int = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
-    
-    user_data = None
-    auth_error = None
-    raw_data = init_data or tg_init_data
-    
-    if raw_data:
-        user_data, auth_error = verify_telegram_init_data_detailed(raw_data)
-        
-    telegram_id = None
-    if user_data:
-        telegram_id = user_data.get("id", 0)
-    elif admin_token:
-        telegram_id = verify_admin_token(admin_token)
-        
-    if (auth_error and not telegram_id) or not telegram_id or not is_admin_user(telegram_id):
-        return JSONResponse(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
-        )
         
     # Boshqa tarifda bu ovozlar soni ishlatilmaganligini tekshiramiz
     from database.models import Tariff
@@ -584,31 +466,9 @@ class UpdateSettingsSchema(BaseModel):
 @app.post("/admin/api/settings")
 async def update_settings_api(
     schema: UpdateSettingsSchema,
-    init_data: str = None,
-    admin_token: str = None,
-    tg_init_data: str = Header(None, alias="tg-init-data"),
+    admin_id: int = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    from utils.api_auth import verify_telegram_init_data_detailed, verify_admin_token, is_admin_user
-    
-    user_data = None
-    auth_error = None
-    raw_data = init_data or tg_init_data
-    
-    if raw_data:
-        user_data, auth_error = verify_telegram_init_data_detailed(raw_data)
-        
-    telegram_id = None
-    if user_data:
-        telegram_id = user_data.get("id", 0)
-    elif admin_token:
-        telegram_id = verify_admin_token(admin_token)
-        
-    if (auth_error and not telegram_id) or not telegram_id or not is_admin_user(telegram_id):
-        return JSONResponse(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            content={"status": "error", "message": "Kirish taqiqlangan! Faqat adminlar kirishi mumkin."}
-        )
         
     card_number_val = schema.card_number.strip() if schema.card_number else None
     if not card_number_val:
