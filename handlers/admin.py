@@ -38,7 +38,7 @@ async def cmd_admin(message: Message, state: FSMContext):
     """Admin panelini ochish yoki foydalanuvchi rejimiga qaytish"""
     await state.clear()
     
-    if message.text == "🔙 Asosiy menyu":
+    if "Asosiy menyu" in message.text:
         await message.answer("Asosiy menyuga qaytdingiz.", reply_markup=reply.get_user_menu())
         return
 
@@ -69,7 +69,7 @@ async def show_projects_list(message_or_callback, state: FSMContext):
 
 # --- 1. Loyihalar boshqaruvi handlers ---
 
-@router.message(F.text == "📂 Loyihalar")
+@router.message(F.text.contains("Loyihalar"))
 async def admin_projects_list_message(message: Message, state: FSMContext):
     """Admin '📂 Loyihalar' tugmasini bosganda loyihalar ro'yxatini chiqaradi"""
     await show_projects_list(message, state)
@@ -269,7 +269,7 @@ async def process_admin_project_delete(callback: CallbackQuery, state: FSMContex
 
 # --- 2. Referal mukofot narxini o'zgartirish ---
 
-@router.message(F.text == "💰 Ovoz mukofoti")
+@router.message(F.text.contains("Ovoz mukofoti"))
 async def admin_change_voter_reward(message: Message, state: FSMContext):
     """Ovoz bergan foydalanuvchining o'ziga beriladigan shaxsiy mukofotni o'zgartirish"""
     await state.set_state(AdminStates.WAITING_FOR_VOTER_REWARD)
@@ -307,7 +307,7 @@ async def process_admin_voter_reward(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-@router.message(F.text == "👥 Referal mukofoti")
+@router.message(F.text.contains("Referal mukofoti"))
 async def admin_change_price(message: Message, state: FSMContext):
     """Taklif qiluvchiga (referal) beriladigan mukofotni o'zgartirish"""
     await state.set_state(AdminStates.WAITING_FOR_REFERRAL_PRICE)
@@ -347,7 +347,7 @@ async def process_admin_price(message: Message, state: FSMContext):
 
 # --- 3. Minimal pul yechish chegarasini o'zgartirish ---
 
-@router.message(F.text == "💸 Min. Pul yechish")
+@router.message(F.text.contains("Min. Pul yechish") | F.text.contains("yechish"))
 async def admin_change_min_withdraw(message: Message, state: FSMContext):
     await state.set_state(AdminStates.WAITING_FOR_MIN_WITHDRAWAL)
     await message.answer(
@@ -386,7 +386,7 @@ async def process_admin_min_withdraw(message: Message, state: FSMContext):
 
 # --- 3.5. Maxfiy kanal sozlamalarini o'zgartirish ---
 
-@router.message(F.text == "🔒 Maxfiy kanal")
+@router.message(F.text.contains("Maxfiy kanal"))
 @router.callback_query(F.data == "admin_change_channel")
 async def admin_change_channel(message_or_callback, state: FSMContext):
     await state.set_state(AdminStates.WAITING_FOR_CHANNEL_USERNAME)
@@ -433,7 +433,7 @@ async def process_admin_channel_username(message: Message, state: FSMContext):
 # --- 4. Statistikalarni ko'rish ---
 
 
-@router.message(F.text == "📈 Statistika")
+@router.message(F.text.contains("Statistika"))
 async def admin_statistics(message: Message):
     async with async_session() as db:
         active_project = await crud.get_active_project(db)
@@ -493,7 +493,7 @@ async def process_approve_withdraw(callback: CallbackQuery):
 
 # --- 📋 Hisobot chiqarish handlers ---
 
-@router.message(F.text == "📊 Batafsil Hisobot")
+@router.message(F.text.contains("Batafsil Hisobot") | F.text.contains("Hisobot"))
 async def admin_report_select(message: Message):
     """Admin '📋 Hisobot' tugmasini bosganda ovozi bor loyihalar ro'yxatini inline tugma shaklida chiqaradi"""
     async with async_session() as db:
@@ -747,7 +747,7 @@ async def admin_report_select_callback(callback: CallbackQuery):
 
 # --- 📣 Reklama yuborish handlers ---
 
-@router.message(F.text == "📣 Reklama yuborish")
+@router.message(F.text.contains("Reklama yuborish") | F.text.contains("Reklama"))
 async def admin_broadcast_start(message: Message, state: FSMContext):
     """Barcha a'zolarga reklama yuborish jarayonini boshlash"""
     await state.set_state(AdminStates.WAITING_FOR_AD_TEXT)

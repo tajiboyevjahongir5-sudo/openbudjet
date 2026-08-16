@@ -5,13 +5,13 @@ from utils.security import generate_session_signature
 def get_user_menu() -> ReplyKeyboardMarkup:
     """Foydalanuvchilar uchun zamonaviy va rangli asosiy menyu (Reply Keyboard)"""
     keyboard = [
-        [KeyboardButton(text="⚡ Ovoz berish", style="success")],
+        [KeyboardButton(text="⚡ Ovoz berish")],
         [
-            KeyboardButton(text="💎 Mening hisobim", style="primary"), 
-            KeyboardButton(text="📣 Do'stlarni taklif qilish", style="primary")
+            KeyboardButton(text="💎 Mening hisobim"), 
+            KeyboardButton(text="📣 Do'stlarni taklif qilish")
         ],
         [
-            KeyboardButton(text="🤝 Hamkorlik", style="primary")
+            KeyboardButton(text="🤝 Hamkorlik")
         ]
     ]
     return ReplyKeyboardMarkup(
@@ -23,8 +23,8 @@ def get_user_menu() -> ReplyKeyboardMarkup:
 def get_phone_keyboard() -> ReplyKeyboardMarkup:
     """Ovoz berishda telefon raqamini olish uchun rangli tugma"""
     keyboard = [
-        [KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True, style="success")],
-        [KeyboardButton(text="❌ Jarayonni bekor qilish", style="danger")]
+        [KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True)],
+        [KeyboardButton(text="❌ Jarayonni bekor qilish")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
@@ -43,24 +43,24 @@ def get_admin_menu(telegram_id: int = None) -> ReplyKeyboardMarkup:
     
     keyboard = [
         [
-            KeyboardButton(text="📂 Loyihalar", style="primary"), 
-            KeyboardButton(text="💰 Ovoz mukofoti", style="primary")
+            KeyboardButton(text="📂 Loyihalar"), 
+            KeyboardButton(text="💰 Ovoz mukofoti")
         ],
         [
-            KeyboardButton(text="👥 Referal mukofoti", style="primary"), 
-            KeyboardButton(text="💸 Min. Pul yechish", style="primary")
+            KeyboardButton(text="👥 Referal mukofoti"), 
+            KeyboardButton(text="💸 Min. Pul yechish")
         ],
         [
-            KeyboardButton(text="📈 Statistika", style="primary"),
-            KeyboardButton(text="🔒 Maxfiy kanal", style="primary")
+            KeyboardButton(text="📈 Statistika"),
+            KeyboardButton(text="🔒 Maxfiy kanal")
         ],
         [
-            KeyboardButton(text="🔑 API Web App", web_app=WebAppInfo(url=dashboard_url), style="success"),
-            KeyboardButton(text="📊 Batafsil Hisobot", style="success")
+            KeyboardButton(text="🔑 API Web App", web_app=WebAppInfo(url=dashboard_url)),
+            KeyboardButton(text="📊 Batafsil Hisobot")
         ],
         [
-            KeyboardButton(text="📣 Reklama yuborish", style="success"),
-            KeyboardButton(text="🔙 Asosiy menyu", style="danger")
+            KeyboardButton(text="📣 Reklama yuborish"),
+            KeyboardButton(text="🔙 Asosiy menyu")
         ]
     ]
     return ReplyKeyboardMarkup(
@@ -72,7 +72,7 @@ def get_admin_menu(telegram_id: int = None) -> ReplyKeyboardMarkup:
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     """Bekor qilish tugmasi"""
     keyboard = [
-        [KeyboardButton(text="❌ Jarayonni bekor qilish", style="danger")]
+        [KeyboardButton(text="❌ Jarayonni bekor qilish")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,

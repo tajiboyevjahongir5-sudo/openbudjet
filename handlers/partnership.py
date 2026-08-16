@@ -14,7 +14,7 @@ from database.models import ProjectSettings, Tariff
 logger = logging.getLogger(__name__)
 router = Router()
 
-@router.message(F.text == "🤝 Hamkorlik")
+@router.message(F.text.contains("Hamkorlik"))
 async def cmd_partnership(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
