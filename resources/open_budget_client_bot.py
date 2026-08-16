@@ -1,845 +1,1399 @@
+"""
+╔══════════════════════════════════════════════════════════╗
+║       Open Budget Mijoz Boti  —  v2.0 Premium           ║
+║  Muallif: Open Budget API xizmati uchun tayyorlangan     ║
+╚══════════════════════════════════════════════════════════╝
+
+.env fayl namunasi:
+    BOT_TOKEN=7xxxxxxxxxx:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ADMIN_ID=123456789
+    API_URL=https://openbudjet-production.up.railway.app/api/v1
+    VOTE_COOLDOWN_HOURS=0
+
+O'rnatish:
+    pip install aiogram aiohttp
+    python open_budget_client_bot.py
+"""
+
 import logging
 import asyncio
 import os
 import aiohttp
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Optional
+import base64
+
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
-    Message, ReplyKeyboardMarkup, KeyboardButton, 
+    Message, ReplyKeyboardMarkup, KeyboardButton,
     ReplyKeyboardRemove, BufferedInputFile,
     InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 )
-import base64
 
-# Logger sozlamalari
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+# ──────────────────────────────────────────────
+#  LOGGER
+# ──────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s │ %(name)s │ %(levelname)s │ %(message)s"
+)
 logger = logging.getLogger(__name__)
 
-# --- Boshlang'ich Sozlamalar ---
-BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN_SHU_YERGA_YOZILADI")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # Bot egasining Telegram ID raqami
-API_URL = os.getenv("API_URL", "https://openbudjet-production.up.railway.app/api/v1")
+# ──────────────────────────────────────────────
+#  SOZLAMALAR (muhit o'zgaruvchilari)
+# ──────────────────────────────────────────────
+BOT_TOKEN           = os.getenv("BOT_TOKEN", "BOT_TOKEN_SHU_YERGA")
+ADMIN_ID            = int(os.getenv("ADMIN_ID", "0"))
+API_URL             = os.getenv("API_URL", "https://openbudjet-production.up.railway.app/api/v1")
+VOTE_COOLDOWN_HOURS = int(os.getenv("VOTE_COOLDOWN_HOURS", "0"))  # 0 = cheklovsiz
 
-# --- Ma'lumotlar Bazasi (SQLite) ---
 DB_PATH = "client_bot.db"
 
-def init_local_db():
+# ══════════════════════════════════════════════
+#  MA'LUMOTLAR BAZASI
+# ══════════════════════════════════════════════
+
+def init_db():
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    # Sozlamalar jadvali
-    cursor.execute("""
+    c = conn.cursor()
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
+            key   TEXT PRIMARY KEY,
             value TEXT
         )
     """)
-    # Muvaffaqiyatli ovozlar sonini saqlash jadvali
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS stats (
-            key TEXT PRIMARY KEY,
-            val_int INTEGER
-        )
-    """)
-    # Muvaffaqiyatli ovozlar tarixi jadvali (telefon va sana)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS votes_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            phone_number TEXT NOT NULL,
-            voted_at TEXT NOT NULL
-        )
-    """)
-    # Foydalanuvchilar balanslari jadvali
-    cursor.execute("""
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             telegram_id INTEGER PRIMARY KEY,
-            balance INTEGER DEFAULT 0,
-            votes_count INTEGER DEFAULT 0
+            username    TEXT    DEFAULT '',
+            full_name   TEXT    DEFAULT '',
+            balance     INTEGER DEFAULT 0,
+            votes_count INTEGER DEFAULT 0,
+            is_blocked  INTEGER DEFAULT 0,
+            joined_at   TEXT    NOT NULL
         )
     """)
-    # Pul yechish so'rovlari jadvali
-    cursor.execute("""
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS votes_history (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id  INTEGER NOT NULL,
+            phone_number TEXT    NOT NULL,
+            voted_at     TEXT    NOT NULL
+        )
+    """)
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS withdrawals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
             telegram_id INTEGER NOT NULL,
-            amount INTEGER NOT NULL,
-            card_number TEXT NOT NULL,
-            status TEXT DEFAULT 'PENDING',
-            created_at TEXT NOT NULL
+            amount      INTEGER NOT NULL,
+            card_number TEXT    NOT NULL,
+            status      TEXT    DEFAULT 'PENDING',
+            created_at  TEXT    NOT NULL
         )
     """)
-    # Boshlang'ich qiymatlar
-    cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('api_key', '')")
-    cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('project_id', '')")
-    cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('voter_reward', '1000')")
-    cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('min_withdrawal', '5000')")
-    cursor.execute("INSERT OR IGNORE INTO stats (key, val_int) VALUES ('successful_votes', 0)")
+
+    defaults = [
+        ("api_key",        ""),
+        ("project_id",     ""),
+        ("project_name",   ""),
+        ("voter_reward",   "1000"),
+        ("min_withdrawal", "5000"),
+        ("voting_enabled", "1"),
+    ]
+    for k, v in defaults:
+        c.execute("INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)", (k, v))
+
     conn.commit()
     conn.close()
 
-# --- Database Helperlari ---
+init_db()
+
+# ──────────────────────────────────────────────
+#  DB YORDAMCHI FUNKSIYALAR
+# ──────────────────────────────────────────────
 
 def get_setting(key: str) -> str:
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
-    row = cursor.fetchone()
+    c = conn.cursor()
+    c.execute("SELECT value FROM settings WHERE key=?", (key,))
+    row = c.fetchone()
     conn.close()
     return row[0] if row else ""
 
 def set_setting(key: str, value: str):
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE settings SET value = ? WHERE key = ?", (value, key))
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", (key, value))
     conn.commit()
     conn.close()
 
-def get_votes_count() -> int:
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT val_int FROM stats WHERE key = 'successful_votes'")
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else 0
+# ─── Foydalanuvchilar ───
 
-def increment_votes_count():
+def get_or_create_user(tid: int, username: str = "", full_name: str = "") -> tuple:
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE stats SET val_int = val_int + 1 WHERE key = 'successful_votes'")
-    conn.commit()
-    conn.close()
-
-def add_vote_to_history(phone_number: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute("INSERT INTO votes_history (phone_number, voted_at) VALUES (?, ?)", (phone_number, now_str))
-    conn.commit()
-    conn.close()
-
-def get_votes_history_list() -> list[tuple]:
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT phone_number, voted_at FROM votes_history ORDER BY id DESC")
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
-
-def get_or_create_user(telegram_id: int) -> tuple:
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT telegram_id, balance, votes_count FROM users WHERE telegram_id = ?", (telegram_id,))
-    row = cursor.fetchone()
+    c = conn.cursor()
+    c.execute(
+        "SELECT telegram_id, username, full_name, balance, votes_count, is_blocked, joined_at "
+        "FROM users WHERE telegram_id=?", (tid,)
+    )
+    row = c.fetchone()
     if not row:
-        cursor.execute("INSERT INTO users (telegram_id, balance, votes_count) VALUES (?, 0, 0)", (telegram_id,))
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(
+            "INSERT INTO users (telegram_id,username,full_name,balance,votes_count,is_blocked,joined_at) "
+            "VALUES (?,?,?,0,0,0,?)",
+            (tid, username, full_name, now)
+        )
         conn.commit()
-        row = (telegram_id, 0, 0)
+        row = (tid, username, full_name, 0, 0, 0, now)
+    elif username and (row[1] != username or row[2] != full_name):
+        c.execute("UPDATE users SET username=?,full_name=? WHERE telegram_id=?", (username, full_name, tid))
+        conn.commit()
     conn.close()
     return row
 
-def add_user_balance_and_vote(telegram_id: int, reward: int):
+def get_user(tid: int) -> Optional[tuple]:
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    # Foydalanuvchi borligini tekshiramiz
-    get_or_create_user(telegram_id)
-    cursor.execute("UPDATE users SET balance = balance + ?, votes_count = votes_count + 1 WHERE telegram_id = ?", (reward, telegram_id))
-    conn.commit()
+    c = conn.cursor()
+    c.execute(
+        "SELECT telegram_id, username, full_name, balance, votes_count, is_blocked, joined_at "
+        "FROM users WHERE telegram_id=?", (tid,)
+    )
+    row = c.fetchone()
     conn.close()
+    return row
 
-def create_withdrawal_request(telegram_id: int, amount: int, card_number: str) -> int:
+def get_all_users() -> list:
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute("INSERT INTO withdrawals (telegram_id, amount, card_number, status, created_at) VALUES (?, ?, ?, 'PENDING', ?)",
-                   (telegram_id, amount, card_number, now_str))
-    # Balansdan ayirib turamiz
-    cursor.execute("UPDATE users SET balance = balance - ? WHERE telegram_id = ?", (amount, telegram_id))
-    conn.commit()
-    last_id = cursor.lastrowid
-    conn.close()
-    return last_id
-
-def get_pending_withdrawals_list() -> list[tuple]:
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, telegram_id, amount, card_number, created_at FROM withdrawals WHERE status = 'PENDING' ORDER BY id ASC")
-    rows = cursor.fetchall()
+    c = conn.cursor()
+    c.execute(
+        "SELECT telegram_id, username, full_name, balance, votes_count "
+        "FROM users ORDER BY votes_count DESC"
+    )
+    rows = c.fetchall()
     conn.close()
     return rows
 
-def process_withdrawal_db(wd_id: int, approve: bool) -> tuple:
+def get_total_users() -> int:
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT telegram_id, amount FROM withdrawals WHERE id = ? AND status = 'PENDING'", (wd_id,))
-    row = cursor.fetchone()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM users")
+    n = c.fetchone()[0]
+    conn.close()
+    return n
+
+def set_user_blocked(tid: int, block: bool):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE users SET is_blocked=? WHERE telegram_id=?", (1 if block else 0, tid))
+    conn.commit()
+    conn.close()
+
+# ─── Ovozlar ───
+
+def get_total_votes() -> int:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM votes_history")
+    n = c.fetchone()[0]
+    conn.close()
+    return n
+
+def get_today_votes() -> int:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    today = datetime.now().strftime("%Y-%m-%d")
+    c.execute("SELECT COUNT(*) FROM votes_history WHERE voted_at LIKE ?", (f"{today}%",))
+    n = c.fetchone()[0]
+    conn.close()
+    return n
+
+def get_user_last_vote(tid: int) -> Optional[datetime]:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT voted_at FROM votes_history WHERE telegram_id=? ORDER BY id DESC LIMIT 1", (tid,))
+    row = c.fetchone()
+    conn.close()
+    return datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S") if row else None
+
+def get_user_votes_history(tid: int) -> list:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "SELECT phone_number, voted_at FROM votes_history "
+        "WHERE telegram_id=? ORDER BY id DESC LIMIT 10", (tid,)
+    )
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def get_all_votes_history() -> list:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT phone_number, voted_at FROM votes_history ORDER BY id DESC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def add_vote(tid: int, phone: str, reward: int):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    c.execute(
+        "INSERT INTO votes_history (telegram_id,phone_number,voted_at) VALUES (?,?,?)",
+        (tid, phone, now)
+    )
+    c.execute(
+        "UPDATE users SET balance=balance+?, votes_count=votes_count+1 WHERE telegram_id=?",
+        (reward, tid)
+    )
+    conn.commit()
+    conn.close()
+
+# ─── Pul yechish ───
+
+def get_total_paid() -> int:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT COALESCE(SUM(amount),0) FROM withdrawals WHERE status='APPROVED'")
+    n = c.fetchone()[0]
+    conn.close()
+    return n
+
+def create_withdrawal(tid: int, amount: int, card: str) -> int:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    c.execute(
+        "INSERT INTO withdrawals (telegram_id,amount,card_number,status,created_at) VALUES (?,?,?,'PENDING',?)",
+        (tid, amount, card, now)
+    )
+    c.execute("UPDATE users SET balance=balance-? WHERE telegram_id=?", (amount, tid))
+    conn.commit()
+    lid = c.lastrowid
+    conn.close()
+    return lid
+
+def get_pending_withdrawals() -> list:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "SELECT id, telegram_id, amount, card_number, created_at "
+        "FROM withdrawals WHERE status='PENDING' ORDER BY id ASC"
+    )
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def process_withdrawal(wd_id: int, approve: bool) -> tuple:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "SELECT telegram_id, amount FROM withdrawals WHERE id=? AND status='PENDING'", (wd_id,)
+    )
+    row = c.fetchone()
     if not row:
         conn.close()
         return False, 0, 0
-        
-    telegram_id, amount = row
-    status = 'APPROVED' if approve else 'REJECTED'
-    cursor.execute("UPDATE withdrawals SET status = ? WHERE id = ?", (status, wd_id))
-    
+    tid, amount = row
+    new_status = "APPROVED" if approve else "REJECTED"
+    c.execute("UPDATE withdrawals SET status=? WHERE id=?", (new_status, wd_id))
     if not approve:
-        # Agar rad etilsa pulni user balansiga qaytaramiz
-        cursor.execute("UPDATE users SET balance = balance + ? WHERE telegram_id = ?", (amount, telegram_id))
-        
+        c.execute("UPDATE users SET balance=balance+? WHERE telegram_id=?", (amount, tid))
     conn.commit()
     conn.close()
-    return True, telegram_id, amount
+    return True, tid, amount
 
-# Baza yaratamiz
-init_local_db()
+# ══════════════════════════════════════════════
+#  BOT & ROUTER
+# ══════════════════════════════════════════════
 
-# Botni yaratish
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+bot    = Bot(token=BOT_TOKEN)
+dp     = Dispatcher(storage=MemoryStorage())
 router = Router()
 
-# --- FSM (Holatlar) ---
+# ──────────────────────────────────────────────
+#  FSM HOLATLARI
+# ──────────────────────────────────────────────
+
 class VoteStates(StatesGroup):
-    WAITING_FOR_PHONE = State()
-    WAITING_FOR_CAPTCHA_1 = State()
-    WAITING_FOR_SMS = State()
-    WAITING_FOR_CAPTCHA_2 = State()
+    PHONE      = State()
+    CAPTCHA_1  = State()
+    SMS        = State()
+    CAPTCHA_2  = State()
 
 class AdminStates(StatesGroup):
-    WAITING_FOR_API_KEY = State()
-    WAITING_FOR_PROJECT_ID = State()
-    WAITING_FOR_REWARD = State()
-    WAITING_FOR_MIN_WITHDRAW = State()
+    SET_API_KEY   = State()
+    SET_PROJECT   = State()
+    SET_REWARD    = State()
+    SET_MIN_WD    = State()
+    BROADCAST     = State()
 
 class WithdrawStates(StatesGroup):
-    WAITING_FOR_CARD = State()
-    WAITING_FOR_AMOUNT = State()
+    CARD   = State()
+    AMOUNT = State()
 
-# --- Keyboards ---
-def get_main_menu():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="⚡ Ovoz berish")],
-            [KeyboardButton(text="💎 Mening hisobim")]
-        ],
-        resize_keyboard=True
-    )
+# ══════════════════════════════════════════════
+#  API ULANISH
+# ══════════════════════════════════════════════
 
-def get_phone_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True)],
-            [KeyboardButton(text="❌ Bekor qilish")]
-        ],
-        resize_keyboard=True
-    )
+async def call_api(
+    endpoint: str,
+    method: str = "POST",
+    json_data: dict = None,
+    api_key_override: str = None
+) -> tuple[dict, int]:
+    api_key = api_key_override or get_setting("api_key")
+    if not api_key:
+        return {"detail": "API kalit sozlanmagan."}, 0
 
-def get_cancel_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="❌ Bekor qilish")]],
-        resize_keyboard=True
-    )
+    headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
+    url     = f"{API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
+    timeout = aiohttp.ClientTimeout(total=30)
 
-# Admin inline keyboard
-def get_admin_keyboard():
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🔑 API Kalitni sozlash", callback_data="client_admin_set_api")],
-            [InlineKeyboardButton(text="📌 Loyiha ID sini sozlash", callback_data="client_admin_set_project")],
-            [InlineKeyboardButton(text="💰 Ovoz mukofotini sozlash", callback_data="client_admin_set_reward")],
-            [InlineKeyboardButton(text="💸 Min. Pul yechishni sozlash", callback_data="client_admin_set_min_wd")],
-            [InlineKeyboardButton(text="📊 Ovozlar hisoboti (TXT)", callback_data="client_admin_view_stats")],
-            [InlineKeyboardButton(text="💸 Pul yechish so'rovlari", callback_data="client_admin_wd_requests")],
-            [InlineKeyboardButton(text="❌ Menyuni yopish", callback_data="client_admin_close")]
-        ]
-    )
-
-# User balance keyboard
-def get_balance_keyboard(show_withdraw: bool):
-    buttons = []
-    if show_withdraw:
-        buttons.append([InlineKeyboardButton(text="💸 Pul yechib olish", callback_data="client_user_withdraw")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-# Admin withdrawal requests inline key
-def get_admin_wd_request_keyboard(wd_id: int):
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"client_admin_app_wd_{wd_id}"),
-                InlineKeyboardButton(text="❌ Rad etish", callback_data=f"client_admin_rej_wd_{wd_id}")
-            ]
-        ]
-    )
-
-# --- API Ulanish Helperlari ---
-async def call_api(endpoint: str, method: str = "POST", json_data: dict = None) -> dict:
-    """Bizning API Wrapperga so'rov yuborish funksiyasi"""
-    api_key = get_setting("api_key")
-    headers = {
-        "X-API-Key": api_key,
-        "Content-Type": "application/json"
-    }
-    
-    url = f"{API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
-    
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
             if method.upper() == "GET":
-                async with session.get(url, headers=headers) as resp:
-                    return await resp.json(), resp.status
+                async with session.get(url, headers=headers) as r:
+                    return await r.json(), r.status
             else:
-                async with session.post(url, headers=headers, json=json_data) as resp:
-                    return await resp.json(), resp.status
+                async with session.post(url, headers=headers, json=json_data) as r:
+                    return await r.json(), r.status
+        except asyncio.TimeoutError:
+            return {"detail": "Server javob bermadi (timeout). Keyinroq urinib ko'ring."}, 504
         except Exception as e:
-            logger.error(f"API ulanish xatosi: {e}")
-            return {"detail": "API server bilan ulanib bo'lmadi."}, 502
+            logger.error(f"API xato: {e}")
+            return {"detail": "Server bilan ulanib bo'lmadi."}, 502
 
-# --- Admin Handlers (Mijoz Admin paneli) ---
+async def validate_api_key(key: str) -> tuple[bool, str]:
+    """API kalitni serverda real tekshiradi."""
+    res, status = await call_api("/boards", "GET", api_key_override=key)
+    if   status == 200: return True,  "✅ API kalit muvaffaqiyatli tasdiqlandi!"
+    elif status == 401: return False, "❌ Noto'g'ri API kalit — yaroqsiz yoki mavjud emas."
+    elif status == 402: return False, "⚠️ API kalit balansi yetarli emas! Admin panelidan to'ldiring."
+    elif status == 403: return False, "🚫 API kalit bloklangan."
+    elif status == 0:   return False, "🔌 API manzili bilan ulanib bo'lmadi."
+    else:               return False, f"❌ Server xatosi (HTTP {status}). Keyinroq urinib ko'ring."
 
-@router.message(Command("admin"))
-async def cmd_admin(message: Message, state: FSMContext):
-    await state.clear()
-    
-    # Faqat ADMIN_ID ga mos keladigan foydalanuvchi kira oladi
-    if ADMIN_ID == 0 or message.from_user.id != ADMIN_ID:
-        return
-        
-    api_key = get_setting("api_key")
-    project_id = get_setting("project_id")
-    voter_reward = get_setting("voter_reward")
-    min_withdrawal = get_setting("min_withdrawal")
-    votes_count = get_votes_count()
-    
-    text = (
-        "⚙️ **Mijoz Boti Admin Paneli**\n\n"
-        f"🔑 API Kalit: <code>{api_key or 'Kiritilmagan'}</code>\n"
-        f"📌 Loyiha IDsi: <code>{project_id or 'Kiritilmagan'}</code>\n"
-        f"💰 Ovoz beruvchi mukofoti: <b>{voter_reward} UZS</b>\n"
-        f"💸 Min. Pul yechish: <b>{min_withdrawal} UZS</b>\n"
-        f"📈 Bot orqali jami ovozlar: <b>{votes_count} ta</b>\n\n"
-        "Sozlash yoki hisobotlarni olish uchun tugmalardan foydalaning:"
+# ══════════════════════════════════════════════
+#  KLABYATURALAR (KEYBOARDS)
+# ══════════════════════════════════════════════
+
+def kb_main() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="🗳️ Ovoz berish")],
+        [
+            KeyboardButton(text="💎 Hisobim"),
+            KeyboardButton(text="📋 Tarixim"),
+        ],
+    ], resize_keyboard=True)
+
+def kb_phone() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True)],
+        [KeyboardButton(text="🔙 Orqaga")],
+    ], resize_keyboard=True)
+
+def kb_cancel() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="❌ Bekor qilish")],
+    ], resize_keyboard=True)
+
+def kb_admin() -> InlineKeyboardMarkup:
+    pending_count = len(get_pending_withdrawals())
+    wd_badge      = f"  🔴 {pending_count}" if pending_count > 0 else ""
+    voting_on     = get_setting("voting_enabled") == "1"
+    toggle_text   = "🟢 Ovoz berish: YOQIQ" if voting_on else "🔴 Ovoz berish: O'CHIQ"
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔑  API Kalitni sozlash",    callback_data="adm_set_api")],
+        [InlineKeyboardButton(text="📌  Loyiha IDni sozlash",    callback_data="adm_set_project")],
+        [
+            InlineKeyboardButton(text="💰 Mukofot",              callback_data="adm_set_reward"),
+            InlineKeyboardButton(text="💳 Min. yechish",         callback_data="adm_set_min_wd"),
+        ],
+        [InlineKeyboardButton(text=toggle_text,                  callback_data="adm_toggle_vote")],
+        [InlineKeyboardButton(text=f"💸  Yechish so'rovlari{wd_badge}", callback_data="adm_wd_list")],
+        [InlineKeyboardButton(text="👥  Foydalanuvchilar",       callback_data="adm_users_0")],
+        [InlineKeyboardButton(text="📊  Hisobot (TXT fayl)",     callback_data="adm_report")],
+        [InlineKeyboardButton(text="📢  Broadcast xabar",        callback_data="adm_broadcast")],
+        [
+            InlineKeyboardButton(text="♻️ Yangilash",            callback_data="adm_refresh"),
+            InlineKeyboardButton(text="✖️ Yopish",              callback_data="adm_close"),
+        ],
+    ])
+
+def kb_wd_action(wd_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"adm_app_{wd_id}"),
+        InlineKeyboardButton(text="❌ Rad etish",  callback_data=f"adm_rej_{wd_id}"),
+    ]])
+
+def kb_balance(show_wd: bool) -> Optional[InlineKeyboardMarkup]:
+    if not show_wd:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="💸  Pul yechib olish", callback_data="user_withdraw"),
+    ]])
+
+def kb_users_nav(page: int, total_pages: int) -> InlineKeyboardMarkup:
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"adm_users_{page - 1}"))
+    nav.append(InlineKeyboardButton(text=f"📄 {page + 1} / {total_pages}", callback_data="noop"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"adm_users_{page + 1}"))
+    return InlineKeyboardMarkup(inline_keyboard=[
+        nav,
+        [InlineKeyboardButton(text="🔙 Admin panelga qaytish", callback_data="adm_back")],
+    ])
+
+# ──────────────────────────────────────────────
+#  ADMIN PANEL MATNI
+# ──────────────────────────────────────────────
+
+def admin_panel_text() -> str:
+    api_key      = get_setting("api_key")
+    project_id   = get_setting("project_id")
+    project_name = get_setting("project_name")
+    reward       = int(get_setting("voter_reward") or 1000)
+    min_wd       = int(get_setting("min_withdrawal") or 5000)
+    voting_on    = get_setting("voting_enabled") == "1"
+
+    total_users  = get_total_users()
+    total_votes  = get_total_votes()
+    today_votes  = get_today_votes()
+    total_paid   = get_total_paid()
+    pending_wds  = len(get_pending_withdrawals())
+
+    api_display  = (
+        f"<code>{api_key[:11]}...{api_key[-4:]}</code>"
+        if len(api_key) > 15 else (f"<code>{api_key}</code>" if api_key else "❌ Kiritilmagan")
     )
-    await message.answer(text, reply_markup=get_admin_keyboard(), parse_mode="HTML")
+    proj_display = project_name or project_id or "❌ Kiritilmagan"
+    vote_status  = "🟢 Yoqiq" if voting_on else "🔴 O'chirilgan"
 
-@router.callback_query(F.data == "client_admin_close")
-async def client_admin_close(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.message.delete()
-    await callback.answer()
-
-@router.callback_query(F.data == "client_admin_view_stats")
-async def client_admin_view_stats(callback: CallbackQuery):
-    history = get_votes_history_list()
-    
-    if not history:
-        await callback.answer("Hozircha muvaffaqiyatli ovozlar tarixi mavjud emas.", show_alert=True)
-        return
-        
-    report_lines = [
-        "========================================",
-        f"      OPEN BUDGET OVOZ BERISH HISOBOTI",
-        "========================================",
-        f"Yaratilgan sana: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"Jami muvaffaqiyatli ovozlar: {len(history)} ta\n",
-        "T/R | Telefon raqam | Sana va Vaqt",
-        "----------------------------------------"
-    ]
-    
-    for idx, (phone, date_str) in enumerate(history, 1):
-        report_lines.append(f"{idx:03d} | +{phone} | {date_str}")
-        
-    report_lines.append("\n========================================")
-    report_text = "\n".join(report_lines)
-    
-    file_bytes = report_text.encode("utf-8")
-    report_file = BufferedInputFile(file_bytes, filename=f"ovozlar_hisoboti_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
-    
-    await callback.message.answer_document(
-        document=report_file,
-        caption="📊 **Botingiz orqali berilgan barcha ovozlar hisoboti (TXT formatda)**"
+    return (
+        "⚙️ <b>Admin Boshqaruv Paneli</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🔑 <b>API Kalit:</b>    {api_display}\n"
+        f"📌 <b>Loyiha:</b>       <b>{proj_display}</b>\n"
+        f"💰 <b>Mukofot:</b>      <b>{reward:,} UZS</b> / ovoz\n"
+        f"💳 <b>Min. yechish:</b> <b>{min_wd:,} UZS</b>\n"
+        f"🗳️ <b>Ovoz berish:</b>  {vote_status}\n\n"
+        "📊 <b>Statistika</b>\n"
+        "────────────────────────────\n"
+        f"👥 Foydalanuvchilar:  <b>{total_users:,} ta</b>\n"
+        f"🗳️ Jami ovozlar:     <b>{total_votes:,} ta</b>\n"
+        f"📅 Bugun:             <b>{today_votes} ta</b>\n"
+        f"💸 To'langan:         <b>{total_paid:,} UZS</b>\n"
+        f"⏳ Kutilayotgan:      <b>{pending_wds} ta yechish so'rovi</b>"
     )
-    await callback.answer()
 
-@router.callback_query(F.data == "client_admin_wd_requests")
-async def client_admin_wd_requests(callback: CallbackQuery):
-    requests = get_pending_withdrawals_list()
-    if not requests:
-        await callback.answer("Hozircha pul yechish uchun faol so'rovlar mavjud emas.", show_alert=True)
-        return
-        
-    await callback.message.answer("💸 **Kutilayotgan pul yechish so'rovlari:**")
-    for req_id, telegram_id, amount, card, date_str in requests:
-        txt = (
-            f"🆔 So'rov ID: <b>{req_id}</b>\n"
-            f"👤 Foydalanuvchi Telegram ID: <code>{telegram_id}</code>\n"
-            f"💳 Karta raqami: <code>{card}</code>\n"
-            f"💵 Summa: <b>{amount:,} UZS</b>\n"
-            f"📅 Sana: {date_str}"
+# ──────────────────────────────────────────────
+#  GUARD FUNKSIYALAR
+# ──────────────────────────────────────────────
+
+def bot_is_ready() -> bool:
+    return bool(get_setting("api_key")) and bool(get_setting("project_id"))
+
+def voting_is_enabled() -> bool:
+    return get_setting("voting_enabled") == "1"
+
+def user_is_blocked(tid: int) -> bool:
+    u = get_user(tid)
+    return u is not None and u[5] == 1
+
+# ══════════════════════════════════════════════
+#  HANDLERLAR
+# ══════════════════════════════════════════════
+
+# ──────────────────────────────────────────────
+#  /start  /help
+# ──────────────────────────────────────────────
+
+@router.message(Command("start", "help"))
+async def cmd_start(msg: Message, state: FSMContext):
+    await state.clear()
+    u = msg.from_user
+    get_or_create_user(u.id, u.username or "", u.full_name or "")
+
+    if user_is_blocked(u.id):
+        return await msg.answer("⛔ <b>Sizning hisobingiz bloklangan.</b>", parse_mode="HTML")
+
+    if not bot_is_ready():
+        if u.id == ADMIN_ID:
+            return await msg.answer(
+                "⚠️ <b>Bot hali sozlanmagan!</b>\n\n"
+                "Boshlash uchun /admin buyrug'ini yuboring va:\n"
+                "1️⃣ API Kalitni kiriting\n"
+                "2️⃣ Loyiha IDni kiriting",
+                parse_mode="HTML"
+            )
+        return await msg.answer(
+            "🔧 <b>Bot sozlanmoqda.</b>\n\n"
+            "Tez orada ishga tushadi, kuting! ⏳",
+            parse_mode="HTML"
         )
-        await callback.message.answer(txt, reply_markup=get_admin_wd_request_keyboard(req_id), parse_mode="HTML")
-    await callback.answer()
 
-@router.callback_query(F.data.startswith("client_admin_app_wd_"))
-async def process_approve_wd(callback: CallbackQuery):
-    wd_id = int(callback.data.split("_")[-1])
-    success, user_id, amount = process_withdrawal_db(wd_id, approve=True)
-    if success:
-        await callback.message.edit_text(callback.message.text + "\n\n✅ **TASDIQLANDI**")
-        try:
-            await bot.send_message(user_id, f"🎉 **Tabriklaymiz! Sizning {amount:,} UZS yechish so'rovingiz tasdiqlandi va kartangizga o'tkazildi.**")
-        except Exception:
-            pass
-    await callback.answer()
+    proj   = get_setting("project_name") or get_setting("project_id")
+    reward = int(get_setting("voter_reward") or 1000)
 
-@router.callback_query(F.data.startswith("client_admin_rej_wd_"))
-async def process_reject_wd(callback: CallbackQuery):
-    wd_id = int(callback.data.split("_")[-1])
-    success, user_id, amount = process_withdrawal_db(wd_id, approve=False)
-    if success:
-        await callback.message.edit_text(callback.message.text + "\n\n❌ **RAD ETILDI (Pul balansga qaytarildi)**")
-        try:
-            await bot.send_message(user_id, f"⚠️ **Sizning {amount:,} UZS yechish so'rovingiz administrator tomonidan rad etildi va mablag' balansingizga qaytarildi.**")
-        except Exception:
-            pass
-    await callback.answer()
-
-@router.callback_query(F.data == "client_admin_set_api")
-async def client_admin_set_api(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(AdminStates.WAITING_FOR_API_KEY)
-    await callback.message.answer("🔑 **Yangi API kalitni yuboring (Masalan: ob_api_...):**", reply_markup=get_cancel_keyboard())
-    await callback.answer()
-
-@router.message(AdminStates.WAITING_FOR_API_KEY, F.text)
-async def process_set_api_key(message: Message, state: FSMContext):
-    text_input = message.text.strip()
-    if text_input == "❌ Bekor qilish":
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=get_main_menu())
-        return
-        
-    if not text_input.startswith("ob_api_"):
-        await message.answer("❌ Noto'g'ri API kalit! Kalit 'ob_api_' bilan boshlanishi shart. Qayta urinib ko'ring:")
-        return
-        
-    set_setting("api_key", text_input)
-    await state.clear()
-    await message.answer("✅ API kalit muvaffaqiyatli saqlandi!", reply_markup=get_main_menu())
-
-@router.callback_query(F.data == "client_admin_set_project")
-async def client_admin_set_project(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(AdminStates.WAITING_FOR_PROJECT_ID)
-    await callback.message.answer("📌 **Yangi Loyiha ID sini (Project ID) yuboring (Faqat raqamlar, masalan: 32541):**", reply_markup=get_cancel_keyboard())
-    await callback.answer()
-
-@router.message(AdminStates.WAITING_FOR_PROJECT_ID, F.text)
-async def process_set_project_id(message: Message, state: FSMContext):
-    text_input = message.text.strip()
-    if text_input == "❌ Bekor qilish":
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=get_main_menu())
-        return
-        
-    if not text_input.isdigit():
-        await message.answer("❌ Noto'g'ri ID! Loyiha ID faqat raqamlardan iborat bo'lishi shart. Qayta urinib ko'ring:")
-        return
-        
-    set_setting("project_id", text_input)
-    await state.clear()
-    await message.answer("✅ Loyiha IDsi muvaffaqiyatli saqlandi!", reply_markup=get_main_menu())
-
-@router.callback_query(F.data == "client_admin_set_reward")
-async def client_admin_set_reward(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(AdminStates.WAITING_FOR_REWARD)
-    await callback.message.answer("💰 **Har bir muvaffaqiyatli ovoz uchun to'lanadigan mukofot summasini kiriting (UZS):**", reply_markup=get_cancel_keyboard())
-    await callback.answer()
-
-@router.message(AdminStates.WAITING_FOR_REWARD, F.text)
-async def process_set_reward(message: Message, state: FSMContext):
-    text_input = message.text.strip()
-    if text_input == "❌ Bekor qilish":
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=get_main_menu())
-        return
-        
-    if not text_input.isdigit():
-        await message.answer("❌ Noto'g'ri summa! Iltimos, faqat musbat raqam kiriting:")
-        return
-        
-    set_setting("voter_reward", text_input)
-    await state.clear()
-    await message.answer("✅ Ovoz beruvchi mukofoti muvaffaqiyatli yangilandi!", reply_markup=get_main_menu())
-
-@router.callback_query(F.data == "client_admin_set_min_wd")
-async def client_admin_set_min_wd(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(AdminStates.WAITING_FOR_MIN_WITHDRAW)
-    await callback.message.answer("💸 **Minimal pul yechish miqdorini kiriting (UZS):**", reply_markup=get_cancel_keyboard())
-    await callback.answer()
-
-@router.message(AdminStates.WAITING_FOR_MIN_WITHDRAW, F.text)
-async def process_set_min_wd(message: Message, state: FSMContext):
-    text_input = message.text.strip()
-    if text_input == "❌ Bekor qilish":
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=get_main_menu())
-        return
-        
-    if not text_input.isdigit():
-        await message.answer("❌ Noto'g'ri miqdor! Iltimos, faqat musbat raqam kiriting:")
-        return
-        
-    set_setting("min_withdrawal", text_input)
-    await state.clear()
-    await message.answer("✅ Minimal pul yechish miqdori muvaffaqiyatli yangilandi!", reply_markup=get_main_menu())
-
-
-# --- User Balance & Withdrawal Handlers (Mening Hisobim va Pul Yechish) ---
-
-@router.message(F.text == "💎 Mening hisobim")
-async def cmd_my_account(message: Message, state: FSMContext):
-    await state.clear()
-    user_db = get_or_create_user(message.from_user.id)
-    balance = user_db[1]
-    votes = user_db[2]
-    
-    min_wd = int(get_setting("min_withdrawal") or "5000")
-    show_wd = balance >= min_wd
-    
-    text = (
-        "💎 **Sizning hisobingiz:**\n\n"
-        f"💰 Balansingiz: <b>{balance:,} UZS</b>\n"
-        f"🗳️ Siz bergan muvaffaqiyatli ovozlar: <b>{votes} ta</b>\n"
-        f"💸 Minimal pul yechish miqdori: <b>{min_wd:,} UZS</b>"
-    )
-    await message.answer(text, reply_markup=get_balance_keyboard(show_wd), parse_mode="HTML")
-
-@router.callback_query(F.data == "client_user_withdraw")
-async def start_withdraw_process(callback: CallbackQuery, state: FSMContext):
-    user_db = get_or_create_user(callback.from_user.id)
-    balance = user_db[1]
-    min_wd = int(get_setting("min_withdrawal") or "5000")
-    
-    if balance < min_wd:
-        await callback.answer(f"Balansda yetarli mablag' yo'q (Min. {min_wd} UZS).", show_alert=True)
-        return
-        
-    await state.set_state(WithdrawStates.WAITING_FOR_CARD)
-    await callback.message.answer(
-        "💳 **Plastik karta raqamingizni kiriting:**\n(Uzcard yoki Humo, 16 xonali raqam)",
-        reply_markup=get_cancel_keyboard()
-    )
-    await callback.answer()
-
-@router.message(WithdrawStates.WAITING_FOR_CARD, F.text)
-async def process_withdraw_card(message: Message, state: FSMContext):
-    card = message.text.strip().replace(" ", "")
-    if card == "❌ Bekor qilish":
-        await state.clear()
-        await message.answer("Pul yechish bekor qilindi.", reply_markup=get_main_menu())
-        return
-        
-    if not card.isdigit() or len(card) < 16 or len(card) > 20:
-        await message.answer("❌ Karta raqami noto'g'ri! Iltimos, faqat 16-20 xonali plastik karta raqamingizni yuboring:")
-        return
-        
-    await state.update_data(card_number=card)
-    await state.set_state(WithdrawStates.WAITING_FOR_AMOUNT)
-    
-    user_db = get_or_create_user(message.from_user.id)
-    balance = user_db[1]
-    
-    await message.answer(
-        f"💵 **Qancha pul yechib olmoqchisiz?**\n"
-        f"Maksimal summa: **{balance:,} UZS**\n\n"
-        f"Iltimos, summani kiriting (Faqat raqamlarda):",
-        reply_markup=get_cancel_keyboard()
-    )
-
-@router.message(WithdrawStates.WAITING_FOR_AMOUNT, F.text)
-async def process_withdraw_amount(message: Message, state: FSMContext):
-    amount_str = message.text.strip()
-    if amount_str == "❌ Bekor qilish":
-        await state.clear()
-        await message.answer("Pul yechish bekor qilindi.", reply_markup=get_main_menu())
-        return
-        
-    if not amount_str.isdigit():
-        await message.answer("❌ Noto'g'ri qiymat! Summani faqat raqamlarda yozing:")
-        return
-        
-    amount = int(amount_str)
-    user_db = get_or_create_user(message.from_user.id)
-    balance = user_db[1]
-    min_wd = int(get_setting("min_withdrawal") or "5000")
-    
-    if amount < min_wd:
-        await message.answer(f"❌ Minimal pul yechish miqdori: {min_wd:,} UZS. Qayta kiriting:")
-        return
-        
-    if amount > balance:
-        await message.answer(f"❌ Balansingizda bunday summa yo'q! Maksimal yechish: {balance:,} UZS. Qayta kiriting:")
-        return
-        
-    state_data = await state.get_data()
-    card = state_data["card_number"]
-    
-    # Pul yechish so'rovini yaratamiz
-    req_id = create_withdrawal_request(message.from_user.id, amount, card)
-    await state.clear()
-    
-    await message.answer(
-        "✅ **Pul yechish so'rovi qabul qilindi!**\n\n"
-        f"🆔 So'rov ID: <b>{req_id}</b>\n"
-        f"💳 Karta raqami: <code>{card}</code>\n"
-        f"💵 Summa: <b>{amount:,} UZS</b>\n\n"
-        f"Administrator to'lovingizni tekshirib, 24 soat ichida kartangizga o'tkazib beradi. "
-        f"Mablag' hozircha hisobingizdan yechildi.",
-        reply_markup=get_main_menu(),
+    await msg.answer(
+        f"👋 <b>Xush kelibsiz!</b>\n\n"
+        f"📌 Faol loyiha: <b>{proj}</b>\n\n"
+        f"🗳️ Har bir muvaffaqiyatli ovoz uchun <b>{reward:,} UZS</b> mukofot olasiz.\n\n"
+        f"Boshlash uchun quyidagi tugmani bosing! 👇",
+        reply_markup=kb_main(),
         parse_mode="HTML"
     )
-    
-    # Bot egasiga (admin) bildirishnoma yuboramiz
-    if ADMIN_ID != 0:
+
+# ──────────────────────────────────────────────
+#  /admin
+# ──────────────────────────────────────────────
+
+@router.message(Command("admin"))
+async def cmd_admin(msg: Message, state: FSMContext):
+    if msg.from_user.id != ADMIN_ID:
+        return
+    await state.clear()
+    await msg.answer(admin_panel_text(), reply_markup=kb_admin(), parse_mode="HTML")
+
+# ─── Admin panel — umumiy callbacks ───
+
+@router.callback_query(F.data == "adm_refresh")
+async def adm_refresh(cb: CallbackQuery):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+    try:
+        await cb.message.edit_text(admin_panel_text(), reply_markup=kb_admin(), parse_mode="HTML")
+    except Exception:
+        pass
+    await cb.answer("♻️ Yangilandi!")
+
+@router.callback_query(F.data == "adm_back")
+async def adm_back(cb: CallbackQuery):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+    try:
+        await cb.message.edit_text(admin_panel_text(), reply_markup=kb_admin(), parse_mode="HTML")
+    except Exception:
+        pass
+    await cb.answer()
+
+@router.callback_query(F.data == "adm_close")
+async def adm_close(cb: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await cb.message.delete()
+    await cb.answer()
+
+@router.callback_query(F.data == "noop")
+async def noop_cb(cb: CallbackQuery):
+    await cb.answer()
+
+# ──────────────────────────────────────────────
+#  API KALITNI SOZLASH
+# ──────────────────────────────────────────────
+
+@router.callback_query(F.data == "adm_set_api")
+async def adm_set_api(cb: CallbackQuery, state: FSMContext):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+    await state.set_state(AdminStates.SET_API_KEY)
+    await cb.message.answer(
+        "🔑 <b>Yangi API kalitni yuboring:</b>\n\n"
+        "• Kalit <code>ob_api_</code> bilan boshlanishi shart\n"
+        "• Kiritilgandan so'ng server bilan <b>avtomatik tekshiriladi</b>",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+    await cb.answer()
+
+@router.message(AdminStates.SET_API_KEY, F.text)
+async def process_api_key(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    if text == "❌ Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+
+    if not text.startswith("ob_api_"):
+        return await msg.answer(
+            "❌ Noto'g'ri format!\n\n"
+            "Kalit <code>ob_api_</code> bilan boshlanishi kerak:",
+            parse_mode="HTML"
+        )
+
+    checking = await msg.answer("🔄 <b>API kalit serverda tekshirilmoqda...</b>", parse_mode="HTML")
+    valid, result_msg = await validate_api_key(text)
+
+    if not valid:
+        return await checking.edit_text(
+            f"{result_msg}\n\nQayta to'g'ri kalit yuboring:",
+            parse_mode="HTML"
+        )
+
+    set_setting("api_key", text)
+    await state.clear()
+    await checking.edit_text(
+        f"✅ <b>API kalit muvaffaqiyatli saqlandi!</b>\n\n{result_msg}",
+        parse_mode="HTML"
+    )
+    await msg.answer("Admin panel:", reply_markup=kb_main())
+
+# ──────────────────────────────────────────────
+#  LOYIHA IDni SOZLASH
+# ──────────────────────────────────────────────
+
+@router.callback_query(F.data == "adm_set_project")
+async def adm_set_project(cb: CallbackQuery, state: FSMContext):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+    current = get_setting("project_name") or get_setting("project_id") or "—"
+    await state.set_state(AdminStates.SET_PROJECT)
+    await cb.message.answer(
+        f"📌 <b>Loyiha IDni yuboring:</b>\n\n"
+        f"Hozirgi: <b>{current}</b>\n\n"
+        f"<i>Raqamli ID yoki UUID (masalan: 32541)</i>",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+    await cb.answer()
+
+@router.message(AdminStates.SET_PROJECT, F.text)
+async def process_project_id(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    if text == "❌ Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+
+    checking = await msg.answer(
+        f"🔄 <b>Loyiha <code>{text}</code> tekshirilmoqda...</b>", parse_mode="HTML"
+    )
+    res, status = await call_api(f"/initiative/{text}", "GET")
+
+    if status == 200 and "initiative" in res:
+        initiative   = res["initiative"]
+        name         = (
+            initiative.get("name")
+            or initiative.get("title")
+            or initiative.get("projectName")
+            or text
+        )
+        set_setting("project_id",   text)
+        set_setting("project_name", str(name))
+        await state.clear()
+        await checking.edit_text(
+            f"✅ <b>Loyiha topildi va saqlandi!</b>\n\n"
+            f"📌 Nomi: <b>{name}</b>\n"
+            f"🆔 ID:    <code>{text}</code>",
+            parse_mode="HTML"
+        )
+        await msg.answer("Admin panel:", reply_markup=kb_main())
+
+    elif status == 404:
+        await checking.edit_text(
+            f"❌ ID <code>{text}</code> bo'yicha loyiha topilmadi!\n\n"
+            f"Boshqa ID yuborib ko'ring:",
+            parse_mode="HTML"
+        )
+    else:
+        # Server xatosi bo'lsa ham saqlaydi
+        set_setting("project_id",   text)
+        set_setting("project_name", text)
+        await state.clear()
+        await checking.edit_text(
+            f"⚠️ Server tekshirishda xato (HTTP {status}), lekin ID saqlandi.\n\n"
+            f"🆔 ID: <code>{text}</code>",
+            parse_mode="HTML"
+        )
+        await msg.answer("Admin panel:", reply_markup=kb_main())
+
+# ──────────────────────────────────────────────
+#  MUKOFOT MIQDORI
+# ──────────────────────────────────────────────
+
+@router.callback_query(F.data == "adm_set_reward")
+async def adm_set_reward(cb: CallbackQuery, state: FSMContext):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+    current = int(get_setting("voter_reward") or 1000)
+    await state.set_state(AdminStates.SET_REWARD)
+    await cb.message.answer(
+        f"💰 <b>Ovoz mukofotini kiriting (UZS):</b>\n\n"
+        f"Hozirgi qiymat: <b>{current:,} UZS</b>",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+    await cb.answer()
+
+@router.message(AdminStates.SET_REWARD, F.text)
+async def process_reward(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    if text == "❌ Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+    if not text.isdigit() or int(text) < 0:
+        return await msg.answer("❌ Faqat musbat butun son kiriting:")
+    set_setting("voter_reward", text)
+    await state.clear()
+    await msg.answer(
+        f"✅ Mukofot <b>{int(text):,} UZS</b> ga o'zgartirildi!",
+        reply_markup=kb_main(), parse_mode="HTML"
+    )
+
+# ──────────────────────────────────────────────
+#  MINIMAL PUL YECHISH
+# ──────────────────────────────────────────────
+
+@router.callback_query(F.data == "adm_set_min_wd")
+async def adm_set_min_wd(cb: CallbackQuery, state: FSMContext):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+    current = int(get_setting("min_withdrawal") or 5000)
+    await state.set_state(AdminStates.SET_MIN_WD)
+    await cb.message.answer(
+        f"💳 <b>Minimal yechish miqdorini kiriting (UZS):</b>\n\n"
+        f"Hozirgi qiymat: <b>{current:,} UZS</b>",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+    await cb.answer()
+
+@router.message(AdminStates.SET_MIN_WD, F.text)
+async def process_min_wd(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    if text == "❌ Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+    if not text.isdigit() or int(text) < 0:
+        return await msg.answer("❌ Faqat musbat butun son kiriting:")
+    set_setting("min_withdrawal", text)
+    await state.clear()
+    await msg.answer(
+        f"✅ Minimal yechish <b>{int(text):,} UZS</b> ga o'zgartirildi!",
+        reply_markup=kb_main(), parse_mode="HTML"
+    )
+
+# ──────────────────────────────────────────────
+#  OVOZ BERISHNI YOQISH / O'CHIRISH
+# ──────────────────────────────────────────────
+
+@router.callback_query(F.data == "adm_toggle_vote")
+async def adm_toggle_vote(cb: CallbackQuery):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+    current = get_setting("voting_enabled")
+    new_val = "0" if current == "1" else "1"
+    set_setting("voting_enabled", new_val)
+    status_txt = "🟢 yoqildi" if new_val == "1" else "🔴 o'chirildi"
+    await cb.answer(f"Ovoz berish {status_txt}!", show_alert=True)
+    try:
+        await cb.message.edit_text(admin_panel_text(), reply_markup=kb_admin(), parse_mode="HTML")
+    except Exception:
+        pass
+
+# ──────────────────────────────────────────────
+#  BROADCAST
+# ──────────────────────────────────────────────
+
+@router.callback_query(F.data == "adm_broadcast")
+async def adm_broadcast_start(cb: CallbackQuery, state: FSMContext):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+    total = get_total_users()
+    await state.set_state(AdminStates.BROADCAST)
+    await cb.message.answer(
+        f"📢 <b>Broadcast — barcha foydalanuvchilarga xabar</b>\n\n"
+        f"👥 Jami: <b>{total} ta</b> foydalanuvchi\n\n"
+        f"Yuboriladigan xabarni yozing:\n"
+        f"<i>(matn, rasm, video — istalgan format)</i>",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+    await cb.answer()
+
+@router.message(AdminStates.BROADCAST)
+async def process_broadcast(msg: Message, state: FSMContext):
+    if msg.text and msg.text == "❌ Bekor qilish":
+        await state.clear()
+        return await msg.answer("Broadcast bekor qilindi.", reply_markup=kb_main())
+
+    await state.clear()
+    users   = get_all_users()
+    sent    = 0
+    failed  = 0
+    prog    = await msg.answer(f"📤 Yuborilmoqda... 0 / {len(users)}")
+
+    for i, (uid, *_) in enumerate(users):
+        try:
+            await msg.copy_to(uid)
+            sent += 1
+        except Exception:
+            failed += 1
+        if (i + 1) % 25 == 0:
+            try:
+                await prog.edit_text(f"📤 Yuborilmoqda... {i + 1} / {len(users)}")
+            except Exception:
+                pass
+        await asyncio.sleep(0.04)
+
+    await prog.edit_text(
+        f"✅ <b>Broadcast yakunlandi!</b>\n\n"
+        f"📬 Muvaffaqiyatli: <b>{sent} ta</b>\n"
+        f"❌ Xato:           <b>{failed} ta</b>",
+        parse_mode="HTML"
+    )
+
+# ──────────────────────────────────────────────
+#  FOYDALANUVCHILAR RO'YXATI
+# ──────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("adm_users_"))
+async def adm_users_list(cb: CallbackQuery):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+
+    page     = int(cb.data.split("_")[-1])
+    per_page = 10
+    users    = get_all_users()
+    total    = len(users)
+
+    if total == 0:
+        await cb.answer("Hozircha foydalanuvchilar yo'q.", show_alert=True)
+        return
+
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page        = min(page, total_pages - 1)
+    chunk       = users[page * per_page:(page + 1) * per_page]
+
+    lines = [f"👥 <b>Foydalanuvchilar</b> — sahifa {page + 1}/{total_pages} (jami {total} ta)\n"]
+    for i, (uid, uname, fname, bal, votes) in enumerate(chunk, page * per_page + 1):
+        display = fname or (f"@{uname}" if uname else str(uid))
+        lines.append(
+            f"{i}. <b>{display}</b>\n"
+            f"   🗳️ {votes} ovoz  •  💰 {bal:,} UZS"
+        )
+
+    try:
+        await cb.message.edit_text(
+            "\n".join(lines),
+            reply_markup=kb_users_nav(page, total_pages),
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+    await cb.answer()
+
+# ──────────────────────────────────────────────
+#  HISOBOT (TXT)
+# ──────────────────────────────────────────────
+
+@router.callback_query(F.data == "adm_report")
+async def adm_report(cb: CallbackQuery):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+
+    history = get_all_votes_history()
+    if not history:
+        await cb.answer("Hozircha ovozlar tarixi yo'q.", show_alert=True)
+        return
+
+    lines = [
+        "=" * 48,
+        "     OPEN BUDGET — OVOZLAR HISOBOTI",
+        "=" * 48,
+        f"Sana:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Jami:  {len(history)} ta muvaffaqiyatli ovoz",
+        "-" * 48,
+    ]
+    for i, (phone, date_str) in enumerate(history, 1):
+        lines.append(f"{i:05d} │ +{phone:12s} │ {date_str}")
+    lines += ["=" * 48, ""]
+
+    file_bytes  = "\n".join(lines).encode("utf-8")
+    report_file = BufferedInputFile(
+        file_bytes,
+        filename=f"hisobot_{datetime.now().strftime('%Y%m%d_%H%M')}.txt"
+    )
+    await cb.message.answer_document(
+        report_file,
+        caption=(
+            f"📊 <b>Ovozlar hisoboti</b>\n\n"
+            f"📅 Sana: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+            f"🗳️ Jami: <b>{len(history)} ta</b>"
+        ),
+        parse_mode="HTML"
+    )
+    await cb.answer()
+
+# ──────────────────────────────────────────────
+#  YECHISH SO'ROVLARI (admin)
+# ──────────────────────────────────────────────
+
+@router.callback_query(F.data == "adm_wd_list")
+async def adm_wd_list(cb: CallbackQuery):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+
+    pending = get_pending_withdrawals()
+    if not pending:
+        await cb.answer("✅ Kutilayotgan yechish so'rovlari yo'q.", show_alert=True)
+        return
+
+    await cb.message.answer(
+        f"💸 <b>Kutilayotgan so'rovlar — {len(pending)} ta</b>",
+        parse_mode="HTML"
+    )
+    for wd_id, tid, amount, card, date_str in pending:
+        u       = get_user(tid)
+        display = (u[2] or u[1] or str(tid)) if u else str(tid)
+        await cb.message.answer(
+            f"🆔 So'rov: <b>#{wd_id}</b>\n"
+            f"👤 Foydalanuvchi: <b>{display}</b> (<code>{tid}</code>)\n"
+            f"💳 Karta:   <code>{card}</code>\n"
+            f"💵 Summa:   <b>{amount:,} UZS</b>\n"
+            f"📅 Sana:    {date_str}",
+            reply_markup=kb_wd_action(wd_id),
+            parse_mode="HTML"
+        )
+    await cb.answer()
+
+@router.callback_query(F.data.startswith("adm_app_"))
+async def adm_approve_wd(cb: CallbackQuery):
+    wd_id      = int(cb.data.split("_")[-1])
+    ok, tid, amount = process_withdrawal(wd_id, True)
+    if ok:
+        await cb.message.edit_text(
+            cb.message.text + "\n\n✅ <b>TASDIQLANDI</b>", parse_mode="HTML"
+        )
+        try:
+            await bot.send_message(
+                tid,
+                f"🎉 <b>Tabriklaymiz!</b>\n\n"
+                f"💸 <b>{amount:,} UZS</b> yechish so'rovingiz tasdiqlandi va kartangizga o'tkazildi!\n\n"
+                f"Ko'proq ovoz berib, ko'proq pul ishlang! 🚀",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+    await cb.answer("✅ Tasdiqlandi!" if ok else "❌ So'rov topilmadi")
+
+@router.callback_query(F.data.startswith("adm_rej_"))
+async def adm_reject_wd(cb: CallbackQuery):
+    wd_id      = int(cb.data.split("_")[-1])
+    ok, tid, amount = process_withdrawal(wd_id, False)
+    if ok:
+        await cb.message.edit_text(
+            cb.message.text + "\n\n❌ <b>RAD ETILDI — pul balansgа qaytarildi</b>",
+            parse_mode="HTML"
+        )
+        try:
+            await bot.send_message(
+                tid,
+                f"⚠️ <b>Yechish so'rovi rad etildi</b>\n\n"
+                f"💵 <b>{amount:,} UZS</b> balansingizga qaytarildi.\n\n"
+                f"Muammo bo'lsa administrator bilan bog'laning.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+    await cb.answer("Rad etildi" if ok else "❌ So'rov topilmadi")
+
+# ══════════════════════════════════════════════
+#  FOYDALANUVCHI HANDLERLARI
+# ══════════════════════════════════════════════
+
+@router.message(F.text.in_({"🔙 Orqaga", "❌ Bekor qilish"}))
+async def cmd_cancel(msg: Message, state: FSMContext):
+    await state.clear()
+    await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+
+# ──────────────────────────────────────────────
+#  💎 MENING HISOBIM
+# ──────────────────────────────────────────────
+
+@router.message(F.text == "💎 Hisobim")
+async def cmd_my_account(msg: Message, state: FSMContext):
+    await state.clear()
+    tid = msg.from_user.id
+
+    if user_is_blocked(tid):
+        return await msg.answer("⛔ <b>Hisobingiz bloklangan.</b>", parse_mode="HTML")
+
+    u      = get_or_create_user(tid, msg.from_user.username or "", msg.from_user.full_name or "")
+    bal    = u[3]
+    votes  = u[4]
+    reward = int(get_setting("voter_reward") or 1000)
+    min_wd = int(get_setting("min_withdrawal") or 5000)
+
+    await msg.answer(
+        "💎 <b>Mening hisobim</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"💰 <b>Balans:</b>         <b>{bal:,} UZS</b>\n"
+        f"🗳️ <b>Ovozlar:</b>        <b>{votes} ta</b>\n"
+        f"📈 <b>Jami daromad:</b>   <b>{votes * reward:,} UZS</b>\n\n"
+        f"💳 Minimal yechish: <b>{min_wd:,} UZS</b>",
+        reply_markup=kb_balance(bal >= min_wd),
+        parse_mode="HTML"
+    )
+
+# ──────────────────────────────────────────────
+#  📋 TARIXIM
+# ──────────────────────────────────────────────
+
+@router.message(F.text == "📋 Tarixim")
+async def cmd_history(msg: Message, state: FSMContext):
+    await state.clear()
+    if user_is_blocked(msg.from_user.id):
+        return await msg.answer("⛔ <b>Hisobingiz bloklangan.</b>", parse_mode="HTML")
+
+    history = get_user_votes_history(msg.from_user.id)
+    if not history:
+        return await msg.answer(
+            "📋 <b>Siz hali ovoz bermagansiz.</b>\n\n"
+            "Boshlash uchun <b>🗳️ Ovoz berish</b> tugmasini bosing!",
+            parse_mode="HTML"
+        )
+
+    lines = ["📋 <b>So'nggi 10 ta ovozingiz:</b>\n"]
+    for i, (phone, date_str) in enumerate(history, 1):
+        lines.append(f"<b>{i}.</b> 📱 +{phone}\n    🕐 {date_str}")
+
+    await msg.answer("\n".join(lines), parse_mode="HTML")
+
+# ──────────────────────────────────────────────
+#  💸 PUL YECHISH (Foydalanuvchi)
+# ──────────────────────────────────────────────
+
+@router.callback_query(F.data == "user_withdraw")
+async def start_withdraw(cb: CallbackQuery, state: FSMContext):
+    u      = get_or_create_user(cb.from_user.id)
+    bal    = u[3]
+    min_wd = int(get_setting("min_withdrawal") or 5000)
+    if bal < min_wd:
+        return await cb.answer(
+            f"💳 Balansda yetarli mablag' yo'q!\nMinimal: {min_wd:,} UZS",
+            show_alert=True
+        )
+    await state.set_state(WithdrawStates.CARD)
+    await cb.message.answer(
+        "💳 <b>Plastik karta raqamingizni kiriting:</b>\n\n"
+        "<i>16–20 raqamli Uzcard yoki Humo karta</i>",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+    await cb.answer()
+
+@router.message(WithdrawStates.CARD, F.text)
+async def process_wd_card(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    if text == "❌ Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+    card = text.replace(" ", "").replace("-", "")
+    if not card.isdigit() or not (16 <= len(card) <= 20):
+        return await msg.answer("❌ Noto'g'ri karta! 16–20 xonali raqam kiriting:")
+    await state.update_data(card=card)
+    u   = get_or_create_user(msg.from_user.id)
+    bal = u[3]
+    await state.set_state(WithdrawStates.AMOUNT)
+    await msg.answer(
+        f"💵 <b>Qancha yechmoqchisiz?</b>\n\n"
+        f"Mavjud balans: <b>{bal:,} UZS</b>\n\n"
+        f"Summani kiriting:",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+
+@router.message(WithdrawStates.AMOUNT, F.text)
+async def process_wd_amount(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    if text == "❌ Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+    if not text.isdigit():
+        return await msg.answer("❌ Faqat raqam kiriting:")
+
+    amount = int(text)
+    u      = get_or_create_user(msg.from_user.id)
+    bal    = u[3]
+    min_wd = int(get_setting("min_withdrawal") or 5000)
+
+    if amount < min_wd:
+        return await msg.answer(f"❌ Minimal yechish: {min_wd:,} UZS. Qayta kiriting:")
+    if amount > bal:
+        return await msg.answer(f"❌ Balansingizda bunday summa yo'q! Maksimal: {bal:,} UZS:")
+
+    data   = await state.get_data()
+    card   = data["card"]
+    req_id = create_withdrawal(msg.from_user.id, amount, card)
+    await state.clear()
+
+    await msg.answer(
+        "✅ <b>So'rov qabul qilindi!</b>\n\n"
+        f"🆔 So'rov raqami: <b>#{req_id}</b>\n"
+        f"💳 Karta:          <code>{card}</code>\n"
+        f"💵 Summa:          <b>{amount:,} UZS</b>\n\n"
+        "⏳ Administrator 24 soat ichida ko'rib chiqadi va kartangizga o'tkazadi.",
+        reply_markup=kb_main(), parse_mode="HTML"
+    )
+
+    if ADMIN_ID:
         try:
             await bot.send_message(
                 ADMIN_ID,
-                f"🔔 **Yangi pul yechish so'rovi keldi (ID: {req_id})!**\n"
-                f"Foydalanuvchi ID: `{message.from_user.id}`\n"
-                f"Karta: `{card}`\n"
-                f"Summa: {amount:,} UZS\n\n"
-                f"Buni tasdiqlash yoki rad etish uchun /admin paneliga kiring."
+                f"🔔 <b>Yangi yechish so'rovi #{req_id}!</b>\n\n"
+                f"👤 ID:    <code>{msg.from_user.id}</code>\n"
+                f"💳 Karta: <code>{card}</code>\n"
+                f"💵 Summa: <b>{amount:,} UZS</b>\n\n"
+                f"Tasdiqlash uchun /admin paneliga kiring.",
+                parse_mode="HTML"
             )
         except Exception:
             pass
 
+# ══════════════════════════════════════════════
+#  OVOZ BERISH JARAYONI
+# ══════════════════════════════════════════════
 
-# --- Ovoz berish Handlers ---
-
-@router.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext):
+@router.message(F.text == "🗳️ Ovoz berish")
+async def start_vote(msg: Message, state: FSMContext):
     await state.clear()
-    
-    api_key = get_setting("api_key")
-    project_id = get_setting("project_id")
-    
-    # API Kalit va Loyiha ID tekshiruvi
-    if not api_key or not project_id:
-        await message.answer(
-            "⚠️ **DIQQAT:** Tashqi sozlamalar aniqlanmadi.\n\n"
-            "Bot egasi /admin buyrug'i orqali bot sozlamalariga **API Kalit** va **Loyiha ID**sini kiritishi shart!"
+    uid = msg.from_user.id
+
+    # ── Tekshiruvlar ──
+    if user_is_blocked(uid):
+        return await msg.answer("⛔ <b>Sizning hisobingiz bloklangan.</b>", parse_mode="HTML")
+
+    if not bot_is_ready():
+        return await msg.answer(
+            "🔧 <b>Bot hali to'liq sozlanmagan.</b>\n\nKeyinroq urinib ko'ring.",
+            parse_mode="HTML"
         )
-        return
 
-    await message.answer(
-        "👋 **Open Budget Ovoz berish botiga xush kelibsiz!**\n\n"
-        "Loyiha uchun ovoz berishni boshlash uchun quyidagi tugmalardan birini bosing:",
-        reply_markup=get_main_menu()
+    if not voting_is_enabled():
+        return await msg.answer(
+            "⛔ <b>Ovoz berish hozirda vaqtincha to'xtatilgan.</b>\n\n"
+            "Keyinroq urinib ko'ring.",
+            parse_mode="HTML"
+        )
+
+    if VOTE_COOLDOWN_HOURS > 0:
+        last = get_user_last_vote(uid)
+        if last:
+            elapsed   = datetime.now() - last
+            cooldown  = timedelta(hours=VOTE_COOLDOWN_HOURS)
+            if elapsed < cooldown:
+                remaining = cooldown - elapsed
+                h = int(remaining.total_seconds() // 3600)
+                m = int((remaining.total_seconds() % 3600) // 60)
+                return await msg.answer(
+                    f"⏳ <b>Keyingi ovozgacha:</b> <b>{h} soat {m} daqiqa</b>",
+                    parse_mode="HTML"
+                )
+
+    await msg.answer(
+        "📱 <b>Ovoz berish uchun telefon raqamingizni ulashing:</b>\n\n"
+        "<i>Open Budget tizimida ro'yxatdan o'tgan raqam bo'lishi kerak.</i>",
+        reply_markup=kb_phone(), parse_mode="HTML"
     )
+    await state.set_state(VoteStates.PHONE)
 
-@router.message(F.text == "❌ Bekor qilish")
-async def cmd_cancel(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("Jarayon bekor qilindi.", reply_markup=get_main_menu())
+# ─── Qadam 1: Telefon raqam ───
 
-@router.message(F.text == "⚡ Ovoz berish")
-async def start_vote_process(message: Message, state: FSMContext):
-    await state.clear()
-    
-    api_key = get_setting("api_key")
-    project_id = get_setting("project_id")
-    
-    if not api_key or not project_id:
-        await message.answer("⚠️ Bot sozlanmagan. Iltimos, administratorga xabar bering.")
-        return
-        
-    await message.answer(
-        "📱 Ovoz berish uchun telefon raqamingizni quyidagi tugma orqali ulashing:",
-        reply_markup=get_phone_keyboard()
-    )
-    await state.set_state(VoteStates.WAITING_FOR_PHONE)
+@router.message(VoteStates.PHONE)
+async def vote_phone(msg: Message, state: FSMContext):
+    if msg.text and msg.text in ("🔙 Orqaga", "❌ Bekor qilish"):
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
 
-@router.message(VoteStates.WAITING_FOR_PHONE)
-async def process_phone(message: Message, state: FSMContext):
     phone = ""
-    if message.contact:
-        phone = message.contact.phone_number
-    elif message.text:
-        phone = message.text.strip()
-        
-    # Formatlash
-    phone = phone.replace("+", "").replace(" ", "")
+    if msg.contact:
+        phone = msg.contact.phone_number
+    elif msg.text:
+        phone = msg.text.strip()
+
+    phone = phone.replace("+", "").replace(" ", "").replace("-", "")
     if not phone.startswith("998") or len(phone) != 12:
-        await message.answer("Iltimos, telefon raqamni to'g'ri kiriting (Masalan: +998901234567):")
-        return
-        
-    await state.update_data(phone=phone)
-    
-    # 1. Captcha yuklaymiz
-    await message.answer("🔄 Captcha rasmi yuklanmoqda, kuting...", reply_markup=ReplyKeyboardRemove())
-    res, status = await call_api("/captcha", "POST")
-    
-    if status != 200 or "captcha" not in res:
-        await message.answer("❌ Captcha yuklashda xatolik yuz berdi. Iltimos, keyinroq qayta urining.", reply_markup=get_main_menu())
-        await state.clear()
-        return
-        
-    captcha_data = res["captcha"]
-    captcha_key = captcha_data["key"]
-    image_base64 = captcha_data["image"].split(",")[-1]
-    
-    # Rasm yuborish
-    image_bytes = base64.b64decode(image_base64)
-    photo_file = BufferedInputFile(image_bytes, filename="captcha.png")
-    
-    await state.update_data(captcha_key=captcha_key)
-    
-    await message.answer_photo(
-        photo=photo_file,
-        caption="🧩 **Rasmdagi raqamlarni kiriting:**",
-        reply_markup=get_cancel_keyboard()
-    )
-    await state.set_state(VoteStates.WAITING_FOR_CAPTCHA_1)
-
-@router.message(VoteStates.WAITING_FOR_CAPTCHA_1, F.text)
-async def process_captcha_1(message: Message, state: FSMContext):
-    captcha_result = message.text.strip()
-    if not captcha_result.isdigit():
-        await message.answer("Iltimos, faqat rasmdagi raqamlarni kiriting:")
-        return
-        
-    data = await state.get_data()
-    phone = data["phone"]
-    captcha_key = data["captcha_key"]
-    project_id = get_setting("project_id")
-    
-    await message.answer("🔄 SMS kod yuborilmoqda, kuting...")
-    
-    # 2. SMS yuborish so'rovi
-    payload = {
-        "phone_number": phone,
-        "captcha_key": captcha_key,
-        "captcha_result": int(captcha_result),
-        "project_id": project_id
-    }
-    
-    res, status = await call_api("/send-otp", "POST", payload)
-    if status != 200:
-        error_msg = res.get("detail", "Xatolik yuz berdi.")
-        await message.answer(f"❌ Xatolik: {error_msg}\n\nQayta urinib ko'ring:", reply_markup=get_main_menu())
-        await state.clear()
-        return
-        
-    otp_key = res.get("otp_key")
-    await state.update_data(otp_key=otp_key)
-    
-    await message.answer(
-        "💬 Telefoningizga 6 xonali SMS kod yuborildi. Uni kiriting:",
-        reply_markup=get_cancel_keyboard()
-    )
-    await state.set_state(VoteStates.WAITING_FOR_SMS)
-
-@router.message(VoteStates.WAITING_FOR_SMS, F.text)
-async def process_sms(message: Message, state: FSMContext):
-    sms_code = message.text.strip()
-    if len(sms_code) != 6 or not sms_code.isdigit():
-        await message.answer("Iltimos, 6 xonali SMS kodni kiriting:")
-        return
-        
-    data = await state.get_data()
-    phone = data["phone"]
-    otp_key = data["otp_key"]
-    
-    await message.answer("🔄 SMS kod tekshirilmoqda, kuting...")
-    
-    # 3. SMS tasdiqlash
-    payload = {
-        "phone_number": phone,
-        "otp_code": sms_code,
-        "otp_key": otp_key
-    }
-    
-    res, status = await call_api("/verify-otp", "POST", payload)
-    if status != 200:
-        error_msg = res.get("detail", "SMS kod xato kiritildi.")
-        await message.answer(f"❌ Xatolik: {error_msg}\n\nQayta urinish uchun pastdagi tugmani bosing:", reply_markup=get_main_menu())
-        await state.clear()
-        return
-        
-    access_token = res.get("access_token")
-    await state.update_data(access_token=access_token)
-    
-    # 4. Yakuniy ovoz uchun ikkinchi captcha yuklaymiz
-    await message.answer("🔄 Ovozni rasmiylashtirish uchun 2-captcha yuklanmoqda...")
-    
-    res_cap, cap_status = await call_api("/captcha", "POST")
-    if cap_status != 200 or "captcha" not in res_cap:
-        await message.answer("❌ Captcha yuklashda xato. Ovoz berib bo'lmadi.", reply_markup=get_main_menu())
-        await state.clear()
-        return
-        
-    captcha_data = res_cap["captcha"]
-    captcha_key_2 = captcha_data["key"]
-    image_base64 = captcha_data["image"].split(",")[-1]
-    
-    image_bytes = base64.b64decode(image_base64)
-    photo_file = BufferedInputFile(image_bytes, filename="captcha.png")
-    
-    await state.update_data(captcha_key_2=captcha_key_2)
-    
-    await message.answer_photo(
-        photo=photo_file,
-        caption="🧩 **Ovozni tasdiqlash uchun rasmdagi yangi raqamlarni kiriting:**",
-        reply_markup=get_cancel_keyboard()
-    )
-    await state.set_state(VoteStates.WAITING_FOR_CAPTCHA_2)
-
-@router.message(VoteStates.WAITING_FOR_CAPTCHA_2, F.text)
-async def process_captcha_2(message: Message, state: FSMContext):
-    captcha_result = message.text.strip()
-    if not captcha_result.isdigit():
-        await message.answer("Iltimos, faqat rasmdagi raqamlarni kiriting:")
-        return
-        
-    data = await state.get_data()
-    phone = data["phone"]
-    access_token = data["access_token"]
-    captcha_key_2 = data["captcha_key_2"]
-    project_id = get_setting("project_id")
-    
-    await message.answer("⚡ Ovoz berilmoqda, kuting...")
-    
-    # 5. Yakuniy Ovoz berish
-    payload = {
-        "project_id": project_id,
-        "access_token": access_token,
-        "captcha_key": captcha_key_2,
-        "captcha_result": int(captcha_result)
-    }
-    
-    res, status = await call_api("/cast-vote", "POST", payload)
-    if status != 200:
-        error_msg = res.get("detail", "Ovoz berish muvaffaqiyatsiz yakunlandi.")
-        await message.answer(f"❌ Xatolik: {error_msg}", reply_markup=get_main_menu())
-    else:
-        # Ovoz berish muvaffaqiyatli bo'lsa, statistika, foydalanuvchi balansi va tarix yoziladi
-        reward = int(get_setting("voter_reward") or "1000")
-        increment_votes_count()
-        add_vote_to_history(phone)
-        add_user_balance_and_vote(message.from_user.id, reward)
-        
-        await message.answer(
-            f"🎉 **Tabriklaymiz! Ovoz muvaffaqiyatli hisoblandi.**\n"
-            f"Hisobingizga **+{reward:,} UZS** mukofot qo'shildi.",
-            reply_markup=get_main_menu()
+        return await msg.answer(
+            "❌ Noto'g'ri raqam!\n\n"
+            "Format: <code>+998XXXXXXXXX</code>\n"
+            "Yoki telefon raqamni ulashish tugmasini bosing:",
+            parse_mode="HTML"
         )
-        
+
+    await state.update_data(phone=phone)
+    loading = await msg.answer("🔄 <b>Captcha yuklanmoqda...</b>", reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
+
+    res, status = await call_api("/captcha", "POST")
+    if status != 200 or "captcha" not in res:
+        await state.clear()
+        await loading.delete()
+        return await msg.answer(
+            "❌ Captcha yuklashda xatolik yuz berdi.\nQayta urinib ko'ring:",
+            reply_markup=kb_main()
+        )
+
+    captcha = res["captcha"]
+    await state.update_data(captcha_key=captcha["key"])
+
+    try:
+        image_bytes = base64.b64decode(captcha["image"].split(",")[-1])
+    except Exception:
+        image_bytes = base64.b64decode(captcha["image"])
+
+    photo = BufferedInputFile(image_bytes, filename="captcha.png")
+    await loading.delete()
+    await msg.answer_photo(
+        photo,
+        caption="🧩 <b>Rasmdagi raqamlarni kiriting:</b>",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+    await state.set_state(VoteStates.CAPTCHA_1)
+
+# ─── Qadam 2: 1-Captcha ───
+
+@router.message(VoteStates.CAPTCHA_1, F.text)
+async def vote_captcha1(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    if text == "❌ Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+    if not text.isdigit():
+        return await msg.answer("❌ Faqat rasmdagi <b>raqamlarni</b> kiriting:", parse_mode="HTML")
+
+    data = await state.get_data()
+    sending = await msg.answer("🔄 <b>SMS kod yuborilmoqda...</b>", parse_mode="HTML")
+
+    res, status = await call_api("/send-otp", "POST", {
+        "phone_number": data["phone"],
+        "captcha_key":  data["captcha_key"],
+        "captcha_result": int(text),
+        "project_id":   get_setting("project_id"),
+    })
+
+    if status != 200:
+        err = res.get("detail", "Xatolik yuz berdi.")
+        await state.clear()
+        await sending.delete()
+        return await msg.answer(f"❌ {err}", reply_markup=kb_main())
+
+    await state.update_data(otp_key=res.get("otp_key"))
+    await sending.edit_text(
+        "📩 <b>SMS kod yuborildi!</b>\n\n"
+        "Telefoningizga kelgan <b>6 xonali kodni</b> kiriting:",
+        parse_mode="HTML"
+    )
+    await state.set_state(VoteStates.SMS)
+
+# ─── Qadam 3: SMS kod ───
+
+@router.message(VoteStates.SMS, F.text)
+async def vote_sms(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    if text == "❌ Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+    if len(text) != 6 or not text.isdigit():
+        return await msg.answer("❌ SMS kod <b>6 xonali</b> bo'lishi kerak:", parse_mode="HTML")
+
+    data    = await state.get_data()
+    checking = await msg.answer("🔄 <b>Kod tekshirilmoqda...</b>", parse_mode="HTML")
+
+    res, status = await call_api("/verify-otp", "POST", {
+        "phone_number": data["phone"],
+        "otp_code":     text,
+        "otp_key":      data["otp_key"],
+    })
+
+    if status != 200:
+        err = res.get("detail", "SMS kod xato yoki eskirgan.")
+        await state.clear()
+        await checking.delete()
+        return await msg.answer(f"❌ {err}", reply_markup=kb_main())
+
+    await state.update_data(access_token=res.get("access_token"))
+
+    # 2-captcha
+    await checking.edit_text("🔄 <b>Ovozni tasdiqlash uchun captcha yuklanmoqda...</b>", parse_mode="HTML")
+    res2, status2 = await call_api("/captcha", "POST")
+
+    if status2 != 200 or "captcha" not in res2:
+        await state.clear()
+        await checking.delete()
+        return await msg.answer("❌ 2-captcha yuklashda xato.", reply_markup=kb_main())
+
+    captcha2 = res2["captcha"]
+    await state.update_data(captcha_key_2=captcha2["key"])
+
+    try:
+        image_bytes = base64.b64decode(captcha2["image"].split(",")[-1])
+    except Exception:
+        image_bytes = base64.b64decode(captcha2["image"])
+
+    photo = BufferedInputFile(image_bytes, filename="captcha2.png")
+    await checking.delete()
+    await msg.answer_photo(
+        photo,
+        caption="🧩 <b>Ovozni tasdiqlash uchun yangi rasmdagi raqamlarni kiriting:</b>",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+    await state.set_state(VoteStates.CAPTCHA_2)
+
+# ─── Qadam 4: 2-Captcha va Yakuniy Ovoz ───
+
+@router.message(VoteStates.CAPTCHA_2, F.text)
+async def vote_captcha2(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    if text == "❌ Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+    if not text.isdigit():
+        return await msg.answer("❌ Faqat rasmdagi <b>raqamlarni</b> kiriting:", parse_mode="HTML")
+
+    data     = await state.get_data()
+    casting  = await msg.answer("⚡ <b>Ovoz berilmoqda...</b>", parse_mode="HTML")
+
+    res, status = await call_api("/cast-vote", "POST", {
+        "project_id":   get_setting("project_id"),
+        "access_token": data["access_token"],
+        "captcha_key":  data["captcha_key_2"],
+        "captcha_result": int(text),
+    })
+
     await state.clear()
+
+    if status != 200:
+        err = res.get("detail", "Ovoz berish muvaffaqiyatsiz tugadi.")
+        await casting.delete()
+        return await msg.answer(f"❌ {err}", reply_markup=kb_main())
+
+    # ── Muvaffaqiyatli ovoz ──
+    reward = int(get_setting("voter_reward") or 1000)
+    add_vote(msg.from_user.id, data["phone"], reward)
+
+    u       = get_user(msg.from_user.id)
+    new_bal = u[3] if u else reward
+
+    await casting.delete()
+    await msg.answer(
+        "🎉 <b>Ovoz muvaffaqiyatli hisoblandi!</b>\n\n"
+        f"💰 Mukofot:      <b>+{reward:,} UZS</b>\n"
+        f"💎 Joriy balans: <b>{new_bal:,} UZS</b>\n\n"
+        "Davom eting — qancha ko'p ovoz, shuncha ko'p daromad! 🚀",
+        reply_markup=kb_main(), parse_mode="HTML"
+    )
+
+# ══════════════════════════════════════════════
+#  MAIN
+# ══════════════════════════════════════════════
 
 async def main():
     dp.include_router(router)
-    logger.info("Mijoz bot ishga tushdi.")
-    await dp.start_polling(bot)
+    logger.info("🚀 Open Budget Mijoz Boti v2.0 ishga tushdi!")
+    await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
 
 if __name__ == "__main__":
     asyncio.run(main())
