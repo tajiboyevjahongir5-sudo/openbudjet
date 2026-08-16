@@ -8,11 +8,17 @@ def get_user_inline_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="⚡ Ovoz berish", callback_data="menu_vote", style="success")
+                InlineKeyboardButton(text="⚡ 🗳️ Ovoz berish 🗳️ ⚡", callback_data="menu_vote")
             ],
             [
-                InlineKeyboardButton(text="💎 Mening hisobim", callback_data="menu_balance", style="primary"),
-                InlineKeyboardButton(text="📣 Takliflar", callback_data="menu_referral", style="primary")
+                InlineKeyboardButton(text="💎 Mening hisobim", callback_data="menu_balance"),
+                InlineKeyboardButton(text="👥 Referal tizim", callback_data="menu_referral")
+            ],
+            [
+                InlineKeyboardButton(text="🤝 Hamkorlik & API olish", callback_data="menu_partnership")
+            ],
+            [
+                InlineKeyboardButton(text="👤 Mening profilim", callback_data="menu_profile")
             ]
         ]
     )

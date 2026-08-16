@@ -434,6 +434,16 @@ def kb_wd_action(wd_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="❌ Rad etish",  callback_data=f"adm_rej_{wd_id}"),
     ]])
 
+def kb_user_inline() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚡ 🗳️ Ovoz berish 🗳️ ⚡", callback_data="u_vote")],
+        [
+            InlineKeyboardButton(text="💎 Mening hisobim", callback_data="u_balance"),
+            InlineKeyboardButton(text="📋 Ovozlar tarixim", callback_data="u_history"),
+        ],
+        [InlineKeyboardButton(text="👤 Profilim", callback_data="u_profile")]
+    ])
+
 def kb_balance(show_wd: bool) -> Optional[InlineKeyboardMarkup]:
     if not show_wd:
         return None
@@ -541,8 +551,8 @@ async def cmd_start(msg: Message, state: FSMContext):
         f"Assalomu alaykum, <b>{html.escape(str(u.full_name))}</b>!\n\n"
         f"<tg-emoji emoji-id='5471983050186938952'>📌</tg-emoji> <b>Faol loyiha:</b> <code>{proj}</code>\n\n"
         f"<tg-emoji emoji-id='5471971711481666499'>💰</tg-emoji> <b>Har bir ovoz uchun mukofot:</b> <b>{reward:,} UZS</b>\n\n"
-        f"<tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji> Boshlash uchun quyidagi tugmani bosing!{admin_note}",
-        reply_markup=kb_main(),
+        f"<tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji> Boshlash uchun quyidagi tugmalardan foydalaning:{admin_note}",
+        reply_markup=kb_user_inline(),
         parse_mode="HTML"
     )
 
@@ -1228,6 +1238,37 @@ async def cmd_history(msg: Message, state: FSMContext):
         lines.append(f"<b>{i}.</b> 📱 +{phone}\n    🕐 {date_str}")
 
     await msg.answer("\n".join(lines), parse_mode="HTML")
+
+@router.callback_query(F.data == "u_vote")
+async def cb_u_vote(cb: CallbackQuery, state: FSMContext):
+    await start_vote(cb.message, state)
+    await cb.answer()
+
+@router.callback_query(F.data == "u_balance")
+async def cb_u_balance(cb: CallbackQuery, state: FSMContext):
+    await cmd_my_account(cb.message, state)
+    await cb.answer()
+
+@router.callback_query(F.data == "u_history")
+async def cb_u_history(cb: CallbackQuery, state: FSMContext):
+    await cmd_history(cb.message, state)
+    await cb.answer()
+
+@router.callback_query(F.data == "u_profile")
+async def cb_u_profile(cb: CallbackQuery, state: FSMContext):
+    await state.clear()
+    u = await get_user(cb.from_user.id)
+    bal = u[3] if u else 0
+    votes = u[4] if u else 0
+    text = (
+        f"👤 <b>Foydalanuvchi Profili</b>\n\n"
+        f"🆔 <b>ID:</b> <code>{cb.from_user.id}</code>\n"
+        f"👤 <b>Ism:</b> {html.escape(str(cb.from_user.full_name))}\n"
+        f"💳 <b>Balans:</b> <b>{bal:,} UZS</b>\n"
+        f"🗳️ <b>Ovozlar:</b> <b>{votes} ta</b>"
+    )
+    await cb.message.answer(text, reply_markup=kb_user_inline(), parse_mode="HTML")
+    await cb.answer()
 
 # ──────────────────────────────────────────────
 #  💸 PUL YECHISH (Foydalanuvchi)

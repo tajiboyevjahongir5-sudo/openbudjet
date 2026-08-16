@@ -92,7 +92,81 @@ async def process_user_registered_confirm(callback: CallbackQuery, state: FSMCon
 
     await state.clear()
     await callback.message.edit_text("✅ Ro'yxatdan o'tganligingiz tasdiqlandi!")
-    await callback.message.answer(welcome_text, reply_markup=reply.get_user_menu(), parse_mode="HTML")
+    # Foydalanuvchiga pastki klaviatura va xabar ichidagi rangli inline menyuni birgalikda yuboramiz
+    await callback.message.answer(welcome_text, reply_markup=inline.get_user_inline_menu(), parse_mode="HTML")
+    await callback.answer()
+
+@router.callback_query(F.data == "menu_balance")
+async def cb_menu_balance(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    telegram_id = callback.from_user.id
+    async with async_session() as db:
+        user = await crud.get_user(db, telegram_id)
+        if not user:
+            user, _ = await crud.get_or_create_user(
+                db=db, telegram_id=telegram_id,
+                username=callback.from_user.username,
+                full_name=callback.from_user.full_name
+            )
+        project_settings = await crud.get_project_settings(db)
+        min_withdrawal = project_settings.min_withdrawal
+
+    text = (
+        f"👤 <b>Ism:</b> {html.escape(str(callback.from_user.full_name))}\n"
+        f"<tg-emoji emoji-id='5471983050186938952'>🆔</tg-emoji> <b>ID:</b> <code>{telegram_id}</code>\n"
+        f"<tg-emoji emoji-id='5471971711481666499'>💳</tg-emoji> <b>Hamyon balansi:</b> {user.balance:,} so'm\n"
+        f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"
+        f"📌 Minimal yechib olish summasi: {min_withdrawal:,} so'm\n\n"
+        f"Quyidagi variantlardan birini tanlang <tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji>"
+    )
+    await callback.message.answer(text, reply_markup=inline.get_withdrawal_keyboard(), parse_mode="HTML")
+    await callback.answer()
+
+@router.callback_query(F.data == "menu_referral")
+async def cb_menu_referral(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    telegram_id = callback.from_user.id
+    bot_info = await callback.bot.get_me()
+    ref_link = f"https://t.me/{bot_info.username}?start={telegram_id}"
+    async with async_session() as db:
+        user = await crud.get_user(db, telegram_id)
+        project_settings = await crud.get_project_settings(db)
+        referral_price = project_settings.referral_price
+
+    text = (
+        f"<tg-emoji emoji-id='5471987512674727448'>🎁</tg-emoji> <b>Sizning referal havolangiz:</b>\n"
+        f"<code>{ref_link}</code>\n\n"
+        f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> Taklif qilgan a'zolaringiz: <b>{user.total_referrals if user else 0} ta</b>\n"
+        f"💵 Do'stingiz muvaffaqiyatli ovoz bersa, balansingizga <b>{referral_price:,} so'm</b> qo'shiladi!"
+    )
+    await callback.message.answer(text, parse_mode="HTML")
+    await callback.answer()
+
+@router.callback_query(F.data == "menu_partnership")
+async def cb_menu_partnership(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer(
+        "🤝 **Hamkorlik bo'limiga xush kelibsiz!**\n\n"
+        "Bu yerda siz o'zingizning shaxsiy Open Budget botingizni ishga tushirish uchun "
+        "tayyor kodni yuklab olishingiz yoki u bilan ishlaydigan API kalitlarni sotib olishingiz mumkin.",
+        reply_markup=inline.get_partnership_keyboard()
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "menu_profile")
+async def cb_menu_profile(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    telegram_id = callback.from_user.id
+    async with async_session() as db:
+        user = await crud.get_user(db, telegram_id)
+    text = (
+        f"👤 <b>Foydalanuvchi Profili</b>\n\n"
+        f"🆔 <b>ID:</b> <code>{telegram_id}</code>\n"
+        f"👤 <b>Ism:</b> {html.escape(str(callback.from_user.full_name))}\n"
+        f"💳 <b>Balans:</b> {user.balance if user else 0:,} so'm\n"
+        f"👥 <b>Referallar soni:</b> {user.total_referrals if user else 0} ta"
+    )
+    await callback.message.answer(text, reply_markup=inline.get_user_inline_menu(), parse_mode="HTML")
     await callback.answer()
 
 @router.message(F.text.contains("bekor qilish") | F.text.contains("Bekor qilish") | F.text.contains("Orqaga"), StateFilter("*"))
