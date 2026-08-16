@@ -552,7 +552,7 @@ async def cmd_start(msg: Message, state: FSMContext):
         f"<tg-emoji emoji-id='5471983050186938952'>📌</tg-emoji> <b>Faol loyiha:</b> <code>{proj}</code>\n\n"
         f"<tg-emoji emoji-id='5471971711481666499'>💰</tg-emoji> <b>Har bir ovoz uchun mukofot:</b> <b>{reward:,} UZS</b>\n\n"
         f"<tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji> Boshlash uchun quyidagi tugmalardan foydalaning:{admin_note}",
-        reply_markup=kb_user_inline(),
+        reply_markup=kb_main(),
         parse_mode="HTML"
     )
 

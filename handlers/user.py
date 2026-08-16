@@ -92,8 +92,7 @@ async def process_user_registered_confirm(callback: CallbackQuery, state: FSMCon
 
     await state.clear()
     await callback.message.edit_text("✅ Ro'yxatdan o'tganligingiz tasdiqlandi!")
-    # Foydalanuvchiga pastki klaviatura va xabar ichidagi rangli inline menyuni birgalikda yuboramiz
-    await callback.message.answer(welcome_text, reply_markup=inline.get_user_inline_menu(), parse_mode="HTML")
+    await callback.message.answer(welcome_text, reply_markup=reply.get_user_menu(), parse_mode="HTML")
     await callback.answer()
 
 @router.callback_query(F.data == "menu_balance")
