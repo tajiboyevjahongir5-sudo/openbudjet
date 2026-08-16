@@ -410,45 +410,45 @@ async def kb_admin() -> InlineKeyboardMarkup:
     toggle_text   = "🟢 Ovoz berish: YOQIQ" if voting_on else "🔴 Ovoz berish: O'CHIQ"
 
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳  API Kalit sotib olish ✨", callback_data="adm_buy_api")],
-        [InlineKeyboardButton(text="🔑  API Kalitni ulash / sozlash 🛠️", callback_data="adm_set_api")],
-        [InlineKeyboardButton(text="📌  Loyiha IDni sozlash 🎯", callback_data="adm_set_project")],
+        [InlineKeyboardButton(text="💳  API Kalit sotib olish ✨", callback_data="adm_buy_api", style="success")],
+        [InlineKeyboardButton(text="🔑  API Kalitni ulash / sozlash 🛠️", callback_data="adm_set_api", style="primary")],
+        [InlineKeyboardButton(text="📌  Loyiha IDni sozlash 🎯", callback_data="adm_set_project", style="primary")],
         [
-            InlineKeyboardButton(text="💰 Mukofot", callback_data="adm_set_reward"),
-            InlineKeyboardButton(text="💳 Min. yechish", callback_data="adm_set_min_wd"),
+            InlineKeyboardButton(text="💰 Mukofot", callback_data="adm_set_reward", style="primary"),
+            InlineKeyboardButton(text="💳 Min. yechish", callback_data="adm_set_min_wd", style="primary"),
         ],
-        [InlineKeyboardButton(text=toggle_text, callback_data="adm_toggle_vote")],
-        [InlineKeyboardButton(text=f"💸  Yechish so'rovlari{wd_badge}", callback_data="adm_wd_list")],
-        [InlineKeyboardButton(text="👥  Foydalanuvchilar ro'yxati", callback_data="adm_users_0")],
-        [InlineKeyboardButton(text="📊  Hisobot (TXT fayl)", callback_data="adm_report")],
-        [InlineKeyboardButton(text="📢  Broadcast (Xabar tarqatish)", callback_data="adm_broadcast")],
+        [InlineKeyboardButton(text=toggle_text, callback_data="adm_toggle_vote", style="success" if voting_on else "danger")],
+        [InlineKeyboardButton(text=f"💸  Yechish so'rovlari{wd_badge}", callback_data="adm_wd_list", style="danger" if pending_count > 0 else "primary")],
+        [InlineKeyboardButton(text="👥  Foydalanuvchilar ro'yxati", callback_data="adm_users_0", style="primary")],
+        [InlineKeyboardButton(text="📊  Hisobot (TXT fayl)", callback_data="adm_report", style="primary")],
+        [InlineKeyboardButton(text="📢  Broadcast (Xabar tarqatish)", callback_data="adm_broadcast", style="primary")],
         [
-            InlineKeyboardButton(text="♻️ Yangilash", callback_data="adm_refresh"),
-            InlineKeyboardButton(text="✖️ Yopish", callback_data="adm_close"),
+            InlineKeyboardButton(text="♻️ Yangilash", callback_data="adm_refresh", style="success"),
+            InlineKeyboardButton(text="✖️ Yopish", callback_data="adm_close", style="danger"),
         ],
     ])
 
 def kb_wd_action(wd_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"adm_app_{wd_id}"),
-        InlineKeyboardButton(text="❌ Rad etish",  callback_data=f"adm_rej_{wd_id}"),
+        InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"adm_app_{wd_id}", style="success"),
+        InlineKeyboardButton(text="❌ Rad etish",  callback_data=f"adm_rej_{wd_id}", style="danger"),
     ]])
 
 def kb_user_inline() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⚡ 🗳️ Ovoz berish 🗳️ ⚡", callback_data="u_vote")],
+        [InlineKeyboardButton(text="⚡ 🗳️ Ovoz berish 🗳️ ⚡", callback_data="u_vote", style="success")],
         [
-            InlineKeyboardButton(text="💎 Mening hisobim", callback_data="u_balance"),
-            InlineKeyboardButton(text="📋 Ovozlar tarixim", callback_data="u_history"),
+            InlineKeyboardButton(text="💎 Mening hisobim", callback_data="u_balance", style="primary"),
+            InlineKeyboardButton(text="📋 Ovozlar tarixim", callback_data="u_history", style="primary"),
         ],
-        [InlineKeyboardButton(text="👤 Profilim", callback_data="u_profile")]
+        [InlineKeyboardButton(text="👤 Profilim", callback_data="u_profile", style="primary")]
     ])
 
 def kb_balance(show_wd: bool) -> Optional[InlineKeyboardMarkup]:
     if not show_wd:
         return None
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="💸  Pulni kartaga yechib olish 💳", callback_data="user_withdraw"),
+        InlineKeyboardButton(text="💸  Pulni kartaga yechib olish 💳", callback_data="user_withdraw", style="success"),
     ]])
 
 def kb_users_nav(page: int, total_pages: int) -> InlineKeyboardMarkup:
