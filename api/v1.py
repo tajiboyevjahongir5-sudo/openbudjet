@@ -173,8 +173,8 @@ async def cast_vote(
             captcha_result=req.captcha_result
         )
     except asyncio.CancelledError:
-        # Foydalanuvchi so'rovni uzib qo'ygan holatda ham mablag' qaytariladi
-        await crud.update_api_key_balance(db, api_key.id, 1500)
+        # Foydalanuvchi so'rovni uzib qo'ygan holatda ham mablag' bekor bo'lmasdan qaytariladi
+        await asyncio.shield(crud.update_api_key_balance(db, api_key.id, 1500))
         logger.warning(f"cast_vote so'rovi bekor qilindi (CancelledError). Mablag' qaytarildi.")
         raise
     except Exception as e:

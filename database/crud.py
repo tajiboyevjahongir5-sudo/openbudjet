@@ -47,6 +47,7 @@ async def get_or_create_user(
         if referrer:
             valid_invited_by = invited_by
 
+    from sqlalchemy.exc import IntegrityError
     try:
         new_user = User(
             telegram_id=telegram_id,
@@ -61,7 +62,7 @@ async def get_or_create_user(
         await db.commit()
         await db.refresh(new_user)
         return new_user, True
-    except Exception:
+    except IntegrityError:
         await db.rollback()
         user = await get_user(db, telegram_id)
         if user:
