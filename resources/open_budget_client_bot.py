@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────
 #  SOZLAMALAR (muhit o'zgaruvchilari)
 # ──────────────────────────────────────────────
-BOT_TOKEN           = os.getenv("BOT_TOKEN", "BOT_TOKEN_SHU_YERGA")
+BOT_TOKEN           = os.getenv("BOT_TOKEN", "1234567890:AAHxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 ADMIN_ID            = int(os.getenv("ADMIN_ID", "0"))
 API_URL             = os.getenv("API_URL", "https://openbudjet-production.up.railway.app/api/v1")
 VOTE_COOLDOWN_HOURS = int(os.getenv("VOTE_COOLDOWN_HOURS", "0"))  # 0 = cheklovsiz
@@ -808,7 +808,7 @@ async def process_api_key(msg: Message, state: FSMContext):
             parse_mode="HTML"
         )
 
-    set_setting("api_key", text)
+    await set_setting("api_key", text)
     await state.clear()
     await checking.edit_text(
         f"✅ <b>API kalit muvaffaqiyatli saqlandi!</b>\n\n{result_msg}",
