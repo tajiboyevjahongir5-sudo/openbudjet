@@ -25,7 +25,7 @@ from typing import Optional
 import base64
 
 from aiogram import Bot, Dispatcher, Router, F
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -517,7 +517,10 @@ async def user_is_blocked(tid: int) -> bool:
 #  /start  /help
 # ──────────────────────────────────────────────
 
-@router.message(Command("start", "help"))
+@router.message(CommandStart(), StateFilter("*"))
+@router.message(Command("start", "help"), StateFilter("*"))
+@router.message(F.text.startswith("/start"), StateFilter("*"))
+@router.message(F.text.startswith("/help"), StateFilter("*"))
 async def cmd_start(msg: Message, state: FSMContext):
     await state.clear()
     u = msg.from_user
@@ -557,7 +560,8 @@ async def cmd_start(msg: Message, state: FSMContext):
 #  /admin
 # ──────────────────────────────────────────────
 
-@router.message(Command("admin"))
+@router.message(Command("admin"), StateFilter("*"))
+@router.message(F.text.startswith("/admin"), StateFilter("*"))
 async def cmd_admin(msg: Message, state: FSMContext):
     if msg.from_user.id != ADMIN_ID:
         return
@@ -1175,7 +1179,7 @@ async def adm_reject_wd(cb: CallbackQuery):
 #  FOYDALANUVCHI HANDLERLARI
 # ══════════════════════════════════════════════
 
-@router.message(F.text.contains("Orqaga") | F.text.contains("Bekor qilish"))
+@router.message(F.text.contains("Orqaga") | F.text.contains("Bekor qilish") | F.text.contains("bekor qilish"), StateFilter("*"))
 async def cmd_cancel(msg: Message, state: FSMContext):
     await state.clear()
     await msg.answer("Bekor qilindi.", reply_markup=kb_main())
