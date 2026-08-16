@@ -394,13 +394,13 @@ def kb_main() -> ReplyKeyboardMarkup:
 
 def kb_phone() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True)],
-        [KeyboardButton(text="🔙 Orqaga qaytish")],
+        [KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True, style="success")],
+        [KeyboardButton(text="🔙 Orqaga qaytish", style="danger")],
     ], resize_keyboard=True, is_persistent=True)
 
 def kb_cancel() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="❌ Jarayonni bekor qilish")],
+        [KeyboardButton(text="❌ Jarayonni bekor qilish", style="danger")],
     ], resize_keyboard=True, is_persistent=True)
 
 async def kb_admin() -> InlineKeyboardMarkup:

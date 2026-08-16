@@ -23,12 +23,13 @@ def get_user_menu() -> ReplyKeyboardMarkup:
 def get_phone_keyboard() -> ReplyKeyboardMarkup:
     """Ovoz berishda telefon raqamini olish uchun rangli tugma"""
     keyboard = [
-        [KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True)],
-        [KeyboardButton(text="❌ Jarayonni bekor qilish")]
+        [KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True, style="success")],
+        [KeyboardButton(text="❌ Jarayonni bekor qilish", style="danger")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
-        resize_keyboard=True
+        resize_keyboard=True,
+        is_persistent=True
     )
 
 def get_admin_menu(telegram_id: int = None) -> ReplyKeyboardMarkup:
@@ -74,11 +75,12 @@ def get_admin_menu(telegram_id: int = None) -> ReplyKeyboardMarkup:
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     """Bekor qilish tugmasi"""
     keyboard = [
-        [KeyboardButton(text="❌ Jarayonni bekor qilish")]
+        [KeyboardButton(text="❌ Jarayonni bekor qilish", style="danger")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
-        resize_keyboard=True
+        resize_keyboard=True,
+        is_persistent=True
     )
 
 def get_captcha_reply_keyboard(session_id: str, web_url: str) -> ReplyKeyboardMarkup:
@@ -86,8 +88,8 @@ def get_captcha_reply_keyboard(session_id: str, web_url: str) -> ReplyKeyboardMa
     sign = generate_session_signature(session_id, settings.BOT_TOKEN)
     url = f"{web_url}/captcha?session_id={session_id}&sign={sign}"
     keyboard = [
-        [KeyboardButton(text="🧩 Captchani yechish", web_app=WebAppInfo(url=url))],
-        [KeyboardButton(text="❌ Jarayonni bekor qilish")]
+        [KeyboardButton(text="🧩 Captchani yechish", web_app=WebAppInfo(url=url), style="success")],
+        [KeyboardButton(text="❌ Jarayonni bekor qilish", style="danger")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
