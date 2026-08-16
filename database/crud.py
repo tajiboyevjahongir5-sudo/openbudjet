@@ -471,7 +471,8 @@ async def create_pending_purchase(
     tariff_name: str,
     price_uzs: int,
     unique_price_uzs: int,
-    votes_count: int
+    votes_count: int,
+    source: str = "MAIN_BOT"
 ) -> APIKeyPurchase:
     """Yangi API kalit sotib olish to'lov so'rovini (PENDING) yaratadi"""
     purchase = APIKeyPurchase(
@@ -480,6 +481,7 @@ async def create_pending_purchase(
         price_uzs=price_uzs,
         unique_price_uzs=unique_price_uzs,
         votes_count=votes_count,
+        source=source,
         status="PENDING",
         created_at=datetime.utcnow()
     )
@@ -511,12 +513,14 @@ async def get_all_pending_purchases(db: AsyncSession) -> list[APIKeyPurchase]:
     )
     return list(result.scalars().all())
 
-async def complete_purchase(db: AsyncSession, purchase_id: int) -> APIKeyPurchase | None:
-    """To'lov tasdiqlanganda xarid statusini COMPLETED qilib yangilaydi"""
+async def complete_purchase(db: AsyncSession, purchase_id: int, generated_key: str = None) -> APIKeyPurchase | None:
+    """To'lov tasdiqlanganda xarid statusini COMPLETED qilib yangilaydi va kalitni saqlaydi"""
     result = await db.execute(select(APIKeyPurchase).where(APIKeyPurchase.id == purchase_id))
     purchase = result.scalar_one_or_none()
     if purchase:
         purchase.status = "COMPLETED"
+        if generated_key:
+            purchase.generated_key = generated_key
         await db.commit()
         await db.refresh(purchase)
         return purchase

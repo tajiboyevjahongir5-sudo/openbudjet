@@ -261,7 +261,8 @@ async def create_buy_key_invoice(
         tariff_name=tariff.name,
         price_uzs=price,
         unique_price_uzs=unique_price,
-        votes_count=req.votes
+        votes_count=req.votes,
+        source="CLIENT_BOT"
     )
     
     return {
@@ -272,6 +273,24 @@ async def create_buy_key_invoice(
         "base_price": price,
         "unique_price": unique_price,
         "card_number": settings_db.card_number
+    }
+
+
+@router.get("/check-purchase/{purchase_id}")
+async def check_purchase_status(purchase_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Mijoz boti uchun to'lov holatini tekshiradi.
+    To'lov tasdiqlangach yangi yaratilgan API kalitni qaytaradi.
+    """
+    purchase = await db.get(crud.APIKeyPurchase, purchase_id)
+    if not purchase:
+        raise HTTPException(status_code=404, detail="Xarid topilmadi.")
+        
+    return {
+        "status": purchase.status,
+        "api_key": purchase.generated_key if purchase.status == "COMPLETED" else None,
+        "votes_count": purchase.votes_count,
+        "tariff_name": purchase.tariff_name
     }
 
 

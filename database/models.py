@@ -89,6 +89,8 @@ class APIKeyPurchase(Base):
     price_uzs: Mapped[int] = mapped_column(Integer, nullable=False)
     unique_price_uzs: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
     votes_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[str] = mapped_column(String(20), default="MAIN_BOT")
+    generated_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="PENDING")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

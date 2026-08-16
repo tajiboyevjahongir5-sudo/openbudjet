@@ -633,6 +633,40 @@ async def adm_buy_api(cb: CallbackQuery):
     )
     await cb.answer()
 
+async def poll_purchase_status(purchase_id: int, chat_id: int):
+    """
+    To'lov amalga oshirilishini fonda kuzatib boradi.
+    Bank SMS-xabari kelib, asosiy serverda to'lov tasdiqlanishi bilan,
+    ushbu mijoz boti adminga to'g'ridan-to'g'ri yangi kalitni taqdim etadi
+    va uni botga avtomatik ulab beradi!
+    """
+    for _ in range(40):  # 40 x 8 soniya = 5 daqiqa davomida kuzatadi
+        await asyncio.sleep(8)
+        try:
+            res, status = await call_api(f"/check-purchase/{purchase_id}", "GET")
+            if status == 200 and res.get("status") == "COMPLETED" and res.get("api_key"):
+                api_key = res["api_key"]
+                votes = res.get("votes_count", "")
+                await set_setting("api_key", api_key)
+                await bot.send_message(
+                    chat_id,
+                    f"🎉 <b>Tabriklaymiz! To'lovingiz muvaffaqiyatli qabul qilindi!</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📦 Xarid: <b>{votes} ta Ovoz</b>\n"
+                    f"🔑 <b>Yangi API Kalitingiz:</b>\n"
+                    f"<code>{api_key}</code>\n\n"
+                    f"✅ <b>Ushbu kalit botingizga AVTOMATIK TARZDA ulandi va faollashtirildi!</b>\n"
+                    f"Endi botingiz ovozlarni to'liq qabul qilishga tayyor! 🚀",
+                    reply_markup=await kb_admin(),
+                    parse_mode="HTML"
+                )
+                break
+            elif status == 200 and res.get("status") == "CANCELLED":
+                break
+        except Exception:
+            pass
+
+
 @router.callback_query(F.data.startswith("adm_tariff_"))
 async def adm_select_tariff(cb: CallbackQuery):
     if cb.from_user.id != ADMIN_ID:
@@ -656,6 +690,9 @@ async def adm_select_tariff(cb: CallbackQuery):
     base_price = res["base_price"]
     card_number = res["card_number"]
     
+    # Fondagi avtomatik tekshiruvni ishga tushiramiz
+    asyncio.create_task(poll_purchase_status(purchase_id, cb.from_user.id))
+    
     kb_invoice = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 To'ladim (Tekshirish)", callback_data=f"adm_paid_{purchase_id}")],
         [InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"adm_cancel_inv_{purchase_id}")],
@@ -673,7 +710,7 @@ async def adm_select_tariff(cb: CallbackQuery):
         f"⏱️ <b>To'lov muddati: 30 daqiqa!</b>\n\n"
         f"⚠️ <b>QAT'IY TALAB (DIQQAT):</b>\n"
         f"Karta hisobiga aynan <b><code>{unique_price:,} UZS</code></b> o'tkazishingiz shart (tiyinlarigacha aniq!).\n"
-        f"O'tkazma kartaga tushishi bilan asosiy bot to'lovni <b>avtomatik aniqlaydi</b> va yangi API kalitingizni Telegram orqali yuboradi!",
+        f"O'tkazma kartaga tushishi bilan asosiy server to'lovni <b>avtomatik aniqlaydi</b> va yangi API kalitingiz botingizga <b>avtomatik ulanadi</b>!",
         reply_markup=kb_invoice,
         parse_mode="HTML"
     )
@@ -681,12 +718,41 @@ async def adm_select_tariff(cb: CallbackQuery):
 
 @router.callback_query(F.data.startswith("adm_paid_"))
 async def adm_paid_invoice(cb: CallbackQuery):
-    await cb.message.answer(
-        "🔄 <b>To'lov avtomatik tekshiruvda...</b>\n\n"
-        "O'tkazma bank kartasiga tushishi bilan (odatda 1-3 daqiqa) asosiy tizim to'lovni avtomatik tasdiqlaydi va sizga yangi API kalitingizni yuboradi.\n\n"
-        "Kalitni olganingizdan so'ng, /admin menyusidagi <b>🔑 API Kalitni sozlash</b> tugmasi orqali botingizga ulab olasiz!",
-        parse_mode="HTML"
-    )
+    purchase_id = int(cb.data.split("_")[-1])
+    
+    checking = await cb.message.answer("🔄 <b>To'lov holati serverdan tekshirilmoqda...</b>", parse_mode="HTML")
+    res, status = await call_api(f"/check-purchase/{purchase_id}", "GET")
+    await checking.delete()
+    
+    if status == 200 and res.get("status") == "COMPLETED" and res.get("api_key"):
+        api_key = res["api_key"]
+        votes = res.get("votes_count", "")
+        # Kalitni avtomatik tarzda botning o'z sozlamalariga saqlaymiz!
+        await set_setting("api_key", api_key)
+        
+        await cb.message.answer(
+            f"🎉 <b>Tabriklaymiz! To'lovingiz muvaffaqiyatli qabul qilindi!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📦 Xarid qilingan ovozlar: <b>{votes} ta</b>\n"
+            f"🔑 <b>Yangi API Kalitingiz:</b>\n"
+            f"<code>{api_key}</code>\n\n"
+            f"✅ <b>Ushbu API kalit botingizga AVTOMATIK TARZDA ulandi va faollashtirildi!</b>\n"
+            f"Endi botingizdan to'liq foydalanishingiz mumkin! 🚀",
+            reply_markup=await kb_admin(),
+            parse_mode="HTML"
+        )
+    elif status == 200 and res.get("status") == "PENDING":
+        await cb.message.answer(
+            "⏳ <b>To'lov hali bank hisobiga tushmadi.</b>\n\n"
+            "O'tkazma bank kartasiga yetib kelishi bilan (odatda 1-3 daqiqa) to'lov avtomatik tasdiqlanadi va kalit botingizga avtomatik ulanadi.\n\n"
+            "Iltimos, to'lovni aniq summa bilan bajarganingizga ishonch hosil qilib, birozdan so'ng yana <b>🔄 To'ladim (Tekshirish)</b> tugmasini bosing.",
+            parse_mode="HTML"
+        )
+    else:
+        await cb.message.answer(
+            "❌ Xarid topilmadi yoki bekor qilingan.",
+            parse_mode="HTML"
+        )
     await cb.answer()
 
 @router.callback_query(F.data.startswith("adm_cancel_inv_"))

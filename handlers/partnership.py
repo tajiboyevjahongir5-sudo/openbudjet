@@ -228,10 +228,7 @@ async def process_payment_notification(message: Message):
             if purchase.unique_price_uzs in numbers:
                 logger.info(f"Mos keluvchi to'lov topildi: {purchase.unique_price_uzs} UZS. Xarid ID: {purchase.id}")
                 
-                # 1. Xaridni yakunlaymiz (COMPLETED)
-                await crud.complete_purchase(db, purchase.id)
-                
-                # 2. Yangi API kalit yaratamiz
+                # 1. Yangi API kalit yaratamiz
                 plain_key = f"ob_api_{secrets.token_hex(16)}"
                 await crud.create_api_key(
                     db=db,
@@ -240,24 +237,28 @@ async def process_payment_notification(message: Message):
                     initial_balance=purchase.votes_count * 1500 # 1 ovoz = 1500 so'm
                 )
                 
-                # 3. Foydalanuvchiga API kalitni yuboramiz
-                try:
-                    await message.bot.send_message(
-                        chat_id=purchase.telegram_id,
-                        text=(
-                            f"🎉 **To'lovingiz muvaffaqiyatli qabul qilindi!**\n\n"
-                            f"📦 Tarif: **{purchase.votes_count} ta Ovoz**\n"
-                            f"💰 To'langan summa: {purchase.unique_price_uzs:,} UZS\n\n"
-                            f"🔑 **Sizning API kalitingiz:**\n"
-                            f"`{plain_key}`\n\n"
-                            f"👉 Uni shifrlangan holatda [API Dashboard](t.me) orqali boshqarishingiz mumkin.\n"
-                            f"💡 Ishlatish bo'yicha [API Sotib Oluvchi Mijozlar uchun Sodda Qo'llanma](file:///C:/Users/user/.gemini/antigravity/brain/bcb65563-bfb8-4cde-a3a5-ee497b4bc0a6/buyer_guide.md)ni o'qing."
-                        ),
-                        parse_mode="HTML"
-                    )
-                    logger.info(f"Foydalanuvchiga API kalit yuborildi: {purchase.telegram_id}")
-                except Exception as e:
-                    logger.error(f"Foydalanuvchiga xabar yuborishda xato: {e}")
+                # 2. Xaridni yakunlaymiz (COMPLETED holatiga o'tkazib, kalitni saqlaymiz)
+                await crud.complete_purchase(db, purchase.id, generated_key=plain_key)
+                
+                # 3. Agar xarid asosiy bot orqali amalga oshirilgan bo'lsa, asosiy botdan xabar yuboramiz
+                # Agar mijoz botidan sotib olingan bo'lsa, kalitni mijoz boti o'zi avtomatik ulab oladi
+                if getattr(purchase, "source", "MAIN_BOT") == "MAIN_BOT":
+                    try:
+                        await message.bot.send_message(
+                            chat_id=purchase.telegram_id,
+                            text=(
+                                f"🎉 <b>To'lovingiz muvaffaqiyatli qabul qilindi!</b>\n\n"
+                                f"📦 Tarif: <b>{purchase.votes_count} ta Ovoz</b>\n"
+                                f"💰 To'langan summa: <b>{purchase.unique_price_uzs:,} UZS</b>\n\n"
+                                f"🔑 <b>Sizning API kalitingiz:</b>\n"
+                                f"<code>{plain_key}</code>\n\n"
+                                f"👉 Uni shifrlangan holatda API Dashboard orqali boshqarishingiz mumkin."
+                            ),
+                            parse_mode="HTML"
+                        )
+                        logger.info(f"Foydalanuvchiga API kalit asosiy botdan yuborildi: {purchase.telegram_id}")
+                    except Exception as e:
+                        logger.error(f"Foydalanuvchiga xabar yuborishda xato: {e}")
                     
                 # 4. Adminga xabar berish
                 admin_ids = settings_db.ADMIN_IDS

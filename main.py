@@ -93,6 +93,8 @@ async def init_db():
             "ALTER TABLE project_settings ADD COLUMN channel_username VARCHAR(100);",
             "ALTER TABLE project_settings ADD COLUMN card_number VARCHAR(30);",
             "ALTER TABLE project_settings ADD COLUMN payment_channel_id BIGINT;",
+            "ALTER TABLE api_key_purchases ADD COLUMN source VARCHAR(20) DEFAULT 'MAIN_BOT';",
+            "ALTER TABLE api_key_purchases ADD COLUMN generated_key VARCHAR(500);",
         ]:
             try:
                 await conn.execute(text(sql))
