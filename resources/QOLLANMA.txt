@@ -103,6 +103,10 @@ USUL C: Shaxsiy Kompyuterda (Windows / Mac) Sinovdan o'tkazish
 --------------------------------------------------------------------------------
 Bot ishga tushgach, o'z botingizga kirib /admin buyrug'ini yozing:
 
+0. [💳 API Kalit sotib olish] -> Bot ichidan chiqmasdan tariflarni ko'rishingiz
+   va to'lov fakturasini olib, to'g'ridan-to'g'ri API kalit sotib olishingiz mumkin.
+   Bank kartasiga to'lov tushishi bilan asosiy tizim to'lovni avtomatik aniqlaydi!
+
 1. [🔑 API Kalitni sozlash] -> Asosiy botdan sotib olgan "ob_api_..." kalitingizni
    yuboring. Bot kalitni server bilan real vaqtda tekshirib tasdiqlaydi.
 

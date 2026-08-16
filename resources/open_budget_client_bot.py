@@ -404,6 +404,7 @@ async def kb_admin() -> InlineKeyboardMarkup:
     toggle_text   = "🟢 Ovoz berish: YOQIQ" if voting_on else "🔴 Ovoz berish: O'CHIQ"
 
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳  API Kalit sotib olish",    callback_data="adm_buy_api")],
         [InlineKeyboardButton(text="🔑  API Kalitni sozlash",    callback_data="adm_set_api")],
         [InlineKeyboardButton(text="📌  Loyiha IDni sozlash",    callback_data="adm_set_project")],
         [
@@ -587,6 +588,112 @@ async def adm_close(cb: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "noop")
 async def noop_cb(cb: CallbackQuery):
+    await cb.answer()
+
+# ──────────────────────────────────────────────
+#  API KALIT SOTIB OLISH (Asosiy bot tizimiga ulangan)
+# ──────────────────────────────────────────────
+
+@router.callback_query(F.data == "adm_buy_api")
+async def adm_buy_api(cb: CallbackQuery):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+    
+    loading = await cb.message.answer("🔄 <b>Tariflar serverdan yuklanmoqda...</b>", parse_mode="HTML")
+    res, status = await call_api("/tariffs", "GET")
+    await loading.delete()
+    
+    if status != 200 or "tariffs" not in res:
+        return await cb.message.answer(
+            "❌ Tariflar ro'yxatini yuklab bo'lmadi. Keyinroq urinib ko'ring.",
+            parse_mode="HTML"
+        )
+        
+    tariffs = res.get("tariffs", [])
+    if not tariffs:
+        return await cb.message.answer("Hozircha faol tariflar mavjud emas.", parse_mode="HTML")
+        
+    buttons = []
+    for t in tariffs:
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"📦 {t['votes']} ta Ovoz — {t['price']:,} UZS",
+                callback_data=f"adm_tariff_{t['votes']}"
+            )
+        ])
+    buttons.append([InlineKeyboardButton(text="🔙 Admin panelga qaytish", callback_data="adm_back")])
+    
+    await cb.message.answer(
+        "💳 <b>API Kalit sotib olish</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Kerakli ovozlar soniga mos tarifni tanlang.\n"
+        "To'lov bank kartasiga o'tkazilishi bilan asosiy server to'lovni avtomatik aniqlaydi va sizga API kalit taqdim etadi!",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        parse_mode="HTML"
+    )
+    await cb.answer()
+
+@router.callback_query(F.data.startswith("adm_tariff_"))
+async def adm_select_tariff(cb: CallbackQuery):
+    if cb.from_user.id != ADMIN_ID:
+        return await cb.answer()
+        
+    votes = int(cb.data.split("_")[-1])
+    loading = await cb.message.answer("🔄 <b>To'lov fakturasi yaratilmoqda...</b>", parse_mode="HTML")
+    
+    res, status = await call_api("/buy-key-invoice", "POST", {
+        "telegram_id": cb.from_user.id,
+        "votes": votes
+    })
+    await loading.delete()
+    
+    if status != 200 or "unique_price" not in res:
+        err = res.get("detail", "To'lov fakturasi yaratishda xatolik yuz berdi.")
+        return await cb.message.answer(f"❌ {err}", parse_mode="HTML")
+        
+    purchase_id = res["purchase_id"]
+    unique_price = res["unique_price"]
+    base_price = res["base_price"]
+    card_number = res["card_number"]
+    
+    kb_invoice = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 To'ladim (Tekshirish)", callback_data=f"adm_paid_{purchase_id}")],
+        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"adm_cancel_inv_{purchase_id}")],
+        [InlineKeyboardButton(text="🔙 Admin panelga qaytish", callback_data="adm_back")]
+    ])
+    
+    await cb.message.answer(
+        f"💳 <b>API Kalit sotib olish uchun to'lov fakturasi:</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📦 Tarif: <b>{votes} ta Ovoz</b>\n"
+        f"💰 Asl narxi: <b>{base_price:,} UZS</b>\n"
+        f"💳 Karta raqami (Uzcard/Humo): <code>{card_number}</code>\n\n"
+        f"💵 <b>O'TKAZISHINGIZ KERAK BO'LGAN ANIQ SUMMA:</b>\n"
+        f"👉 <b><code>{unique_price:,} UZS</code></b> 👈\n\n"
+        f"⏱️ <b>To'lov muddati: 30 daqiqa!</b>\n\n"
+        f"⚠️ <b>QAT'IY TALAB (DIQQAT):</b>\n"
+        f"Karta hisobiga aynan <b><code>{unique_price:,} UZS</code></b> o'tkazishingiz shart (tiyinlarigacha aniq!).\n"
+        f"O'tkazma kartaga tushishi bilan asosiy bot to'lovni <b>avtomatik aniqlaydi</b> va yangi API kalitingizni Telegram orqali yuboradi!",
+        reply_markup=kb_invoice,
+        parse_mode="HTML"
+    )
+    await cb.answer()
+
+@router.callback_query(F.data.startswith("adm_paid_"))
+async def adm_paid_invoice(cb: CallbackQuery):
+    await cb.message.answer(
+        "🔄 <b>To'lov avtomatik tekshiruvda...</b>\n\n"
+        "O'tkazma bank kartasiga tushishi bilan (odatda 1-3 daqiqa) asosiy tizim to'lovni avtomatik tasdiqlaydi va sizga yangi API kalitingizni yuboradi.\n\n"
+        "Kalitni olganingizdan so'ng, /admin menyusidagi <b>🔑 API Kalitni sozlash</b> tugmasi orqali botingizga ulab olasiz!",
+        parse_mode="HTML"
+    )
+    await cb.answer()
+
+@router.callback_query(F.data.startswith("adm_cancel_inv_"))
+async def adm_cancel_invoice(cb: CallbackQuery):
+    purchase_id = int(cb.data.split("_")[-1])
+    await call_api(f"/cancel-key-invoice/{purchase_id}", "POST")
+    await cb.message.edit_text("❌ To'lov fakturasi bekor qilindi.", parse_mode="HTML")
     await cb.answer()
 
 # ──────────────────────────────────────────────

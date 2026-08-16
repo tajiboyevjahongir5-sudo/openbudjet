@@ -198,3 +198,90 @@ async def cast_vote(
         "message": "Ovoz muvaffaqiyatli qabul qilindi!",
         "detail": result_msg
     }
+
+
+# --- API Kalit Sotib Olish (Tijorat va Integratsiya) ---
+
+class BuyKeyRequest(BaseModel):
+    telegram_id: int = Field(..., description="Xaridorning Telegram ID raqami")
+    votes: int = Field(..., description="Tanlangan tarifdagi ovozlar soni")
+
+
+@router.get("/tariffs")
+async def get_tariffs_public(db: AsyncSession = Depends(get_db)):
+    """
+    Barcha mavjud API kalit tariflari ro'yxatini qaytaradi (Mijoz boti orqali ko'rish uchun).
+    """
+    tariffs = await crud.get_all_tariffs(db)
+    return {
+        "status": "success",
+        "tariffs": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "votes": t.votes,
+                "price": t.price
+            }
+            for t in tariffs
+        ]
+    }
+
+
+@router.post("/buy-key-invoice")
+async def create_buy_key_invoice(
+    req: BuyKeyRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    API kalit sotib olish uchun unikal tiyinli to'lov fakturasini yaratadi.
+    To'lov bank kartasiga tushishi bilan asosiy bot avtomatik aniqlab kalitni yaratadi.
+    """
+    tariff = await crud.get_tariff_by_votes(db, req.votes)
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Bunday tarif topilmadi.")
+        
+    settings_db = await crud.get_project_settings(db)
+    if not settings_db.card_number:
+        raise HTTPException(status_code=400, detail="To'lov qabul qilish kartasi sozlanmagan.")
+        
+    import random
+    price = tariff.price
+    unique_price = price
+    for _ in range(100):
+        random_cents = random.randint(1, 99)
+        test_price = price + random_cents
+        existing = await crud.get_pending_purchase_by_unique_price(db, test_price)
+        if not existing:
+            unique_price = test_price
+            break
+            
+    purchase = await crud.create_pending_purchase(
+        db=db,
+        telegram_id=req.telegram_id,
+        tariff_name=tariff.name,
+        price_uzs=price,
+        unique_price_uzs=unique_price,
+        votes_count=req.votes
+    )
+    
+    return {
+        "status": "success",
+        "purchase_id": purchase.id,
+        "tariff_name": tariff.name,
+        "votes_count": req.votes,
+        "base_price": price,
+        "unique_price": unique_price,
+        "card_number": settings_db.card_number
+    }
+
+
+@router.post("/cancel-key-invoice/{purchase_id}")
+async def cancel_key_invoice(purchase_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Kutilayotgan to'lov fakturasini bekor qiladi.
+    """
+    purchase = await db.get(crud.APIKeyPurchase, purchase_id)
+    if purchase and purchase.status == "PENDING":
+        purchase.status = "CANCELLED"
+        await db.commit()
+    return {"status": "success"}
