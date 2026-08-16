@@ -385,46 +385,46 @@ async def validate_api_key(key: str) -> tuple[bool, str]:
 
 def kb_main() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="🗳️ Ovoz berish")],
+        [KeyboardButton(text="⚡ 🗳️ OVOZ BERISH 🗳️ ⚡")],
         [
-            KeyboardButton(text="💎 Hisobim"),
-            KeyboardButton(text="📋 Tarixim"),
+            KeyboardButton(text="💎 Mening hisobim 💰"),
+            KeyboardButton(text="📋 Ovozlar tarixim 📊"),
         ],
-    ], resize_keyboard=True)
+    ], resize_keyboard=True, is_persistent=True)
 
 def kb_phone() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True)],
-        [KeyboardButton(text="🔙 Orqaga")],
-    ], resize_keyboard=True)
+        [KeyboardButton(text="🔙 Orqaga qaytish")],
+    ], resize_keyboard=True, is_persistent=True)
 
 def kb_cancel() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="❌ Bekor qilish")],
-    ], resize_keyboard=True)
+        [KeyboardButton(text="❌ Jarayonni bekor qilish")],
+    ], resize_keyboard=True, is_persistent=True)
 
 async def kb_admin() -> InlineKeyboardMarkup:
     pending_count = len(await get_pending_withdrawals())
-    wd_badge      = f"  🔴 {pending_count}" if pending_count > 0 else ""
+    wd_badge      = f"  🔴 {pending_count} ta" if pending_count > 0 else ""
     voting_on     = await get_setting("voting_enabled") == "1"
     toggle_text   = "🟢 Ovoz berish: YOQIQ" if voting_on else "🔴 Ovoz berish: O'CHIQ"
 
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳  API Kalit sotib olish",    callback_data="adm_buy_api")],
-        [InlineKeyboardButton(text="🔑  API Kalitni sozlash",    callback_data="adm_set_api")],
-        [InlineKeyboardButton(text="📌  Loyiha IDni sozlash",    callback_data="adm_set_project")],
+        [InlineKeyboardButton(text="💳  API Kalit sotib olish ✨", callback_data="adm_buy_api")],
+        [InlineKeyboardButton(text="🔑  API Kalitni ulash / sozlash 🛠️", callback_data="adm_set_api")],
+        [InlineKeyboardButton(text="📌  Loyiha IDni sozlash 🎯", callback_data="adm_set_project")],
         [
-            InlineKeyboardButton(text="💰 Mukofot",              callback_data="adm_set_reward"),
-            InlineKeyboardButton(text="💳 Min. yechish",         callback_data="adm_set_min_wd"),
+            InlineKeyboardButton(text="💰 Mukofot", callback_data="adm_set_reward"),
+            InlineKeyboardButton(text="💳 Min. yechish", callback_data="adm_set_min_wd"),
         ],
-        [InlineKeyboardButton(text=toggle_text,                  callback_data="adm_toggle_vote")],
+        [InlineKeyboardButton(text=toggle_text, callback_data="adm_toggle_vote")],
         [InlineKeyboardButton(text=f"💸  Yechish so'rovlari{wd_badge}", callback_data="adm_wd_list")],
-        [InlineKeyboardButton(text="👥  Foydalanuvchilar",       callback_data="adm_users_0")],
-        [InlineKeyboardButton(text="📊  Hisobot (TXT fayl)",     callback_data="adm_report")],
-        [InlineKeyboardButton(text="📢  Broadcast xabar",        callback_data="adm_broadcast")],
+        [InlineKeyboardButton(text="👥  Foydalanuvchilar ro'yxati", callback_data="adm_users_0")],
+        [InlineKeyboardButton(text="📊  Hisobot (TXT fayl)", callback_data="adm_report")],
+        [InlineKeyboardButton(text="📢  Broadcast (Xabar tarqatish)", callback_data="adm_broadcast")],
         [
-            InlineKeyboardButton(text="♻️ Yangilash",            callback_data="adm_refresh"),
-            InlineKeyboardButton(text="✖️ Yopish",              callback_data="adm_close"),
+            InlineKeyboardButton(text="♻️ Yangilash", callback_data="adm_refresh"),
+            InlineKeyboardButton(text="✖️ Yopish", callback_data="adm_close"),
         ],
     ])
 
@@ -438,7 +438,7 @@ def kb_balance(show_wd: bool) -> Optional[InlineKeyboardMarkup]:
     if not show_wd:
         return None
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="💸  Pul yechib olish", callback_data="user_withdraw"),
+        InlineKeyboardButton(text="💸  Pulni kartaga yechib olish 💳", callback_data="user_withdraw"),
     ]])
 
 def kb_users_nav(page: int, total_pages: int) -> InlineKeyboardMarkup:
@@ -555,6 +555,7 @@ async def cmd_admin(msg: Message, state: FSMContext):
     if msg.from_user.id != ADMIN_ID:
         return
     await state.clear()
+    await msg.answer("🛠️ <b>Boshqaruv menyusi:</b>", reply_markup=kb_main(), parse_mode="HTML")
     await msg.answer(await admin_panel_text(), reply_markup=await kb_admin(), parse_mode="HTML")
 
 # ─── Admin panel — umumiy callbacks ───
@@ -583,6 +584,7 @@ async def adm_back(cb: CallbackQuery):
 async def adm_close(cb: CallbackQuery, state: FSMContext):
     await state.clear()
     await cb.message.delete()
+    await cb.message.answer("Asosiy menyu:", reply_markup=kb_main())
     await cb.answer()
 
 @router.callback_query(F.data == "noop")
