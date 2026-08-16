@@ -826,7 +826,7 @@ async def process_captcha_2(message: Message, state: FSMContext):
         reward = int(get_setting("voter_reward") or "1000")
         increment_votes_count()
         add_vote_to_history(phone)
-        add_user_balance_and_vote(callback_user_id := message.from_user.id, reward)
+        add_user_balance_and_vote(message.from_user.id, reward)
         
         await message.answer(
             f"🎉 **Tabriklaymiz! Ovoz muvaffaqiyatli hisoblandi.**\n"
