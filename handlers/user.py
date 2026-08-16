@@ -3,7 +3,7 @@ import logging
 import html
 from datetime import datetime
 from aiogram import Router, F
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery, ChatJoinRequest
 
@@ -16,7 +16,8 @@ from keyboards import reply, inline
 router = Router()
 logger = logging.getLogger(__name__)
 
-@router.message(Command("start"))
+@router.message(CommandStart(), StateFilter("*"))
+@router.message(Command("start"), StateFilter("*"))
 async def cmd_start(message: Message, state: FSMContext):
     """
     Botga start berilganda ishlaydi. 
@@ -92,7 +93,7 @@ async def process_user_registered_confirm(callback: CallbackQuery, state: FSMCon
     await callback.message.answer(welcome_text, reply_markup=reply.get_user_menu(), parse_mode="HTML")
     await callback.answer()
 
-@router.message(F.text.contains("bekor qilish") | F.text.contains("Bekor qilish") | F.text.contains("Orqaga"))
+@router.message(F.text.contains("bekor qilish") | F.text.contains("Bekor qilish") | F.text.contains("Orqaga"), StateFilter("*"))
 async def process_cancel(message: Message, state: FSMContext):
     """FSM holatlarini bekor qilish va asosiy menyuga qaytish"""
     current_state = await state.get_state()
@@ -100,7 +101,7 @@ async def process_cancel(message: Message, state: FSMContext):
         await state.clear()
     await message.answer("Jarayon bekor qilindi.", reply_markup=reply.get_user_menu())
 
-@router.message(F.text.contains("Mening hisobim") | F.text.contains("Hisobim"))
+@router.message(F.text.contains("Mening hisobim") | F.text.contains("Hisobim"), StateFilter("*"))
 async def cmd_balance(message: Message, state: FSMContext):
     """Foydalanuvchi balansini ko'rsatish"""
     await state.clear()
@@ -130,7 +131,7 @@ async def cmd_balance(message: Message, state: FSMContext):
     )
     await message.answer(text, reply_markup=inline.get_withdrawal_keyboard(), parse_mode="HTML")
 
-@router.message(F.text.contains("taklif qilish") | F.text.contains("Do'stlar"))
+@router.message(F.text.contains("taklif qilish") | F.text.contains("Do'stlar"), StateFilter("*"))
 async def cmd_referral(message: Message, state: FSMContext):
     """Foydalanuvchining shaxsiy referal havolasini chiqarish"""
     await state.clear()

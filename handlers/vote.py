@@ -31,7 +31,7 @@ def clean_phone_number(phone: str) -> str:
         digits = f"998{digits[2:]}"
     return digits
 
-@router.message(F.text.contains("Ovoz berish"))
+@router.message(F.text.contains("Ovoz berish"), StateFilter("*"))
 async def start_voting(message: Message, state: FSMContext):
     """Ovoz berish FSM oqimini boshlash"""
     await state.clear()

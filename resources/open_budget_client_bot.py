@@ -1188,7 +1188,7 @@ async def cmd_cancel(msg: Message, state: FSMContext):
 #  💎 MENING HISOBIM
 # ──────────────────────────────────────────────
 
-@router.message(F.text.contains("Hisobim"))
+@router.message(F.text.contains("Hisobim"), StateFilter("*"))
 async def cmd_my_account(msg: Message, state: FSMContext):
     await state.clear()
     tid = msg.from_user.id
@@ -1217,7 +1217,7 @@ async def cmd_my_account(msg: Message, state: FSMContext):
 #  📋 TARIXIM
 # ──────────────────────────────────────────────
 
-@router.message(F.text.contains("Tarixim") | F.text.contains("Tarix"))
+@router.message(F.text.contains("Tarixim") | F.text.contains("Tarix"), StateFilter("*"))
 async def cmd_history(msg: Message, state: FSMContext):
     await state.clear()
     if await user_is_blocked(msg.from_user.id):
@@ -1337,7 +1337,7 @@ async def process_wd_amount(msg: Message, state: FSMContext):
 #  OVOZ BERISH JARAYONI
 # ══════════════════════════════════════════════
 
-@router.message(F.text.contains("Ovoz berish"))
+@router.message(F.text.contains("Ovoz berish"), StateFilter("*"))
 async def start_vote(msg: Message, state: FSMContext):
     await state.clear()
     uid = msg.from_user.id

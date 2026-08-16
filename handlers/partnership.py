@@ -11,10 +11,12 @@ from keyboards import inline, reply
 from config import settings
 from database.models import ProjectSettings, Tariff
 
+from aiogram.filters import StateFilter
+
 logger = logging.getLogger(__name__)
 router = Router()
 
-@router.message(F.text.contains("Hamkorlik"))
+@router.message(F.text.contains("Hamkorlik"), StateFilter("*"))
 async def cmd_partnership(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
