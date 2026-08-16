@@ -19,7 +19,7 @@ import logging
 import asyncio
 import os
 import aiohttp
-import sqlite3
+import aiosqlite
 from datetime import datetime, timedelta
 from typing import Optional
 import base64
@@ -54,52 +54,59 @@ VOTE_COOLDOWN_HOURS = int(os.getenv("VOTE_COOLDOWN_HOURS", "0"))  # 0 = cheklovs
 
 DB_PATH = "client_bot.db"
 
+_http_session: aiohttp.ClientSession | None = None
+
+async def get_http_session() -> aiohttp.ClientSession:
+    global _http_session
+    if _http_session is None or _http_session.closed:
+        timeout = aiohttp.ClientTimeout(total=30)
+        _http_session = aiohttp.ClientSession(timeout=timeout)
+    return _http_session
+
 # ══════════════════════════════════════════════
 #  MA'LUMOTLAR BAZASI
 # ══════════════════════════════════════════════
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+async def init_db():
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key   TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                telegram_id INTEGER PRIMARY KEY,
+                username    TEXT    DEFAULT '',
+                full_name   TEXT    DEFAULT '',
+                balance     INTEGER DEFAULT 0,
+                votes_count INTEGER DEFAULT 0,
+                is_blocked  INTEGER DEFAULT 0,
+                joined_at   TEXT    NOT NULL
+            )
+        """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            telegram_id INTEGER PRIMARY KEY,
-            username    TEXT    DEFAULT '',
-            full_name   TEXT    DEFAULT '',
-            balance     INTEGER DEFAULT 0,
-            votes_count INTEGER DEFAULT 0,
-            is_blocked  INTEGER DEFAULT 0,
-            joined_at   TEXT    NOT NULL
-        )
-    """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS votes_history (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id  INTEGER NOT NULL,
+                phone_number TEXT    NOT NULL,
+                voted_at     TEXT    NOT NULL
+            )
+        """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS votes_history (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id  INTEGER NOT NULL,
-            phone_number TEXT    NOT NULL,
-            voted_at     TEXT    NOT NULL
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS withdrawals (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id INTEGER NOT NULL,
-            amount      INTEGER NOT NULL,
-            card_number TEXT    NOT NULL,
-            status      TEXT    DEFAULT 'PENDING',
-            created_at  TEXT    NOT NULL
-        )
-    """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS withdrawals (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL,
+                amount      INTEGER NOT NULL,
+                card_number TEXT    NOT NULL,
+                status      TEXT    DEFAULT 'PENDING',
+                created_at  TEXT    NOT NULL
+            )
+        """)
 
     defaults = [
         ("api_key",        ""),
@@ -110,207 +117,174 @@ def init_db():
         ("voting_enabled", "1"),
     ]
     for k, v in defaults:
-        c.execute("INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)", (k, v))
+        await conn.execute("INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)", (k, v))
 
-    conn.commit()
-    conn.close()
-
-init_db()
+    await conn.commit()
 
 # ──────────────────────────────────────────────
 #  DB YORDAMCHI FUNKSIYALAR
 # ──────────────────────────────────────────────
 
-def get_setting(key: str) -> str:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT value FROM settings WHERE key=?", (key,))
-    row = c.fetchone()
-    conn.close()
+async def get_setting(key: str) -> str:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT value FROM settings WHERE key=?", (key,)) as c:
+            row = await c.fetchone()
     return row[0] if row else ""
 
-def set_setting(key: str, value: str):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", (key, value))
-    conn.commit()
-    conn.close()
+async def set_setting(key: str, value: str):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", (key, value))
+        await conn.commit()
 
 # ─── Foydalanuvchilar ───
 
-def get_or_create_user(tid: int, username: str = "", full_name: str = "") -> tuple:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "SELECT telegram_id, username, full_name, balance, votes_count, is_blocked, joined_at "
-        "FROM users WHERE telegram_id=?", (tid,)
-    )
-    row = c.fetchone()
-    if not row:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        c.execute(
-            "INSERT INTO users (telegram_id,username,full_name,balance,votes_count,is_blocked,joined_at) "
-            "VALUES (?,?,?,0,0,0,?)",
-            (tid, username, full_name, now)
-        )
-        conn.commit()
-        row = (tid, username, full_name, 0, 0, 0, now)
-    elif username and (row[1] != username or row[2] != full_name):
-        c.execute("UPDATE users SET username=?,full_name=? WHERE telegram_id=?", (username, full_name, tid))
-        conn.commit()
-    conn.close()
+async def get_or_create_user(tid: int, username: str = "", full_name: str = "") -> tuple:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT telegram_id, username, full_name, balance, votes_count, is_blocked, joined_at "
+            "FROM users WHERE telegram_id=?", (tid,)
+        ) as c:
+            row = await c.fetchone()
+        
+        if not row:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            await conn.execute(
+                "INSERT INTO users (telegram_id,username,full_name,balance,votes_count,is_blocked,joined_at) "
+                "VALUES (?,?,?,0,0,0,?)",
+                (tid, username, full_name, now)
+            )
+            await conn.commit()
+            row = (tid, username, full_name, 0, 0, 0, now)
+        elif username and (row[1] != username or row[2] != full_name):
+            await conn.execute("UPDATE users SET username=?,full_name=? WHERE telegram_id=?", (username, full_name, tid))
+            await conn.commit()
     return row
 
-def get_user(tid: int) -> Optional[tuple]:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "SELECT telegram_id, username, full_name, balance, votes_count, is_blocked, joined_at "
-        "FROM users WHERE telegram_id=?", (tid,)
-    )
-    row = c.fetchone()
-    conn.close()
+async def get_user(tid: int) -> Optional[tuple]:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT telegram_id, username, full_name, balance, votes_count, is_blocked, joined_at "
+            "FROM users WHERE telegram_id=?", (tid,)
+        ) as c:
+            row = await c.fetchone()
     return row
 
-def get_all_users() -> list:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "SELECT telegram_id, username, full_name, balance, votes_count "
-        "FROM users ORDER BY votes_count DESC"
-    )
-    rows = c.fetchall()
-    conn.close()
+async def get_all_users() -> list:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT telegram_id, username, full_name, balance, votes_count "
+            "FROM users ORDER BY votes_count DESC"
+        ) as c:
+            rows = await c.fetchall()
     return rows
 
-def get_total_users() -> int:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM users")
-    n = c.fetchone()[0]
-    conn.close()
+async def get_total_users() -> int:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT COUNT(*) FROM users") as c:
+            row = await c.fetchone()
+            n = row[0] if row else 0
     return n
 
-def set_user_blocked(tid: int, block: bool):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET is_blocked=? WHERE telegram_id=?", (1 if block else 0, tid))
-    conn.commit()
-    conn.close()
+async def set_user_blocked(tid: int, block: bool):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("UPDATE users SET is_blocked=? WHERE telegram_id=?", (1 if block else 0, tid))
+        await conn.commit()
 
 # ─── Ovozlar ───
 
-def get_total_votes() -> int:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM votes_history")
-    n = c.fetchone()[0]
-    conn.close()
+async def get_total_votes() -> int:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT COUNT(*) FROM votes_history") as c:
+            row = await c.fetchone()
+            n = row[0] if row else 0
     return n
 
-def get_today_votes() -> int:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    today = datetime.now().strftime("%Y-%m-%d")
-    c.execute("SELECT COUNT(*) FROM votes_history WHERE voted_at LIKE ?", (f"{today}%",))
-    n = c.fetchone()[0]
-    conn.close()
+async def get_today_votes() -> int:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        today = datetime.now().strftime("%Y-%m-%d")
+        async with conn.execute("SELECT COUNT(*) FROM votes_history WHERE voted_at LIKE ?", (f"{today}%",)) as c:
+            row = await c.fetchone()
+            n = row[0] if row else 0
     return n
 
-def get_user_last_vote(tid: int) -> Optional[datetime]:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT voted_at FROM votes_history WHERE telegram_id=? ORDER BY id DESC LIMIT 1", (tid,))
-    row = c.fetchone()
-    conn.close()
+async def get_user_last_vote(tid: int) -> Optional[datetime]:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT voted_at FROM votes_history WHERE telegram_id=? ORDER BY id DESC LIMIT 1", (tid,)) as c:
+            row = await c.fetchone()
     return datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S") if row else None
 
-def get_user_votes_history(tid: int) -> list:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "SELECT phone_number, voted_at FROM votes_history "
-        "WHERE telegram_id=? ORDER BY id DESC LIMIT 10", (tid,)
-    )
-    rows = c.fetchall()
-    conn.close()
+async def get_user_votes_history(tid: int) -> list:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT phone_number, voted_at FROM votes_history "
+            "WHERE telegram_id=? ORDER BY id DESC LIMIT 10", (tid,)
+        ) as c:
+            rows = await c.fetchall()
     return rows
 
-def get_all_votes_history() -> list:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT phone_number, voted_at FROM votes_history ORDER BY id DESC")
-    rows = c.fetchall()
-    conn.close()
+async def get_all_votes_history() -> list:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT phone_number, voted_at FROM votes_history ORDER BY id DESC") as c:
+            rows = await c.fetchall()
     return rows
 
-def add_vote(tid: int, phone: str, reward: int):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    c.execute(
-        "INSERT INTO votes_history (telegram_id,phone_number,voted_at) VALUES (?,?,?)",
-        (tid, phone, now)
-    )
-    c.execute(
-        "UPDATE users SET balance=balance+?, votes_count=votes_count+1 WHERE telegram_id=?",
-        (reward, tid)
-    )
-    conn.commit()
-    conn.close()
+async def add_vote(tid: int, phone: str, reward: int):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        await conn.execute(
+            "INSERT INTO votes_history (telegram_id,phone_number,voted_at) VALUES (?,?,?)",
+            (tid, phone, now)
+        )
+        await conn.execute(
+            "UPDATE users SET balance=balance+?, votes_count=votes_count+1 WHERE telegram_id=?",
+            (reward, tid)
+        )
+        await conn.commit()
 
 # ─── Pul yechish ───
 
-def get_total_paid() -> int:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT COALESCE(SUM(amount),0) FROM withdrawals WHERE status='APPROVED'")
-    n = c.fetchone()[0]
-    conn.close()
+async def get_total_paid() -> int:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT COALESCE(SUM(amount),0) FROM withdrawals WHERE status='APPROVED'") as c:
+            row = await c.fetchone()
+            n = row[0] if row else 0
     return n
 
-def create_withdrawal(tid: int, amount: int, card: str) -> int:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    c.execute(
-        "INSERT INTO withdrawals (telegram_id,amount,card_number,status,created_at) VALUES (?,?,?,'PENDING',?)",
-        (tid, amount, card, now)
-    )
-    c.execute("UPDATE users SET balance=balance-? WHERE telegram_id=?", (amount, tid))
-    conn.commit()
-    lid = c.lastrowid
-    conn.close()
+async def create_withdrawal(tid: int, amount: int, card: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        async with conn.execute(
+            "INSERT INTO withdrawals (telegram_id,amount,card_number,status,created_at) VALUES (?,?,?,'PENDING',?)",
+            (tid, amount, card, now)
+        ) as c:
+            lid = c.lastrowid
+        await conn.execute("UPDATE users SET balance=balance-? WHERE telegram_id=?", (amount, tid))
+        await conn.commit()
     return lid
 
-def get_pending_withdrawals() -> list:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "SELECT id, telegram_id, amount, card_number, created_at "
-        "FROM withdrawals WHERE status='PENDING' ORDER BY id ASC"
-    )
-    rows = c.fetchall()
-    conn.close()
+async def get_pending_withdrawals() -> list:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT id, telegram_id, amount, card_number, created_at "
+            "FROM withdrawals WHERE status='PENDING' ORDER BY id ASC"
+        ) as c:
+            rows = await c.fetchall()
     return rows
 
-def process_withdrawal(wd_id: int, approve: bool) -> tuple:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "SELECT telegram_id, amount FROM withdrawals WHERE id=? AND status='PENDING'", (wd_id,)
-    )
-    row = c.fetchone()
-    if not row:
-        conn.close()
-        return False, 0, 0
-    tid, amount = row
-    new_status = "APPROVED" if approve else "REJECTED"
-    c.execute("UPDATE withdrawals SET status=? WHERE id=?", (new_status, wd_id))
-    if not approve:
-        c.execute("UPDATE users SET balance=balance+? WHERE telegram_id=?", (amount, tid))
-    conn.commit()
-    conn.close()
+async def process_withdrawal(wd_id: int, approve: bool) -> tuple:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT telegram_id, amount FROM withdrawals WHERE id=? AND status='PENDING'", (wd_id,)
+        ) as c:
+            row = await c.fetchone()
+        if not row:
+            return False, 0, 0
+        tid, amount = row
+        new_status = "APPROVED" if approve else "REJECTED"
+        await conn.execute("UPDATE withdrawals SET status=? WHERE id=?", (new_status, wd_id))
+        if not approve:
+            await conn.execute("UPDATE users SET balance=balance+? WHERE telegram_id=?", (amount, tid))
+        await conn.commit()
     return True, tid, amount
 
 # ══════════════════════════════════════════════
@@ -352,27 +326,26 @@ async def call_api(
     json_data: dict = None,
     api_key_override: str = None
 ) -> tuple[dict, int]:
-    api_key = api_key_override or get_setting("api_key")
+    api_key = api_key_override or await get_setting("api_key")
     if not api_key:
         return {"detail": "API kalit sozlanmagan."}, 0
 
     headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
     url     = f"{API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
-    timeout = aiohttp.ClientTimeout(total=30)
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        try:
-            if method.upper() == "GET":
-                async with session.get(url, headers=headers) as r:
-                    return await r.json(), r.status
-            else:
-                async with session.post(url, headers=headers, json=json_data) as r:
-                    return await r.json(), r.status
-        except asyncio.TimeoutError:
-            return {"detail": "Server javob bermadi (timeout). Keyinroq urinib ko'ring."}, 504
-        except Exception as e:
-            logger.error(f"API xato: {e}")
-            return {"detail": "Server bilan ulanib bo'lmadi."}, 502
+    session = await get_http_session()
+    try:
+        if method.upper() == "GET":
+            async with session.get(url, headers=headers) as r:
+                return await r.json(), r.status
+        else:
+            async with session.post(url, headers=headers, json=json_data) as r:
+                return await r.json(), r.status
+    except asyncio.TimeoutError:
+        return {"detail": "Server javob bermadi (timeout). Keyinroq urinib ko'ring."}, 504
+    except Exception as e:
+        logger.error(f"API xato: {e}")
+        return {"detail": "Server bilan ulanib bo'lmadi."}, 502
 
 async def validate_api_key(key: str) -> tuple[bool, str]:
     """API kalitni serverda real tekshiradi."""
@@ -408,10 +381,10 @@ def kb_cancel() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="❌ Bekor qilish")],
     ], resize_keyboard=True)
 
-def kb_admin() -> InlineKeyboardMarkup:
-    pending_count = len(get_pending_withdrawals())
+async def kb_admin() -> InlineKeyboardMarkup:
+    pending_count = len(await get_pending_withdrawals())
     wd_badge      = f"  🔴 {pending_count}" if pending_count > 0 else ""
-    voting_on     = get_setting("voting_enabled") == "1"
+    voting_on     = await get_setting("voting_enabled") == "1"
     toggle_text   = "🟢 Ovoz berish: YOQIQ" if voting_on else "🔴 Ovoz berish: O'CHIQ"
 
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -461,19 +434,19 @@ def kb_users_nav(page: int, total_pages: int) -> InlineKeyboardMarkup:
 #  ADMIN PANEL MATNI
 # ──────────────────────────────────────────────
 
-def admin_panel_text() -> str:
-    api_key      = get_setting("api_key")
-    project_id   = get_setting("project_id")
-    project_name = get_setting("project_name")
-    reward       = int(get_setting("voter_reward") or 1000)
-    min_wd       = int(get_setting("min_withdrawal") or 5000)
-    voting_on    = get_setting("voting_enabled") == "1"
+async def admin_panel_text() -> str:
+    api_key      = await get_setting("api_key")
+    project_id   = await get_setting("project_id")
+    project_name = await get_setting("project_name")
+    reward       = int(await get_setting("voter_reward") or 1000)
+    min_wd       = int(await get_setting("min_withdrawal") or 5000)
+    voting_on    = await get_setting("voting_enabled") == "1"
 
-    total_users  = get_total_users()
-    total_votes  = get_total_votes()
-    today_votes  = get_today_votes()
-    total_paid   = get_total_paid()
-    pending_wds  = len(get_pending_withdrawals())
+    total_users  = await get_total_users()
+    total_votes  = await get_total_votes()
+    today_votes  = await get_today_votes()
+    total_paid   = await get_total_paid()
+    pending_wds  = len(await get_pending_withdrawals())
 
     api_display  = (
         f"<code>{api_key[:11]}...{api_key[-4:]}</code>"
@@ -503,14 +476,14 @@ def admin_panel_text() -> str:
 #  GUARD FUNKSIYALAR
 # ──────────────────────────────────────────────
 
-def bot_is_ready() -> bool:
-    return bool(get_setting("api_key")) and bool(get_setting("project_id"))
+async def bot_is_ready() -> bool:
+    return bool(await get_setting("api_key")) and bool(await get_setting("project_id"))
 
-def voting_is_enabled() -> bool:
-    return get_setting("voting_enabled") == "1"
+async def voting_is_enabled() -> bool:
+    return await get_setting("voting_enabled") == "1"
 
-def user_is_blocked(tid: int) -> bool:
-    u = get_user(tid)
+async def user_is_blocked(tid: int) -> bool:
+    u = await get_user(tid)
     return u is not None and u[5] == 1
 
 # ══════════════════════════════════════════════
@@ -525,12 +498,12 @@ def user_is_blocked(tid: int) -> bool:
 async def cmd_start(msg: Message, state: FSMContext):
     await state.clear()
     u = msg.from_user
-    get_or_create_user(u.id, u.username or "", u.full_name or "")
+    await get_or_create_user(u.id, u.username or "", u.full_name or "")
 
-    if user_is_blocked(u.id):
+    if await user_is_blocked(u.id):
         return await msg.answer("⛔ <b>Sizning hisobingiz bloklangan.</b>", parse_mode="HTML")
 
-    if not bot_is_ready():
+    if not await bot_is_ready():
         if u.id == ADMIN_ID:
             return await msg.answer(
                 "⚠️ <b>Bot hali sozlanmagan!</b>\n\n"
@@ -545,8 +518,8 @@ async def cmd_start(msg: Message, state: FSMContext):
             parse_mode="HTML"
         )
 
-    proj   = get_setting("project_name") or get_setting("project_id")
-    reward = int(get_setting("voter_reward") or 1000)
+    proj   = await get_setting("project_name") or await get_setting("project_id")
+    reward = int(await get_setting("voter_reward") or 1000)
 
     await msg.answer(
         f"👋 <b>Xush kelibsiz!</b>\n\n"
@@ -566,7 +539,7 @@ async def cmd_admin(msg: Message, state: FSMContext):
     if msg.from_user.id != ADMIN_ID:
         return
     await state.clear()
-    await msg.answer(admin_panel_text(), reply_markup=kb_admin(), parse_mode="HTML")
+    await msg.answer(await admin_panel_text(), reply_markup=await kb_admin(), parse_mode="HTML")
 
 # ─── Admin panel — umumiy callbacks ───
 
@@ -575,7 +548,7 @@ async def adm_refresh(cb: CallbackQuery):
     if cb.from_user.id != ADMIN_ID:
         return await cb.answer()
     try:
-        await cb.message.edit_text(admin_panel_text(), reply_markup=kb_admin(), parse_mode="HTML")
+        await cb.message.edit_text(await admin_panel_text(), reply_markup=await kb_admin(), parse_mode="HTML")
     except Exception:
         pass
     await cb.answer("♻️ Yangilandi!")
@@ -585,7 +558,7 @@ async def adm_back(cb: CallbackQuery):
     if cb.from_user.id != ADMIN_ID:
         return await cb.answer()
     try:
-        await cb.message.edit_text(admin_panel_text(), reply_markup=kb_admin(), parse_mode="HTML")
+        await cb.message.edit_text(await admin_panel_text(), reply_markup=await kb_admin(), parse_mode="HTML")
     except Exception:
         pass
     await cb.answer()
@@ -656,7 +629,7 @@ async def process_api_key(msg: Message, state: FSMContext):
 async def adm_set_project(cb: CallbackQuery, state: FSMContext):
     if cb.from_user.id != ADMIN_ID:
         return await cb.answer()
-    current = get_setting("project_name") or get_setting("project_id") or "—"
+    current = await get_setting("project_name") or await get_setting("project_id") or "—"
     await state.set_state(AdminStates.SET_PROJECT)
     await cb.message.answer(
         f"📌 <b>Loyiha IDni yuboring:</b>\n\n"
@@ -686,8 +659,8 @@ async def process_project_id(msg: Message, state: FSMContext):
             or initiative.get("projectName")
             or text
         )
-        set_setting("project_id",   text)
-        set_setting("project_name", str(name))
+        await set_setting("project_id",   text)
+        await set_setting("project_name", str(name))
         await state.clear()
         await checking.edit_text(
             f"✅ <b>Loyiha topildi va saqlandi!</b>\n\n"
@@ -705,8 +678,8 @@ async def process_project_id(msg: Message, state: FSMContext):
         )
     else:
         # Server xatosi bo'lsa ham saqlaydi
-        set_setting("project_id",   text)
-        set_setting("project_name", text)
+        await set_setting("project_id",   text)
+        await set_setting("project_name", text)
         await state.clear()
         await checking.edit_text(
             f"⚠️ Server tekshirishda xato (HTTP {status}), lekin ID saqlandi.\n\n"
@@ -723,7 +696,7 @@ async def process_project_id(msg: Message, state: FSMContext):
 async def adm_set_reward(cb: CallbackQuery, state: FSMContext):
     if cb.from_user.id != ADMIN_ID:
         return await cb.answer()
-    current = int(get_setting("voter_reward") or 1000)
+    current = int(await get_setting("voter_reward") or 1000)
     await state.set_state(AdminStates.SET_REWARD)
     await cb.message.answer(
         f"💰 <b>Ovoz mukofotini kiriting (UZS):</b>\n\n"
@@ -740,7 +713,7 @@ async def process_reward(msg: Message, state: FSMContext):
         return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
     if not text.isdigit() or int(text) < 0:
         return await msg.answer("❌ Faqat musbat butun son kiriting:")
-    set_setting("voter_reward", text)
+    await set_setting("voter_reward", text)
     await state.clear()
     await msg.answer(
         f"✅ Mukofot <b>{int(text):,} UZS</b> ga o'zgartirildi!",
@@ -755,7 +728,7 @@ async def process_reward(msg: Message, state: FSMContext):
 async def adm_set_min_wd(cb: CallbackQuery, state: FSMContext):
     if cb.from_user.id != ADMIN_ID:
         return await cb.answer()
-    current = int(get_setting("min_withdrawal") or 5000)
+    current = int(await get_setting("min_withdrawal") or 5000)
     await state.set_state(AdminStates.SET_MIN_WD)
     await cb.message.answer(
         f"💳 <b>Minimal yechish miqdorini kiriting (UZS):</b>\n\n"
@@ -772,7 +745,7 @@ async def process_min_wd(msg: Message, state: FSMContext):
         return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
     if not text.isdigit() or int(text) < 0:
         return await msg.answer("❌ Faqat musbat butun son kiriting:")
-    set_setting("min_withdrawal", text)
+    await set_setting("min_withdrawal", text)
     await state.clear()
     await msg.answer(
         f"✅ Minimal yechish <b>{int(text):,} UZS</b> ga o'zgartirildi!",
@@ -787,13 +760,13 @@ async def process_min_wd(msg: Message, state: FSMContext):
 async def adm_toggle_vote(cb: CallbackQuery):
     if cb.from_user.id != ADMIN_ID:
         return await cb.answer()
-    current = get_setting("voting_enabled")
+    current = await get_setting("voting_enabled")
     new_val = "0" if current == "1" else "1"
-    set_setting("voting_enabled", new_val)
+    await set_setting("voting_enabled", new_val)
     status_txt = "🟢 yoqildi" if new_val == "1" else "🔴 o'chirildi"
     await cb.answer(f"Ovoz berish {status_txt}!", show_alert=True)
     try:
-        await cb.message.edit_text(admin_panel_text(), reply_markup=kb_admin(), parse_mode="HTML")
+        await cb.message.edit_text(await admin_panel_text(), reply_markup=await kb_admin(), parse_mode="HTML")
     except Exception:
         pass
 
@@ -805,7 +778,7 @@ async def adm_toggle_vote(cb: CallbackQuery):
 async def adm_broadcast_start(cb: CallbackQuery, state: FSMContext):
     if cb.from_user.id != ADMIN_ID:
         return await cb.answer()
-    total = get_total_users()
+    total = await get_total_users()
     await state.set_state(AdminStates.BROADCAST)
     await cb.message.answer(
         f"📢 <b>Broadcast — barcha foydalanuvchilarga xabar</b>\n\n"
@@ -823,7 +796,7 @@ async def process_broadcast(msg: Message, state: FSMContext):
         return await msg.answer("Broadcast bekor qilindi.", reply_markup=kb_main())
 
     await state.clear()
-    users   = get_all_users()
+    users   = await get_all_users()
     sent    = 0
     failed  = 0
     prog    = await msg.answer(f"📤 Yuborilmoqda... 0 / {len(users)}")
@@ -859,7 +832,7 @@ async def adm_users_list(cb: CallbackQuery):
 
     page     = int(cb.data.split("_")[-1])
     per_page = 10
-    users    = get_all_users()
+    users    = await get_all_users()
     total    = len(users)
 
     if total == 0:
@@ -897,7 +870,7 @@ async def adm_report(cb: CallbackQuery):
     if cb.from_user.id != ADMIN_ID:
         return await cb.answer()
 
-    history = get_all_votes_history()
+    history = await get_all_votes_history()
     if not history:
         await cb.answer("Hozircha ovozlar tarixi yo'q.", show_alert=True)
         return
@@ -939,7 +912,7 @@ async def adm_wd_list(cb: CallbackQuery):
     if cb.from_user.id != ADMIN_ID:
         return await cb.answer()
 
-    pending = get_pending_withdrawals()
+    pending = await get_pending_withdrawals()
     if not pending:
         await cb.answer("✅ Kutilayotgan yechish so'rovlari yo'q.", show_alert=True)
         return
@@ -949,7 +922,7 @@ async def adm_wd_list(cb: CallbackQuery):
         parse_mode="HTML"
     )
     for wd_id, tid, amount, card, date_str in pending:
-        u       = get_user(tid)
+        u       = await get_user(tid)
         display = (u[2] or u[1] or str(tid)) if u else str(tid)
         await cb.message.answer(
             f"🆔 So'rov: <b>#{wd_id}</b>\n"
@@ -965,7 +938,7 @@ async def adm_wd_list(cb: CallbackQuery):
 @router.callback_query(F.data.startswith("adm_app_"))
 async def adm_approve_wd(cb: CallbackQuery):
     wd_id      = int(cb.data.split("_")[-1])
-    ok, tid, amount = process_withdrawal(wd_id, True)
+    ok, tid, amount = await process_withdrawal(wd_id, True)
     if ok:
         await cb.message.edit_text(
             cb.message.text + "\n\n✅ <b>TASDIQLANDI</b>", parse_mode="HTML"
@@ -985,7 +958,7 @@ async def adm_approve_wd(cb: CallbackQuery):
 @router.callback_query(F.data.startswith("adm_rej_"))
 async def adm_reject_wd(cb: CallbackQuery):
     wd_id      = int(cb.data.split("_")[-1])
-    ok, tid, amount = process_withdrawal(wd_id, False)
+    ok, tid, amount = await process_withdrawal(wd_id, False)
     if ok:
         await cb.message.edit_text(
             cb.message.text + "\n\n❌ <b>RAD ETILDI — pul balansgа qaytarildi</b>",
@@ -1021,14 +994,14 @@ async def cmd_my_account(msg: Message, state: FSMContext):
     await state.clear()
     tid = msg.from_user.id
 
-    if user_is_blocked(tid):
+    if await user_is_blocked(tid):
         return await msg.answer("⛔ <b>Hisobingiz bloklangan.</b>", parse_mode="HTML")
 
-    u      = get_or_create_user(tid, msg.from_user.username or "", msg.from_user.full_name or "")
+    u      = await get_or_create_user(tid, msg.from_user.username or "", msg.from_user.full_name or "")
     bal    = u[3]
     votes  = u[4]
-    reward = int(get_setting("voter_reward") or 1000)
-    min_wd = int(get_setting("min_withdrawal") or 5000)
+    reward = int(await get_setting("voter_reward") or 1000)
+    min_wd = int(await get_setting("min_withdrawal") or 5000)
 
     await msg.answer(
         "💎 <b>Mening hisobim</b>\n"
@@ -1048,10 +1021,10 @@ async def cmd_my_account(msg: Message, state: FSMContext):
 @router.message(F.text == "📋 Tarixim")
 async def cmd_history(msg: Message, state: FSMContext):
     await state.clear()
-    if user_is_blocked(msg.from_user.id):
+    if await user_is_blocked(msg.from_user.id):
         return await msg.answer("⛔ <b>Hisobingiz bloklangan.</b>", parse_mode="HTML")
 
-    history = get_user_votes_history(msg.from_user.id)
+    history = await get_user_votes_history(msg.from_user.id)
     if not history:
         return await msg.answer(
             "📋 <b>Siz hali ovoz bermagansiz.</b>\n\n"
@@ -1071,9 +1044,9 @@ async def cmd_history(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data == "user_withdraw")
 async def start_withdraw(cb: CallbackQuery, state: FSMContext):
-    u      = get_or_create_user(cb.from_user.id)
+    u      = await get_or_create_user(cb.from_user.id)
     bal    = u[3]
-    min_wd = int(get_setting("min_withdrawal") or 5000)
+    min_wd = int(await get_setting("min_withdrawal") or 5000)
     if bal < min_wd:
         return await cb.answer(
             f"💳 Balansda yetarli mablag' yo'q!\nMinimal: {min_wd:,} UZS",
@@ -1097,7 +1070,7 @@ async def process_wd_card(msg: Message, state: FSMContext):
     if not card.isdigit() or not (16 <= len(card) <= 20):
         return await msg.answer("❌ Noto'g'ri karta! 16–20 xonali raqam kiriting:")
     await state.update_data(card=card)
-    u   = get_or_create_user(msg.from_user.id)
+    u   = await get_or_create_user(msg.from_user.id)
     bal = u[3]
     await state.set_state(WithdrawStates.AMOUNT)
     await msg.answer(
@@ -1117,9 +1090,9 @@ async def process_wd_amount(msg: Message, state: FSMContext):
         return await msg.answer("❌ Faqat raqam kiriting:")
 
     amount = int(text)
-    u      = get_or_create_user(msg.from_user.id)
+    u      = await get_or_create_user(msg.from_user.id)
     bal    = u[3]
-    min_wd = int(get_setting("min_withdrawal") or 5000)
+    min_wd = int(await get_setting("min_withdrawal") or 5000)
 
     if amount < min_wd:
         return await msg.answer(f"❌ Minimal yechish: {min_wd:,} UZS. Qayta kiriting:")
@@ -1128,7 +1101,7 @@ async def process_wd_amount(msg: Message, state: FSMContext):
 
     data   = await state.get_data()
     card   = data["card"]
-    req_id = create_withdrawal(msg.from_user.id, amount, card)
+    req_id = await create_withdrawal(msg.from_user.id, amount, card)
     await state.clear()
 
     await msg.answer(
@@ -1164,16 +1137,16 @@ async def start_vote(msg: Message, state: FSMContext):
     uid = msg.from_user.id
 
     # ── Tekshiruvlar ──
-    if user_is_blocked(uid):
+    if await user_is_blocked(uid):
         return await msg.answer("⛔ <b>Sizning hisobingiz bloklangan.</b>", parse_mode="HTML")
 
-    if not bot_is_ready():
+    if not await bot_is_ready():
         return await msg.answer(
             "🔧 <b>Bot hali to'liq sozlanmagan.</b>\n\nKeyinroq urinib ko'ring.",
             parse_mode="HTML"
         )
 
-    if not voting_is_enabled():
+    if not await voting_is_enabled():
         return await msg.answer(
             "⛔ <b>Ovoz berish hozirda vaqtincha to'xtatilgan.</b>\n\n"
             "Keyinroq urinib ko'ring.",
@@ -1181,7 +1154,7 @@ async def start_vote(msg: Message, state: FSMContext):
         )
 
     if VOTE_COOLDOWN_HOURS > 0:
-        last = get_user_last_vote(uid)
+        last = await get_user_last_vote(uid)
         if last:
             elapsed   = datetime.now() - last
             cooldown  = timedelta(hours=VOTE_COOLDOWN_HOURS)
@@ -1271,7 +1244,7 @@ async def vote_captcha1(msg: Message, state: FSMContext):
         "phone_number": data["phone"],
         "captcha_key":  data["captcha_key"],
         "captcha_result": int(text),
-        "project_id":   get_setting("project_id"),
+        "project_id":   await get_setting("project_id"),
     })
 
     if status != 200:
@@ -1357,7 +1330,7 @@ async def vote_captcha2(msg: Message, state: FSMContext):
     casting  = await msg.answer("⚡ <b>Ovoz berilmoqda...</b>", parse_mode="HTML")
 
     res, status = await call_api("/cast-vote", "POST", {
-        "project_id":   get_setting("project_id"),
+        "project_id":   await get_setting("project_id"),
         "access_token": data["access_token"],
         "captcha_key":  data["captcha_key_2"],
         "captcha_result": int(text),
@@ -1371,10 +1344,10 @@ async def vote_captcha2(msg: Message, state: FSMContext):
         return await msg.answer(f"❌ {err}", reply_markup=kb_main())
 
     # ── Muvaffaqiyatli ovoz ──
-    reward = int(get_setting("voter_reward") or 1000)
-    add_vote(msg.from_user.id, data["phone"], reward)
+    reward = int(await get_setting("voter_reward") or 1000)
+    await add_vote(msg.from_user.id, data["phone"], reward)
 
-    u       = get_user(msg.from_user.id)
+    u       = await get_user(msg.from_user.id)
     new_bal = u[3] if u else reward
 
     await casting.delete()
@@ -1391,9 +1364,14 @@ async def vote_captcha2(msg: Message, state: FSMContext):
 # ══════════════════════════════════════════════
 
 async def main():
+    await init_db()
     dp.include_router(router)
     logger.info("🚀 Open Budget Mijoz Boti v2.0 ishga tushdi!")
-    await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
+    try:
+        await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
+    finally:
+        if _http_session and not _http_session.closed:
+            await _http_session.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
