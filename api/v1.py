@@ -164,13 +164,21 @@ async def cast_vote(
             detail="API kalit balansi yetarli emas (kamida 1 500 UZS bo'lishi shart)."
         )
         
-    # 2. Ovoz berish so'rovini yuboramiz
-    success, result_msg = await OpenBudgetService.cast_vote(
-        project_id=req.project_id,
-        access_token=req.access_token,
-        captcha_key=req.captcha_key,
-        captcha_result=req.captcha_result
-    )
+    # 2. Ovoz berish so'rovini yuboramiz (istalgan kutilmagan xatoda ham mablag' avtomatik qaytariladi)
+    try:
+        success, result_msg = await OpenBudgetService.cast_vote(
+            project_id=req.project_id,
+            access_token=req.access_token,
+            captcha_key=req.captcha_key,
+            captcha_result=req.captcha_result
+        )
+    except Exception as e:
+        await crud.update_api_key_balance(db, api_key.id, 1500)
+        logger.error(f"cast_vote kutilmagan xatolik: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Tashqi OpenBudget serveri bilan ulanishda xatolik yuz berdi. Mablag' balansingizga qaytarildi."
+        )
     
     if not success:
         # Ovoz berish muvaffaqiyatsiz tugasa, band qilingan mablag' to'liq qaytariladi (Refund)

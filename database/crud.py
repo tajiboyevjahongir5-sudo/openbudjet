@@ -191,31 +191,37 @@ async def get_withdrawal(db: AsyncSession, withdrawal_id: int) -> Withdrawals | 
     return result.scalar_one_or_none()
 
 async def approve_withdrawal(db: AsyncSession, withdrawal_id: int) -> Withdrawals | None:
-    withdrawal = await get_withdrawal(db, withdrawal_id)
-    if withdrawal and withdrawal.status == WithdrawalStatus.PENDING:
-        withdrawal.status = WithdrawalStatus.APPROVED
+    result = await db.execute(
+        update(Withdrawals)
+        .where(Withdrawals.id == withdrawal_id, Withdrawals.status == WithdrawalStatus.PENDING)
+        .values(status=WithdrawalStatus.APPROVED)
+        .returning(Withdrawals)
+    )
+    withdrawal = result.scalar_one_or_none()
+    if withdrawal:
         await db.commit()
-        await db.refresh(withdrawal)
         return withdrawal
     return None
 
 async def reject_withdrawal(db: AsyncSession, withdrawal_id: int) -> Withdrawals | None:
     """
-    Pul yechishni rad etadi va pulni foydalanuvchi balansiga qaytaradi.
+    Pul yechishni rad etadi va pulni foydalanuvchi balansiga atomik qaytaradi (Double Refund oldi olinadi).
     """
-    withdrawal = await get_withdrawal(db, withdrawal_id)
-    if withdrawal and withdrawal.status == WithdrawalStatus.PENDING:
-        withdrawal.status = WithdrawalStatus.REJECTED
-        
+    result = await db.execute(
+        update(Withdrawals)
+        .where(Withdrawals.id == withdrawal_id, Withdrawals.status == WithdrawalStatus.PENDING)
+        .values(status=WithdrawalStatus.REJECTED)
+        .returning(Withdrawals)
+    )
+    withdrawal = result.scalar_one_or_none()
+    if withdrawal:
         # User balansiga qaytarib qo'shamiz (atomik)
         await db.execute(
             update(User)
             .where(User.telegram_id == withdrawal.telegram_id)
             .values(balance=User.balance + withdrawal.amount)
         )
-            
         await db.commit()
-        await db.refresh(withdrawal)
         return withdrawal
     return None
 
@@ -409,7 +415,7 @@ async def create_api_key(db: AsyncSession, plain_key: str, owner_id: int | None,
 async def deduct_api_key_balance(db: AsyncSession, key_id: int, amount: int) -> bool:
     """API kalit balansidan mablag'ni atomik tarzda yechadi (faqat balans yetarli bo'lsa)"""
     result = await db.execute(
-        sa_update(APIKey)
+        update(APIKey)
         .where(APIKey.id == key_id, APIKey.balance_uzs >= amount)
         .values(balance_uzs=APIKey.balance_uzs - amount)
     )
@@ -419,7 +425,7 @@ async def deduct_api_key_balance(db: AsyncSession, key_id: int, amount: int) -> 
 async def update_api_key_balance(db: AsyncSession, key_id: int, amount: int) -> APIKey | None:
     """API kalit balansini atomik tarzda yangilaydi (Race Condition xavfi yo'q)"""
     await db.execute(
-        sa_update(APIKey)
+        update(APIKey)
         .where(APIKey.id == key_id)
         .values(balance_uzs=APIKey.balance_uzs + amount)
     )

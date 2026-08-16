@@ -284,15 +284,16 @@ async def get_pending_withdrawals() -> list:
 
 async def process_withdrawal(wd_id: int, approve: bool) -> tuple:
     async with aiosqlite.connect(DB_PATH) as conn:
+        new_status = "APPROVED" if approve else "REJECTED"
+        # Atomik UPDATE orqali bir necha marta bosilganda ikki marta pul qaytarish (Double Refund) oldi olinadi
         async with conn.execute(
-            "SELECT telegram_id, amount FROM withdrawals WHERE id=? AND status='PENDING'", (wd_id,)
+            "UPDATE withdrawals SET status=? WHERE id=? AND status='PENDING' RETURNING telegram_id, amount",
+            (new_status, wd_id)
         ) as c:
             row = await c.fetchone()
         if not row:
             return False, 0, 0
         tid, amount = row
-        new_status = "APPROVED" if approve else "REJECTED"
-        await conn.execute("UPDATE withdrawals SET status=? WHERE id=?", (new_status, wd_id))
         if not approve:
             await conn.execute("UPDATE users SET balance=balance+? WHERE telegram_id=?", (amount, tid))
         await conn.commit()
