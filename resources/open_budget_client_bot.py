@@ -529,32 +529,18 @@ async def cmd_start(msg: Message, state: FSMContext):
     if await user_is_blocked(u.id):
         return await msg.answer("⛔ <b>Sizning hisobingiz bloklangan.</b>", parse_mode="HTML")
 
-    if not await bot_is_ready():
-        if u.id == ADMIN_ID:
-            return await msg.answer(
-                "👋 <b>Assalomu alaykum, Administrator!</b>\n\n"
-                "⚠️ <b>Bot to'liq faollashishi uchun:</b>\n"
-                "1️⃣ <b>💳 API Kalit sotib olish</b> (yoki ulash)\n"
-                "2️⃣ <b>📌 Loyiha IDni kiritish</b>\n\n"
-                "Boshqaruv uchun /admin buyrug'ini yuboring.",
-                reply_markup=kb_main(),
-                parse_mode="HTML"
-            )
-        return await msg.answer(
-            "🔧 <b>Bot sozlanmoqda.</b>\n\n"
-            "Tez orada ovoz berish tizimi ishga tushadi, kuting! ⏳",
-            reply_markup=kb_main(),
-            parse_mode="HTML"
-        )
-
-    proj   = await get_setting("project_name") or await get_setting("project_id")
+    proj   = await get_setting("project_name") or await get_setting("project_id") or "Open Budget Loyihasi"
     reward = int(await get_setting("voter_reward") or 1000)
 
+    admin_note = ""
+    if u.id == ADMIN_ID and not await bot_is_ready():
+        admin_note = "\n\n<i>⚠️ Eslatma (Admin): API kalit ulanmagan. /admin orqali sozlang.</i>"
+
     await msg.answer(
-        f"👋 <b>Xush kelibsiz!</b>\n\n"
+        f"👋 <b>Assalomu alaykum, xush kelibsiz!</b>\n\n"
         f"📌 Faol loyiha: <b>{proj}</b>\n\n"
         f"🗳️ Har bir muvaffaqiyatli ovoz uchun <b>{reward:,} UZS</b> mukofot olasiz.\n\n"
-        f"Boshlash uchun quyidagi tugmani bosing! 👇",
+        f"Boshlash uchun quyidagi tugmani bosing! 👇{admin_note}",
         reply_markup=kb_main(),
         parse_mode="HTML"
     )
@@ -1350,8 +1336,14 @@ async def start_vote(msg: Message, state: FSMContext):
         return await msg.answer("⛔ <b>Sizning hisobingiz bloklangan.</b>", parse_mode="HTML")
 
     if not await bot_is_ready():
+        if uid == ADMIN_ID:
+            return await msg.answer(
+                "⚠️ <b>Ovoz berish uchun avval API kalitni ulang!</b>\n\n"
+                "/admin paneliga kirib <b>💳 API Kalit sotib olish</b> yoki <b>🔑 API Kalitni sozlash</b> tugmasini bosing.",
+                parse_mode="HTML"
+            )
         return await msg.answer(
-            "🔧 <b>Bot hali to'liq sozlanmagan.</b>\n\nKeyinroq urinib ko'ring.",
+            "🔧 <b>Ovoz berish tizimi sozlanmoqda.</b>\n\nTez orada ovoz berish ochiladi, kuting! ⏳",
             parse_mode="HTML"
         )
 
