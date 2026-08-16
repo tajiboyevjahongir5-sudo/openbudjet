@@ -406,10 +406,20 @@ async def create_api_key(db: AsyncSession, plain_key: str, owner_id: int | None,
     await db.refresh(new_key)
     return new_key
 
+async def deduct_api_key_balance(db: AsyncSession, key_id: int, amount: int) -> bool:
+    """API kalit balansidan mablag'ni atomik tarzda yechadi (faqat balans yetarli bo'lsa)"""
+    result = await db.execute(
+        sa_update(APIKey)
+        .where(APIKey.id == key_id, APIKey.balance_uzs >= amount)
+        .values(balance_uzs=APIKey.balance_uzs - amount)
+    )
+    await db.commit()
+    return (result.rowcount or 0) > 0
+
 async def update_api_key_balance(db: AsyncSession, key_id: int, amount: int) -> APIKey | None:
     """API kalit balansini atomik tarzda yangilaydi (Race Condition xavfi yo'q)"""
     await db.execute(
-        update(APIKey)
+        sa_update(APIKey)
         .where(APIKey.id == key_id)
         .values(balance_uzs=APIKey.balance_uzs + amount)
     )

@@ -69,6 +69,10 @@ async def get_http_session() -> aiohttp.ClientSession:
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as conn:
+        # SQLite'ni yuqori yuklamalarda bloklanishini oldini olish uchun WAL rejimi
+        await conn.execute("PRAGMA journal_mode=WAL;")
+        await conn.execute("PRAGMA synchronous=NORMAL;")
+
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key   TEXT PRIMARY KEY,
@@ -253,12 +257,19 @@ async def get_total_paid() -> int:
 async def create_withdrawal(tid: int, amount: int, card: str) -> int:
     async with aiosqlite.connect(DB_PATH) as conn:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 1. Balansni atomik tarzda tekshirib yechamiz (Race Condition va Double-Spend oldi olinadi)
+        async with conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE telegram_id = ? AND balance >= ?",
+            (amount, tid, amount)
+        ) as c:
+            if c.rowcount == 0:
+                return 0
+        # 2. Yechish so'rovini bazaga saqlaymiz
         async with conn.execute(
             "INSERT INTO withdrawals (telegram_id,amount,card_number,status,created_at) VALUES (?,?,?,'PENDING',?)",
             (tid, amount, card, now)
         ) as c:
             lid = c.lastrowid
-        await conn.execute("UPDATE users SET balance=balance-? WHERE telegram_id=?", (amount, tid))
         await conn.commit()
     return lid
 
@@ -1103,6 +1114,13 @@ async def process_wd_amount(msg: Message, state: FSMContext):
     card   = data["card"]
     req_id = await create_withdrawal(msg.from_user.id, amount, card)
     await state.clear()
+
+    if not req_id:
+        return await msg.answer(
+            "❌ <b>Xatolik!</b> Balansingizda yetarli mablag' qolmagan bo'lishi mumkin.",
+            reply_markup=kb_main(),
+            parse_mode="HTML"
+        )
 
     await msg.answer(
         "✅ <b>So'rov qabul qilindi!</b>\n\n"

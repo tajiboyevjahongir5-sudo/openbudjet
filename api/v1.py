@@ -156,8 +156,9 @@ async def cast_vote(
     Olingan login tokeni va 2-captcha natijasi yordamida yakuniy ovozni rasmiylashtiradi.
     Narxi: Muvaffaqiyatli ovoz berilsagina API kalit balansidan 1 500 so'm yozib olinadi.
     """
-    # 1. So'rovdan oldin balans tekshiruvi (agar so'rovlar orasida balans kamayib ketgan bo'lsa)
-    if api_key.balance_uzs < 1500:
+    # 1. Balansdan mablag'ni atomik tarzda band qilamiz (Race Condition va Double-Spend oldi olinadi)
+    deducted = await crud.deduct_api_key_balance(db, api_key.id, 1500)
+    if not deducted:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="API kalit balansi yetarli emas (kamida 1 500 UZS bo'lishi shart)."
@@ -172,15 +173,13 @@ async def cast_vote(
     )
     
     if not success:
-        # Ovoz berish muvaffaqiyatsiz tugasa, pul yechilmaydi va xato qaytariladi
+        # Ovoz berish muvaffaqiyatsiz tugasa, band qilingan mablag' to'liq qaytariladi (Refund)
+        await crud.update_api_key_balance(db, api_key.id, 1500)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result_msg
         )
         
-    # 3. Ovoz muvaffaqiyatli o'tgach, bazadan 1500 so'm yechamiz
-    await crud.update_api_key_balance(db, api_key.id, -1500)
-    
     return {
         "status": "success",
         "message": "Ovoz muvaffaqiyatli qabul qilindi!",
