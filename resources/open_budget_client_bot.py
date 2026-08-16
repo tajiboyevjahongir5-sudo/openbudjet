@@ -385,10 +385,10 @@ async def validate_api_key(key: str) -> tuple[bool, str]:
 
 def kb_main() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="⚡ 🗳️ OVOZ BERISH 🗳️ ⚡")],
+        [KeyboardButton(text="🟢  ⚡ OVOZ BERISH 🗳️")],
         [
-            KeyboardButton(text="💎 Mening hisobim 💰"),
-            KeyboardButton(text="📋 Ovozlar tarixim 📊"),
+            KeyboardButton(text="🔵  💎 Mening hisobim"),
+            KeyboardButton(text="🟣  📋 Ovozlar tarixim"),
         ],
     ], resize_keyboard=True, is_persistent=True)
 

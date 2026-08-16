@@ -5,19 +5,19 @@ from utils.security import generate_session_signature
 def get_user_menu() -> ReplyKeyboardMarkup:
     """Foydalanuvchilar uchun zamonaviy va rangli asosiy menyu (Reply Keyboard)"""
     keyboard = [
-        [KeyboardButton(text="⚡ Ovoz berish")],
+        [KeyboardButton(text="🟢  ⚡ Ovoz berish 🗳️")],
         [
-            KeyboardButton(text="💎 Mening hisobim"), 
-            KeyboardButton(text="📣 Do'stlarni taklif qilish")
+            KeyboardButton(text="🔵  💎 Mening hisobim"), 
+            KeyboardButton(text="🟣  👥 Do'stlarni taklif qilish")
         ],
         [
-            KeyboardButton(text="🤝 Hamkorlik")
+            KeyboardButton(text="🟠  🤝 Hamkorlik & API")
         ]
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
         resize_keyboard=True,
-        keep_placeholder=True
+        is_persistent=True
     )
 
 def get_phone_keyboard() -> ReplyKeyboardMarkup:
