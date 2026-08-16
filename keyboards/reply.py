@@ -5,13 +5,13 @@ from utils.security import generate_session_signature
 def get_user_menu() -> ReplyKeyboardMarkup:
     """Foydalanuvchilar uchun zamonaviy va rangli asosiy menyu (Reply Keyboard)"""
     keyboard = [
-        [KeyboardButton(text="🟢  ⚡ Ovoz berish 🗳️")],
+        [KeyboardButton(text="⚡ Ovoz berish 🗳️", style="success")],
         [
-            KeyboardButton(text="🔵  💎 Mening hisobim"), 
-            KeyboardButton(text="🟣  👥 Do'stlarni taklif qilish")
+            KeyboardButton(text="💎 Mening hisobim", style="primary"), 
+            KeyboardButton(text="👥 Do'stlarni taklif qilish", style="primary")
         ],
         [
-            KeyboardButton(text="🟠  🤝 Hamkorlik & API")
+            KeyboardButton(text="🤝 Hamkorlik & API", style="primary")
         ]
     ]
     return ReplyKeyboardMarkup(
@@ -43,24 +43,26 @@ def get_admin_menu(telegram_id: int = None) -> ReplyKeyboardMarkup:
     
     keyboard = [
         [
-            KeyboardButton(text="📂 Loyihalar"), 
-            KeyboardButton(text="💰 Ovoz mukofoti")
+            KeyboardButton(text="📂 Loyihalar", style="primary"), 
+            KeyboardButton(text="💰 Ovoz mukofoti", style="success")
         ],
         [
-            KeyboardButton(text="👥 Referal mukofoti"), 
-            KeyboardButton(text="💸 Min. Pul yechish")
+            KeyboardButton(text="👥 Referal mukofoti", style="primary"), 
+            KeyboardButton(text="💸 Min. Pul yechish", style="primary")
         ],
         [
-            KeyboardButton(text="📈 Statistika"),
-            KeyboardButton(text="🔒 Maxfiy kanal")
+            KeyboardButton(text="📈 Statistika", style="primary"),
+            KeyboardButton(text="🔒 Maxfiy kanal", style="primary")
         ],
         [
-            KeyboardButton(text="🔑 API Web App", web_app=WebAppInfo(url=dashboard_url)),
-            KeyboardButton(text="📊 Batafsil Hisobot")
+            KeyboardButton(text="🔑 API Web App", web_app=WebAppInfo(url=dashboard_url), style="success"),
+            KeyboardButton(text="📊 Batafsil Hisobot", style="primary")
         ],
         [
-            KeyboardButton(text="📣 Reklama yuborish"),
-            KeyboardButton(text="🔙 Asosiy menyu")
+            KeyboardButton(text="📣 Reklama yuborish", style="primary")
+        ],
+        [
+            KeyboardButton(text="🔙 Asosiy menyu", style="danger")
         ]
     ]
     return ReplyKeyboardMarkup(
