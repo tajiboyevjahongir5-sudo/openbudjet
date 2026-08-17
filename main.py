@@ -134,11 +134,11 @@ async def lifespan(app: FastAPI):
     if settings.WEBHOOK_URL:
         # Webhook rejimi
         webhook_url = f"{settings.WEBHOOK_URL.rstrip('/')}/webhook"
-        logger.info(f"Webhook o'rnatilmoqda: {webhook_url}")
-        from aiogram.exceptions import TelegramRetryAfter, TelegramNetworkError
+        secret_token = (settings.WEBHOOK_SECRET_TOKEN or "")[:50] if settings.WEBHOOK_SECRET_TOKEN else None
         try:
             await bot.set_webhook(
                 url=webhook_url,
+                secret_token=secret_token,
                 drop_pending_updates=False,
                 allowed_updates=["message", "callback_query", "chat_join_request", "channel_post"]
             )
@@ -450,8 +450,10 @@ async def telegram_webhook(request: Request):
         )
     
     # 1. Secret token autentifikatsiyasi
+    expected_token = (settings.WEBHOOK_SECRET_TOKEN or "")[:50] if settings.WEBHOOK_SECRET_TOKEN else None
     received_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-    if received_token != settings.WEBHOOK_SECRET_TOKEN:
+    if expected_token and received_token != expected_token:
+        logger.warning(f"Ruxsatsiz webhook so'rovi (Secret token mos kelmadi).")
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={"message": "Ruxsatsiz so'rov."}
