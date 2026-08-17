@@ -244,22 +244,21 @@ class OpenBudgetService:
             "Origin": "https://openbudget.uz",
         }
         
-        # Jinsni "M" yoki "F" ga o'tkazamiz
+        # Open Budget frontend JS dan olingan AYNAN to'g'ri payload tuzilishi:
+        # { captcha_key, captcha_result, phone_number, district_id, fullname, gender, birth_date, profession, region_id }
         gender_code = "M" if str(gender).upper() in ("MALE", "M", "ERKAK") else "F"
         full_name_str = f"{first_name.strip()} {last_name.strip()}".strip() or "Fuqaro"
         
         reg_payload = {
-            "fullname": full_name_str,
-            "first_name": first_name.strip(),
-            "last_name": last_name.strip(),
+            "captcha_key": captcha_key or "",
+            "captcha_result": int(captcha_result) if captcha_result is not None else 0,
             "phone_number": "998" + clean_phone,
+            "district_id": int(district_id),
+            "fullname": full_name_str,
             "gender": gender_code,
             "birth_date": birth_date,
             "profession": profession or "Xodim",
             "region_id": int(region_id),
-            "district_id": int(district_id),
-            "captcha_key": captcha_key or "",
-            "captcha_result": int(captcha_result) if captcha_result is not None else 0
         }
         
         try:
