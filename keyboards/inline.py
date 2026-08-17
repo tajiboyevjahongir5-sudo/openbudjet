@@ -293,7 +293,7 @@ def get_regions_keyboard() -> InlineKeyboardMarkup:
         row.append(
             InlineKeyboardButton(
                 text=f"📍 {reg['short_name']}",
-                callback_data=f"reg_region_{reg['id']}",
+                callback_data=f"reg_reg_{reg['id']}",
                 style="primary"
             )
         )

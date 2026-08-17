@@ -755,11 +755,11 @@ async def process_reg_back_regions(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@router.callback_query(F.data.startswith("reg_region_"), VoteStates.REG_WAITING_REGION)
+@router.callback_query(F.data.startswith("reg_reg_"), VoteStates.REG_WAITING_REGION)
 async def process_reg_region(callback: CallbackQuery, state: FSMContext):
     """Viloyat tanlanganda uning tumanlarini chiqarish"""
     from utils.regions import get_region_name
-    region_id = int(callback.data.replace("reg_region_", ""))
+    region_id = int(callback.data.replace("reg_reg_", ""))
     await state.update_data(reg_region_id=region_id)
     await state.set_state(VoteStates.REG_WAITING_DISTRICT)
 

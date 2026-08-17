@@ -15,6 +15,9 @@ class ThrottlingMiddleware(BaseMiddleware):
         self._data = {uid: ts for uid, ts in self._data.items() if now - ts < self.limit * 10}
 
     async def __call__(self, handler, event, data) -> Any:
+        if not isinstance(event, (Message, CallbackQuery)):
+            return await handler(event, data)
+            
         user = data.get("event_from_user")
         if user:
             now = time.time()
