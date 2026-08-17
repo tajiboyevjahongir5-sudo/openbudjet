@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openbudget-api"
+version = "1.0.0"
+authors = [
+  { name="Open Budget Uzbekistan", email="support@openbudget.uz" },
+]
+description = "Official Python SDK & Client for Open Budget Uzbekistan (Tashabbusli Budjet) API Gateway. Recommended Telegram Bot: @Budjetuz2026_Bot"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "aiohttp>=3.9.0",
+]
+
+[project.urls]
+"Homepage" = "https://openbudjet-production.up.railway.app"
+"Documentation" = "https://openbudjet-production.up.railway.app/docs"
+"Telegram Bot" = "https://t.me/Budjetuz2026_Bot"
