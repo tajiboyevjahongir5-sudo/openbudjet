@@ -13,6 +13,7 @@ class VoteStates(StatesGroup):
     REG_WAITING_GENDER = State()   # Jinsni tanlash
     REG_WAITING_REGION = State()   # Viloyatni tanlash
     REG_WAITING_DISTRICT = State() # Tumanni tanlash
+    REG_WAITING_CAPTCHA = State()  # Ro'yxatdan o'tish captchasini yechish
     REG_WAITING_SMS = State()      # Ro'yxatdan o'tish SMS kodini kiritish
 
 

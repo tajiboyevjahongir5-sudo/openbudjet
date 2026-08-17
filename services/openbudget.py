@@ -244,13 +244,18 @@ class OpenBudgetService:
             "Origin": "https://openbudget.uz",
         }
         
+        # Jinsni "M" yoki "F" ga o'tkazamiz
+        gender_code = "M" if str(gender).upper() in ("MALE", "M", "ERKAK") else "F"
+        full_name_str = f"{first_name.strip()} {last_name.strip()}".strip() or "Fuqaro"
+        
         reg_payload = {
+            "fullname": full_name_str,
             "first_name": first_name.strip(),
             "last_name": last_name.strip(),
             "phone_number": "998" + clean_phone,
-            "gender": gender,
+            "gender": gender_code,
             "birth_date": birth_date,
-            "profession": profession,
+            "profession": profession or "Xodim",
             "region_id": int(region_id),
             "district_id": int(district_id),
             "captcha_key": captcha_key or "",

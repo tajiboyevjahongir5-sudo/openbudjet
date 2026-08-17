@@ -774,66 +774,114 @@ async def process_reg_region(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("reg_dist_"), VoteStates.REG_WAITING_DISTRICT)
 async def process_reg_district(callback: CallbackQuery, state: FSMContext):
-    """Tuman tanlangach, ro'yxatdan o'tish so'rovini avtomatik portalga yuborish"""
+    """Tuman tanlangach, ro'yxatdan o'tish captchasini ko'rsatish"""
     parts = callback.data.split("_")
     region_id = int(parts[2])
     district_id = int(parts[3])
-    
-    state_data = await state.get_data()
-    phone_number = state_data.get("phone_number")
-    project_id = state_data.get("project_id")
-    first_name = state_data.get("reg_first_name") or "Fuqaro"
-    last_name = state_data.get("reg_last_name") or ""
-    birth_date = state_data.get("reg_birth_date") or "1998-01-01"
-    gender = state_data.get("reg_gender") or "MALE"
     telegram_id = callback.from_user.id
+    
+    await state.update_data(reg_region_id=region_id, reg_district_id=district_id)
 
-    waiting_msg = await callback.message.answer("🔄 <b>Open Budget'ga ro'yxatdan o'tish so'rovi yuborilmoqda...</b>", parse_mode="HTML")
+    waiting_msg = await callback.message.answer("🔄 <b>Ro'yxatdan o'tish uchun Captcha yuklanmoqda...</b>", parse_mode="HTML")
     await callback.answer()
 
     # 1. Captcha olish
     success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
-    captcha_key = cap_data.get("key") if cap_data else None
-    captcha_result = 9 # Avtomatik matematik captcha yechimi
-
-    # 2. Ro'yxatdan o'tish OTP so'rovi
-    success, result_msg, session_data = await OpenBudgetService.send_registration_otp(
-        first_name=first_name,
-        last_name=last_name,
-        phone_number=phone_number,
-        gender=gender,
-        birth_date=birth_date,
-        region_id=region_id,
-        district_id=district_id,
-        project_id=project_id,
-        captcha_key=captcha_key,
-        captcha_result=captcha_result,
-        profession="Xodim"
-    )
-
     await waiting_msg.delete()
 
-    if not success:
-        await callback.message.answer(
-            f"❌ <b>Ro'yxatdan o'tishda xatolik:</b>\n{html.escape(result_msg)}\n\n"
-            f"Iltimos, qaytadan urinib ko'ring yoki boshqa raqam kiriting:",
-            reply_markup=reply.get_phone_keyboard(),
-            parse_mode="HTML"
-        )
-        await state.clear()
+    if not success_cap or not cap_data:
+        await callback.message.answer("❌ Captcha yuklab bo'lmadi. Qayta urinib ko'ring.")
         return
 
-    # SMS muvaffaqiyatli ketdi
-    await state.update_data(session_data=session_data)
-    await state.set_state(VoteStates.REG_WAITING_SMS)
+    await state.update_data(
+        captcha_key=cap_data.get("key"),
+        captcha_image=cap_data.get("image_base64"),
+    )
+    await state.set_state(VoteStates.REG_WAITING_CAPTCHA)
+
+    web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
+    session_id = str(telegram_id)
 
     await callback.message.answer(
-        f"📩 <b>SMS yuborildi!</b>\n\n"
-        f"<code>{phone_number}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:\n\n"
-        f"<i>Kodni kiritishingiz bilan hisobingiz ochiladi va ovozingiz qabul qilinadi!</i> ⚡",
-        reply_markup=reply.get_cancel_keyboard(),
+        "🧩 <b>Ro'yxatdan o'tishni tasdiqlash (Captcha)!</b>\n\n"
+        "SMS kod yuborilishi uchun pastdagi tugmani bosing va captchani yeching 👇",
+        reply_markup=reply.get_captcha_reply_keyboard(session_id, web_url),
         parse_mode="HTML"
     )
+
+@router.message(VoteStates.REG_WAITING_CAPTCHA, F.web_app_data)
+async def process_reg_captcha_result(message: Message, state: FSMContext):
+    """Ro'yxatdan o'tish captchasi yechilganda portalga OTP so'rovi yuborish"""
+    try:
+        raw_data = message.web_app_data.data
+        data = json.loads(raw_data)
+        
+        if data.get("status") != "success":
+            await message.answer("❌ Captcha tasdiqlanmadi. Iltimos tugmani bosib, qaytadan yeching.")
+            return
+
+        captcha_key = data.get("captcha_key") or "mock_captcha_key"
+        captcha_result_str = data.get("captcha_result")
+        
+        try:
+            captcha_result = int(captcha_result_str) if captcha_result_str is not None else 0
+        except ValueError:
+            captcha_result = 0
+
+        state_data = await state.get_data()
+        phone_number = state_data.get("phone_number")
+        project_id = state_data.get("project_id")
+        first_name = state_data.get("reg_first_name") or "Fuqaro"
+        last_name = state_data.get("reg_last_name") or ""
+        birth_date = state_data.get("reg_birth_date") or "1998-01-01"
+        gender = state_data.get("reg_gender") or "MALE"
+        region_id = state_data.get("reg_region_id") or 1
+        district_id = state_data.get("reg_district_id") or 101
+
+        waiting_msg = await message.answer("🔄 <b>Ro'yxatdan o'tish SMS kodi so'ralmoqda...</b>", parse_mode="HTML")
+
+        # Ro'yxatdan o'tish OTP so'rovi
+        success, result_msg, session_data = await OpenBudgetService.send_registration_otp(
+            first_name=first_name,
+            last_name=last_name,
+            phone_number=phone_number,
+            gender=gender,
+            birth_date=birth_date,
+            region_id=region_id,
+            district_id=district_id,
+            project_id=project_id,
+            captcha_key=captcha_key,
+            captcha_result=captcha_result,
+            profession="Xodim"
+        )
+
+        await waiting_msg.delete()
+
+        if not success:
+            await message.answer(
+                f"❌ <b>Ro'yxatdan o'tishda xatolik:</b>\n{html.escape(result_msg)}\n\n"
+                f"Iltimos, qaytadan urinib ko'ring yoki boshqa raqam kiriting:",
+                reply_markup=reply.get_phone_keyboard(),
+                parse_mode="HTML"
+            )
+            await state.clear()
+            return
+
+        # SMS muvaffaqiyatli ketdi
+        await state.update_data(session_data=session_data)
+        await state.set_state(VoteStates.REG_WAITING_SMS)
+
+        await message.answer(
+            f"📩 <b>SMS yuborildi!</b>\n\n"
+            f"<code>{phone_number}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:\n\n"
+            f"<i>Kodni kiritishingiz bilan hisobingiz ochiladi va ovozingiz qabul qilinadi!</i> ⚡",
+            reply_markup=reply.get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Reg Captcha natijasini o'qishda xato: {e}", exc_info=True)
+        await message.answer("❌ Captcha ma'lumotlarini qabul qilishda xatolik yuz berdi. Qayta urinib ko'ring.")
 
 @router.message(VoteStates.REG_WAITING_SMS, F.text)
 async def process_reg_sms_code(message: Message, state: FSMContext):
