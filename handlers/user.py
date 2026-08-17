@@ -65,18 +65,11 @@ async def cmd_start(message: Message, state: FSMContext):
             f"<tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji> Boshlash uchun quyidagi menyudan tanlang:"
         )
 
-    await state.update_data(welcome_text=welcome_text)
-
-    warning_text = (
-        "⚠️ <b>DIQQAT: Muhim ogohlantirish!</b>\n\n"
-        "Open Budget ovoz berish tizimi yangilanganligi sababli, endilikda faqatgina "
-        "<b>Open Budget (OneID) saytidan ro'yxatdan o'tgan</b> telefon raqamlari orqali ovoz berish mumkin.\n\n"
-        "Agar telefon raqamingiz ro'yxatdan o'tmagan bo'lsa, SMS kod kelmaydi va ovoz berib bo'lmaydi.\n\n"
-        "Ro'yxatdan o'tish uchun quyidagi <b>\"🔗 Ro'yxatdan o'tish\"</b> tugmasini bosing (OneID'dan ro'yxatdan o'tish 1 daqiqa vaqt oladi). "
-        "Agar ro'yxatdan o'tib bo'lgan bo'lsangiz, <b>\"✅ Ro'yxatdan o'tganman\"</b> tugmasini bosing:"
+    await message.answer(
+        welcome_text,
+        reply_markup=reply.get_user_menu(),
+        parse_mode="HTML"
     )
-
-    await message.answer(warning_text, reply_markup=inline.get_start_warning_keyboard(), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "user_registered_confirm")
