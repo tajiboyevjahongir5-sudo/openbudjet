@@ -160,6 +160,17 @@ async def check_phone_voted(db: AsyncSession, phone_number: str, project_id: str
     )
     return result.scalars().first() is not None
 
+async def get_user_successful_vote_phone(db: AsyncSession, telegram_id: int, project_id: str) -> str | None:
+    """Foydalanuvchi ushbu loyihaga qaysi raqam orqali muvaffaqiyatli ovoz berganini topadi"""
+    result = await db.execute(
+        select(VotesHistory.phone_number).where(
+            VotesHistory.telegram_id == telegram_id,
+            VotesHistory.project_id == project_id,
+            VotesHistory.status == VoteStatus.SUCCESS
+        ).order_by(VotesHistory.id.desc())
+    )
+    return result.scalars().first()
+
 # --- Pul yechish (Withdrawals) operatsiyalari ---
 
 async def create_withdrawal(

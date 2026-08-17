@@ -25,6 +25,24 @@ class VerifyRequest(BaseModel):
     otp_code: str = Field(..., description="Telefonga kelgan 6 xonali SMS kod")
     otp_key: str = Field(..., description="SMS yuborishda qaytarilgan otp_key")
 
+class RegisterOTPRequest(BaseModel):
+    first_name: str = Field(..., description="Ism")
+    last_name: str = Field("", description="Familiya")
+    phone_number: str = Field(..., description="Telefon raqami (masalan: 998901234567)")
+    gender: str = Field("MALE", description="Jinsi (MALE yoki FEMALE)")
+    birth_date: str = Field("1998-01-01", description="Tug'ilgan sana (YYYY-MM-DD)")
+    region_id: int = Field(..., description="Viloyat ID raqami")
+    district_id: int = Field(..., description="Tuman ID raqami")
+    project_id: str = Field(..., description="Loyiha ID raqami")
+    captcha_key: str = Field("", description="Captcha kaliti")
+    captcha_result: int = Field(0, description="Captcha natijasi")
+    profession: str = Field("Xodim", description="Kasbi")
+
+class RegisterVerifyRequest(BaseModel):
+    phone_number: str = Field(..., description="Telefon raqami (masalan: 998901234567)")
+    otp_code: str = Field(..., description="Telefonga kelgan 6 xonali SMS kod")
+    otp_key: str = Field(..., description="Ro'yxatdan o'tishda qaytarilgan otp_key")
+
 class VoteRequest(BaseModel):
     project_id: str = Field(..., description="Loyiha ID raqami yoki UUID kaliti")
     access_token: str = Field(..., description="Verify-OTP bosqichida olingan login tokeni")
@@ -112,6 +130,89 @@ async def send_otp(
         "status": "success",
         "message": "SMS kod muvaffaqiyatli yuborildi.",
         "otp_key": session_data.get("otp_key") if session_data else None
+    }
+
+
+@router.get("/regions")
+async def get_regions_and_districts():
+    """
+    Open Budget tizimi uchun barcha 14 ta viloyat va tumanlar ro'yxati.
+    Narxi: Bepul
+    """
+    from utils.regions import REGIONS, DISTRICTS
+    return {
+        "status": "success",
+        "regions": REGIONS,
+        "districts": DISTRICTS
+    }
+
+
+@router.post("/register/send-otp")
+async def register_send_otp(
+    req: RegisterOTPRequest,
+    api_key: APIKey = Depends(get_api_key)
+):
+    """
+    Open Budget'da ro'yxatdan o'tmagan yangi fuqaro uchun SMS OTP yuborish.
+    Narxi: Bepul
+    """
+    success, msg, session_data = await OpenBudgetService.send_registration_otp(
+        first_name=req.first_name,
+        last_name=req.last_name,
+        phone_number=req.phone_number,
+        gender=req.gender,
+        birth_date=req.birth_date,
+        region_id=req.region_id,
+        district_id=req.district_id,
+        project_id=req.project_id,
+        captcha_key=req.captcha_key,
+        captcha_result=req.captcha_result,
+        profession=req.profession
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=msg
+        )
+        
+    return {
+        "status": "success",
+        "message": "Ro'yxatdan o'tish SMS kodi yuborildi.",
+        "otp_key": session_data.get("otp_key") if session_data else None
+    }
+
+
+@router.post("/register/verify-otp")
+async def register_verify_otp(
+    req: RegisterVerifyRequest,
+    api_key: APIKey = Depends(get_api_key)
+):
+    """
+    Ro'yxatdan o'tish SMS kodini tasdiqlab, login access_token qaytaradi.
+    Narxi: Bepul
+    """
+    session_data = {
+        "otp_key": req.otp_key,
+        "phone": req.phone_number
+    }
+    
+    success, result_msg = await OpenBudgetService.verify_registration_otp(
+        phone_number=req.phone_number,
+        code=req.otp_code,
+        session_data=session_data
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result_msg
+        )
+        
+    return {
+        "status": "success",
+        "message": "Ro'yxatdan o'tish muvaffaqiyatli yakunlandi.",
+        "access_token": result_msg
     }
 
 

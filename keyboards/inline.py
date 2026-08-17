@@ -241,5 +241,99 @@ def get_admin_tariffs_keyboard(tariffs: list[Tariff]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+# ==========================================
+# RO'YXATDAN O'TISH (REGISTRATION) KLAVIATURALARI
+# ==========================================
+
+def get_name_choice_keyboard(first_name: str, last_name: str | None = None) -> InlineKeyboardMarkup:
+    """Telegram ismini tasdiqlash yoki yangi ism kiritish tugmasi"""
+    full_name = f"{first_name} {last_name or ''}".strip()
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"✅ Telegram ismim: {full_name[:20]}",
+                    callback_data="reg_use_tg_name",
+                    style="success"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✏️ Boshqa ism-familiya yozish",
+                    callback_data="reg_custom_name",
+                    style="primary"
+                )
+            ],
+            [
+                InlineKeyboardButton(text="❌ Bekor qilish", callback_data="reg_cancel", style="danger")
+            ]
+        ]
+    )
+
+def get_gender_keyboard() -> InlineKeyboardMarkup:
+    """Jinsni tanlash tugmalari"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="👨 Erkak", callback_data="reg_gender_MALE", style="primary"),
+                InlineKeyboardButton(text="👩 Ayol", callback_data="reg_gender_FEMALE", style="primary")
+            ],
+            [
+                InlineKeyboardButton(text="❌ Bekor qilish", callback_data="reg_cancel", style="danger")
+            ]
+        ]
+    )
+
+def get_regions_keyboard() -> InlineKeyboardMarkup:
+    """14 ta viloyatni 2 ustunli ixcham formatda chiqarish"""
+    from utils.regions import REGIONS
+    buttons = []
+    row = []
+    for reg in REGIONS:
+        row.append(
+            InlineKeyboardButton(
+                text=f"📍 {reg['short_name']}",
+                callback_data=f"reg_region_{reg['id']}",
+                style="primary"
+            )
+        )
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+        
+    buttons.append([
+        InlineKeyboardButton(text="❌ Bekor qilish", callback_data="reg_cancel", style="danger")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_districts_keyboard(region_id: int) -> InlineKeyboardMarkup:
+    """Tanlangan viloyatning tumanlarini chiqarish"""
+    from utils.regions import DISTRICTS
+    districts = DISTRICTS.get(region_id, [])
+    buttons = []
+    row = []
+    for d in districts:
+        row.append(
+            InlineKeyboardButton(
+                text=d['name'],
+                callback_data=f"reg_dist_{region_id}_{d['id']}",
+                style="primary"
+            )
+        )
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+        
+    buttons.append([
+        InlineKeyboardButton(text="⬅️ Viloyatni o'zgartirish", callback_data="reg_back_regions", style="danger")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+
 
 

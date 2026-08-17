@@ -57,7 +57,17 @@ class OpenBudgetService:
     def verify_otp_url(cls) -> str:
         return cls._get_url("/v1/login/verify-otp")
     
-    # 4. Ovozni tasdiqlab yakunlash (POST)
+    # 4. Ro'yxatdan o'tish OTP yuborish (POST)
+    @classmethod
+    def register_send_otp_url(cls) -> str:
+        return cls._get_url("/v1/register/send-otp")
+
+    # 5. Ro'yxatdan o'tish OTP tasdiqlash (POST)
+    @classmethod
+    def register_verify_otp_url(cls) -> str:
+        return cls._get_url("/v1/register/verify-otp")
+
+    # 6. Ovozni tasdiqlab yakunlash (POST)
     @classmethod
     def cast_vote_url(cls) -> str:
         return cls._get_url("/v2/info/get-initiative-token")
@@ -123,7 +133,10 @@ class OpenBudgetService:
         # --- MOCK REJIM ---
         if settings.MOCK_OPENBUDGET:
             if clean_phone.endswith("99"):
-                return False, "Bu raqam orqali allaqachon ovoz berilgan", None
+                return False, "Bu raqam orqali allaqachon ovoz berilgan", {"code": "already_voted"}
+            if clean_phone.endswith("00"):
+                # Simulation for unregistered user
+                return False, "not_registered", {"phone": "998" + clean_phone, "project_id": project_id}
             return True, "SMS kod yuborildi (Simulyatsiya kodi: 1111)", {
                 "phone": "998" + clean_phone,
                 "project_id": project_id,
@@ -167,11 +180,154 @@ class OpenBudgetService:
                     elif status in (500, 502, 503, 504):
                         return False, "server_error", None
                     else:
-                        msg = data.get("message") or data.get("detail") or f"Status: {status}"
+                        msg = (data.get("message") or data.get("detail") or f"Status: {status}").strip()
+                        msg_lower = msg.lower()
+                        
+                        # 1. Foydalanuvchi ro'yxatdan o'tmagan holati
+                        if any(term in msg_lower for term in ["ro'yxatdan o'tmagan", "topilmadi", "not found", "not registered", "mavjud emas", "ro‘yxatdan"]):
+                            return False, "not_registered", {"phone": "998" + clean_phone, "project_id": project_id}
+                        
+                        # 2. Allaqachon ovoz berilgan (boshqa yoki shu raqam orqali)
+                        if any(term in msg_lower for term in ["ovoz bergan", "ovoz berilgan", "already voted", "boshqa raqam"]):
+                            return False, "already_voted", {"phone": clean_phone, "detail": msg}
+                            
                         return False, f"Xatolik: {msg}", None
         except Exception as e:
             logger.error(f"Send OTP Error: {e}")
             return False, "Portalga ulanib bo'lmadi. Keyinroq urinib ko'ring.", None
+
+    @classmethod
+    async def send_registration_otp(
+        cls,
+        first_name: str,
+        last_name: str,
+        phone_number: str,
+        gender: str,
+        birth_date: str,
+        region_id: int,
+        district_id: int,
+        project_id: str,
+        captcha_key: str | None = None,
+        captcha_result: int | None = None,
+        profession: str = "Xodim"
+    ) -> tuple[bool, str, dict | None]:
+        """
+        POST /v1/register/send-otp
+        Yangi foydalanuvchini Open Budget tizimida ro'yxatdan o'tkazish uchun SMS OTP yuboradi.
+        """
+        clean_phone = "".join(filter(str.isdigit, phone_number))
+        if clean_phone.startswith("998"):
+            clean_phone = clean_phone[3:]
+
+        # Mock rejim
+        if settings.MOCK_OPENBUDGET:
+            return True, "Ro'yxatdan o'tish SMS kodi yuborildi (Simulyatsiya: 1111)", {
+                "phone": "998" + clean_phone,
+                "project_id": project_id,
+                "otp_key": "mock_reg_otp_key",
+                "otp_code": "1111"
+            }
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Referer": "https://openbudget.uz/",
+            "Origin": "https://openbudget.uz",
+        }
+        
+        reg_payload = {
+            "first_name": first_name.strip(),
+            "last_name": last_name.strip(),
+            "phone_number": "998" + clean_phone,
+            "gender": gender,
+            "birth_date": birth_date,
+            "profession": profession,
+            "region_id": int(region_id),
+            "district_id": int(district_id),
+            "captcha_key": captcha_key or "",
+            "captcha_result": int(captcha_result) if captcha_result is not None else 0
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(cls.register_send_otp_url(), json=reg_payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
+                    status = resp.status
+                    try:
+                        data = await resp.json()
+                    except Exception:
+                        data = {}
+                        
+                    logger.info(f"register/send-otp javob: {status} — {mask_sensitive_data(data)}")
+                    if status == 200:
+                        return True, "Ro'yxatdan o'tish SMS kodi yuborildi.", {
+                            "phone": "998" + clean_phone,
+                            "project_id": project_id,
+                            "otp_key": data.get("otpKey"),
+                        }
+                    else:
+                        msg = data.get("message") or data.get("detail") or f"Status: {status}"
+                        return False, f"Ro'yxatdan o'tishda xatolik: {msg}", None
+        except Exception as e:
+            logger.error(f"Register send-otp exception: {e}")
+            return False, "Ro'yxatdan o'tish tizimiga ulanib bo'lmadi.", None
+
+    @classmethod
+    async def verify_registration_otp(
+        cls,
+        phone_number: str,
+        code: str,
+        session_data: dict
+    ) -> tuple[bool, str]:
+        """
+        POST /v1/register/verify-otp
+        Ro'yxatdan o'tish SMS kodini tasdiqlab, hisobni faollashtiradi va access_token qaytaradi.
+        """
+        clean_phone = "".join(filter(str.isdigit, phone_number))
+        if not clean_phone.startswith("998"):
+            clean_phone = "998" + clean_phone
+
+        # Mock rejim
+        if settings.MOCK_OPENBUDGET:
+            expected = session_data.get("otp_code", "1111")
+            if code == expected:
+                return True, "mock_access_token_registered"
+            return False, "Kiritilgan SMS kod noto'g'ri."
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Referer": "https://openbudget.uz/",
+            "Origin": "https://openbudget.uz",
+        }
+        
+        verify_payload = {
+            "phone_number": clean_phone,
+            "otp_code": code.strip(),
+            "otp_key": session_data.get("otp_key")
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(cls.register_verify_otp_url(), json=verify_payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
+                    if resp.status != 200:
+                        try:
+                            data = await resp.json()
+                            msg = data.get("message") or "Kiritilgan kod noto'g'ri."
+                        except Exception:
+                            msg = f"Status kodi: {resp.status}"
+                        return False, f"SMS tasdiqlashda xatolik: {msg}"
+                    
+                    res_data = await resp.json()
+                    logger.info(f"register/verify-otp javob: {resp.status} — {mask_sensitive_data(res_data)}")
+                    access_token = res_data.get("access_token")
+                    if not access_token:
+                        return False, "Tizimdan ruxsat tokenini olib bo'lmadi."
+                    return True, access_token
+        except Exception as e:
+            logger.error(f"Verify registration SMS Exception: {e}")
+            return False, "SMS tasdiqlashda tarmoq xatoligi yuz berdi."
 
     @classmethod
     async def verify_sms_code(

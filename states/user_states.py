@@ -6,6 +6,14 @@ class VoteStates(StatesGroup):
     WAITING_FOR_SMS = State()      # SMS kodini kiritish jarayoni
     WAITING_FOR_FINAL_CAPTCHA = State() # SMS dan keyingi yakuniy captcha yechish jarayoni
     WAITING_FOR_REGISTRATION_CHECK = State() # Ro'yxatdan o'tganligini tekshirish jarayoni
+    
+    # Ro'yxatdan o'tish (Registration) holatlari
+    REG_WAITING_NAME = State()     # Ism va familiya kiritish
+    REG_WAITING_BIRTHDAY = State() # Tug'ilgan sana kiritish
+    REG_WAITING_GENDER = State()   # Jinsni tanlash
+    REG_WAITING_REGION = State()   # Viloyatni tanlash
+    REG_WAITING_DISTRICT = State() # Tumanni tanlash
+    REG_WAITING_SMS = State()      # Ro'yxatdan o'tish SMS kodini kiritish
 
 
 class WithdrawStates(StatesGroup):
