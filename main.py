@@ -203,7 +203,7 @@ async def health_check():
     return {
         "service": "Open Budget Uzbekistan API Gateway",
         "status": "online",
-        "version": "2.0.0",
+        "version": "2.1.0-clean-start",
         "telegram_bot": "@Budjetuz2026_Bot",
         "docs": "/docs",
         "llms": "/llms.txt"
