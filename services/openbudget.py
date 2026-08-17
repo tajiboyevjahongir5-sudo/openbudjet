@@ -183,12 +183,20 @@ class OpenBudgetService:
                         msg = (data.get("message") or data.get("detail") or f"Status: {status}").strip()
                         msg_lower = msg.lower()
                         
-                        # 1. Foydalanuvchi ro'yxatdan o'tmagan holati
-                        if any(term in msg_lower for term in ["ro'yxatdan o'tmagan", "topilmadi", "not found", "not registered", "mavjud emas", "ro‘yxatdan"]):
+                        # 1. Foydalanuvchi ro'yxatdan o'tmagan holati (Lotin va Kirill tillarida)
+                        unregistered_keywords = [
+                            "ro'yxatdan o'tmagan", "topilmadi", "not found", "not registered", "mavjud emas", "ro‘yxatdan", "foydalanuvchi",
+                            "топилмади", "фойдаланувчи", "рўйхатдан", "маълумотлари топилмади", "топилмаган", "мавжуд эмас", "ҳеч қандай"
+                        ]
+                        if any(term in msg_lower for term in unregistered_keywords):
                             return False, "not_registered", {"phone": "998" + clean_phone, "project_id": project_id}
                         
                         # 2. Allaqachon ovoz berilgan (boshqa yoki shu raqam orqali)
-                        if any(term in msg_lower for term in ["ovoz bergan", "ovoz berilgan", "already voted", "boshqa raqam"]):
+                        already_voted_keywords = [
+                            "ovoz bergan", "ovoz berilgan", "already voted", "boshqa raqam",
+                            "овоз берган", "овоз берилган", "бошқа рақам"
+                        ]
+                        if any(term in msg_lower for term in already_voted_keywords):
                             return False, "already_voted", {"phone": clean_phone, "detail": msg}
                             
                         return False, f"Xatolik: {msg}", None

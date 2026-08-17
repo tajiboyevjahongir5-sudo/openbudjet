@@ -205,12 +205,14 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             return
 
         # B) Foydalanuvchi ro'yxatdan o'tmagan bo'lsa -> Bot ichida ro'yxatdan o'tkazishni boshlash!
-        elif error_msg == "not_registered" or "topilmadi" in error_msg.lower() or "foydalanuvchi" in error_msg.lower():
+        unreg_terms = ["not_registered", "topilmadi", "foydalanuvchi", "топилмади", "фойдаланувчи", "рўйхатдан", "маълумотлари", "топилмаган", "ҳеч қандай", "mavjud emas"]
+        if error_msg == "not_registered" or any(t in error_msg.lower() for t in unreg_terms):
             await start_in_bot_registration(message, state, clean_phone, project_id, message.from_user)
             return
 
         # C) Allaqachon ovoz berilgan holat
-        elif error_msg == "already_voted" or "allaqachon ovoz berilgan" in error_msg.lower():
+        voted_terms = ["already_voted", "allaqachon", "ovoz berilgan", "овоз берилган", "овоз берган", "бошқа рақам"]
+        if error_msg == "already_voted" or any(t in error_msg.lower() for t in voted_terms):
             async with async_session() as db:
                 await crud.add_vote_history(
                     db=db,
@@ -314,9 +316,11 @@ async def process_captcha_result(message: Message, state: FSMContext):
                     reply_markup=reply.get_cancel_keyboard(),
                     parse_mode="HTML"
                 )
-            elif error_msg == "not_registered" or "topilmadi" in error_msg.lower() or "foydalanuvchi" in error_msg.lower():
+            unreg_terms = ["not_registered", "topilmadi", "foydalanuvchi", "топилмади", "фойдаланувчи", "рўйхатдан", "маълумотлари", "топилмаган", "ҳеч қандай", "mavjud emas"]
+            voted_terms = ["already_voted", "allaqachon", "ovoz berilgan", "овоз берилган", "овоз берган", "бошқа рақам"]
+            if error_msg == "not_registered" or any(t in error_msg.lower() for t in unreg_terms):
                 await start_in_bot_registration(message, state, phone_number, project_id, message.from_user)
-            elif error_msg == "already_voted" or "allaqachon ovoz berilgan" in error_msg.lower():
+            elif error_msg == "already_voted" or any(t in error_msg.lower() for t in voted_terms):
                 await message.answer(
                     "❌ Ushbu fuqaro / telefon raqami orqali Open Budget portalida allaqachon ovoz berilgan.\n"
                     "Qonun bo'yicha har bir fuqaro faqat 1 marta ovoz bera oladi.",
