@@ -24,7 +24,20 @@ Terminalda quyidagi buyruqni bering:
 3. ISHGA TUSHIRISH USULLARI
 --------------------------------------------------------------------------------
 
-USUL A: Railway.app orqali (Tavsiya etiladi - Eng oson, 24/7 ishlaydi)
+USUL A: Web / Python Xostinglar orqali (XUSS Hosting, cPanel, Beget va boshqalar)
+---------------------------------------------------------------------------------
+1. Xosting paneliga kiring va "Fayl menejeri" orqali "open_budget_client_bot.py" faylini yuklang.
+2. Fayl boshidagi (yoki .env dagi) quyidagi 2 ta qatorga o'zingizning ma'lumotlaringizni yozing:
+      BOT_TOKEN = "7123456789:AAHxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # @BotFather dan
+      ADMIN_ID  = 123456789                                    # Sizning Telegram ID
+3. Xostingizdagi ">_ Terminal" (Konsol) tugmasini bosing va quyidagi buyruqni bering:
+      pip3 install aiogram aiohttp aiosqlite
+   (Agar pip3 ishlamasa: pip install aiogram aiohttp aiosqlite)
+4. "Python vositalari" bo'limiga o'tib, faylni tanlang va "Doimiy ishga tushirish" tugmasini bosing.
+   Bot 24/7 rejimida avtomatik ishlab ketadi!
+
+
+USUL B: Railway.app orqali (24/7 Bulutli server)
 ----------------------------------------------------------------------
 1. GitHub.com ga kiring va yangi Private (Yopiq) repo oching.
 2. "open_budget_client_bot.py" faylini shu repoga yuklang.
@@ -120,14 +133,18 @@ Bot ishga tushgach, o'z botingizga kirib /admin buyrug'ini yozing:
    yechib olishi mumkinligini belgilang (masalan: 5000).
 
 --------------------------------------------------------------------------------
-5. BOT IMKONIYATLARI VA FOYDALANISH
+6. KENG TARQALGAN SAVOLLAR VA XATOLIKLARNI TUZATISH (FAQ)
 --------------------------------------------------------------------------------
-• 🟢/🔴 Ovoz berishni vaqtincha to'xtatish yoki yoqish (Admin panel orqali).
-• 💸 Pul yechish so'rovlarini ko'rish va "Tasdiqlash" yoki "Rad etish".
-• 👥 Foydalanuvchilar soni, daromadlari va reytingini sahifalab ko'rish.
-• 📊 Barcha ovoz bergan telefon raqamlar ro'yxatini hisobot (TXT) sifatida yuklab olish.
-• 📢 Barcha foydalanuvchilarga xabar tarqatish (Broadcast).
-• 📋 Foydalanuvchilar o'z ovozlar tarixini va balansini ko'ra oladi.
+• "Yo'q paketlar: aiosqlite" yoki "No module named aiogram":
+  -> Xostingizning Terminaliga kirib `pip3 install aiogram aiohttp aiosqlite` deb yozing.
+
+• Bot xabarlarga javob bermayapti:
+  -> BOT_TOKEN to'g'ri kiritilganligini tekshiring.
+  -> Botga o'zingiz kirib /admin buyrug'ini yuboring va API kalitni ulang.
+
+• "Bot sozlanmoqda" deb turibdi:
+  -> /admin buyrug'i orqali API Kalit va Loyiha ID sini kiriting. Ular kiritilishi
+     bilan bot to'liq ovoz qabul qilishni boshlaydi.
 
 ================================================================================
                     Muvaffaqiyatli ish va yuksak natijalar tilaymiz!
