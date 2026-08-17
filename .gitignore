@@ -3,6 +3,12 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.db
+*.db-shm
+*.db-wal
+client_bot.db*
+scratch/
+public_client_repo/
 
 # Mahalliy ma'lumotlar bazasi va maxfiy sozlamalar
 database.db
