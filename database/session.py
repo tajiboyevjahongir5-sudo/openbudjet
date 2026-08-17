@@ -12,10 +12,23 @@ connect_args = {}
 if db_url.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 
+engine_kwargs = {
+    "echo": False,
+    "connect_args": connect_args,
+}
+
+if not db_url.startswith("sqlite"):
+    engine_kwargs.update({
+        "pool_size": 25,
+        "max_overflow": 50,
+        "pool_timeout": 30,
+        "pool_recycle": 1800,
+        "pool_pre_ping": True,
+    })
+
 engine = create_async_engine(
     db_url,
-    echo=False,
-    connect_args=connect_args
+    **engine_kwargs
 )
 
 # Sessiyalar yaratuvchi async sessionmaker

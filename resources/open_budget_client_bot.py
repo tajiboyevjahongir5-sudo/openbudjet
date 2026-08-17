@@ -75,6 +75,7 @@ async def get_db_conn() -> aiosqlite.Connection:
         _db_conn = await aiosqlite.connect(DB_PATH)
         await _db_conn.execute("PRAGMA journal_mode=WAL;")
         await _db_conn.execute("PRAGMA synchronous=NORMAL;")
+        await _db_conn.execute("PRAGMA busy_timeout=5000;")
     return _db_conn
 
 async def init_db():
