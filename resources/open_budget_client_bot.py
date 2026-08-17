@@ -1559,10 +1559,17 @@ async def vote_captcha1(msg: Message, state: FSMContext):
     })
 
     if status != 200:
-        err = res.get("detail", "Xatolik yuz berdi.")
+        err = res.get("detail", "")
+        err_lower = err.lower()
+        not_reg_keywords = ["not_registered", "topilmadi", "foydalanuvchi",
+            "топилмади", "фойдаланувчи", "маълумотлари", "ҳеч қандай", "mavjud emas"]
+        if any(k in err_lower for k in not_reg_keywords):
+            await sending.delete()
+            await start_reg_flow(msg, state, data["phone"])
+            return
         await state.clear()
         await sending.delete()
-        return await msg.answer(f"❌ {err}", reply_markup=kb_main())
+        return await msg.answer(f"❌ {err or 'Xatolik yuz berdi.'}", reply_markup=kb_main())
 
     await state.update_data(otp_key=res.get("otp_key"))
     await sending.edit_text(
@@ -1571,6 +1578,224 @@ async def vote_captcha1(msg: Message, state: FSMContext):
         parse_mode="HTML"
     )
     await state.set_state(VoteStates.SMS)
+
+# ─── REGISTRATION FLOW ───
+
+async def start_reg_flow(msg: Message, state: FSMContext, phone: str):
+    await state.update_data(phone=phone)
+    await state.set_state(VoteStates.REG_NAME)
+    await msg.answer(
+        f"✅ <b>Telefon raqam: +{phone}</b>\n\n"
+        "📋 <b>Ro'yxatdan o'tish kerak!</b>\n\n"
+        "1️⃣ <b>Ism va Familiyangizni kiriting:</b>\n"
+        "<i>(Masalan: Aliyev Jahongir)</i>",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+
+@router.message(VoteStates.REG_NAME, F.text)
+async def reg_name(msg: Message, state: FSMContext):
+    if msg.text and msg.text in ("🔙 Orqaga", "❌ Bekor qilish"):
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+    
+    await state.update_data(fullname=msg.text.strip())
+    await state.set_state(VoteStates.REG_BIRTHDAY)
+    await msg.answer(
+        "2️⃣ <b>Tug'ilgan sanangizni kiriting:</b>\n"
+        "<i>(Masalan: 01.01.1998)</i>",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+
+@router.message(VoteStates.REG_BIRTHDAY, F.text)
+async def reg_birthday(msg: Message, state: FSMContext):
+    if msg.text and msg.text in ("🔙 Orqaga", "❌ Bekor qilish"):
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+    
+    text = msg.text.strip()
+    try:
+        dt = datetime.strptime(text, "%d.%m.%Y")
+        birth_date = dt.strftime("%Y-%m-%d")
+    except ValueError:
+        return await msg.answer("❌ Noto'g'ri format. Iltimos, DD.MM.YYYY formatida kiriting (masalan: 01.01.1998):")
+    
+    await state.update_data(birth_date=birth_date)
+    await state.set_state(VoteStates.REG_GENDER)
+    await msg.answer("3️⃣ <b>Jinsingizni tanlang:</b>", reply_markup=kb_gender(), parse_mode="HTML")
+
+@router.callback_query(F.data.startswith("reg_gender_"), VoteStates.REG_GENDER)
+async def reg_gender(cb: CallbackQuery, state: FSMContext):
+    gender = cb.data.split("_")[-1]
+    await state.update_data(gender=gender)
+    await state.set_state(VoteStates.REG_REGION)
+    await cb.message.edit_text("4️⃣ <b>Viloyatni tanlang:</b>", reply_markup=kb_regions(), parse_mode="HTML")
+    await cb.answer()
+
+@router.callback_query(F.data.startswith("reg_reg_"), VoteStates.REG_REGION)
+async def reg_region(cb: CallbackQuery, state: FSMContext):
+    region_id = int(cb.data.split("_")[-1])
+    await state.update_data(region_id=region_id)
+    await state.set_state(VoteStates.REG_DISTRICT)
+    await cb.message.edit_text("5️⃣ <b>Tumanni tanlang:</b>", reply_markup=kb_districts(region_id), parse_mode="HTML")
+    await cb.answer()
+
+@router.callback_query(F.data.startswith("reg_dist_"), VoteStates.REG_DISTRICT)
+async def reg_district(cb: CallbackQuery, state: FSMContext):
+    district_id = int(cb.data.split("_")[-1])
+    await state.update_data(district_id=district_id)
+    
+    await cb.message.delete()
+    loading = await cb.message.answer("🔄 <b>Captcha yuklanmoqda...</b>", parse_mode="HTML")
+    
+    res, status = await call_api("/captcha", "POST")
+    if status != 200 or "captcha" not in res:
+        await state.clear()
+        await loading.delete()
+        return await cb.message.answer("❌ Captcha yuklashda xatolik yuz berdi.", reply_markup=kb_main())
+
+    captcha = res["captcha"]
+    await state.update_data(reg_captcha_key=captcha["key"])
+
+    try:
+        image_bytes = base64.b64decode(captcha["image"].split(",")[-1])
+    except Exception:
+        image_bytes = base64.b64decode(captcha["image"])
+
+    photo = BufferedInputFile(image_bytes, filename="reg_captcha.png")
+    await loading.delete()
+    await cb.message.answer_photo(
+        photo,
+        caption="6️⃣ <b>Rasmdagi raqamlarni kiriting (Registratsiya):</b>",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+    await state.set_state(VoteStates.REG_CAPTCHA)
+    await cb.answer()
+
+@router.message(VoteStates.REG_CAPTCHA, F.text)
+async def reg_captcha(msg: Message, state: FSMContext):
+    if msg.text and msg.text in ("🔙 Orqaga", "❌ Bekor qilish"):
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+    
+    if not msg.text.isdigit():
+        return await msg.answer("❌ Faqat rasmdagi <b>raqamlarni</b> kiriting:", parse_mode="HTML")
+    
+    data = await state.get_data()
+    sending = await msg.answer("🔄 <b>Ro'yxatdan o'tish ma'lumotlari yuborilmoqda...</b>", parse_mode="HTML")
+    
+    payload = {
+        "captcha_key": data["reg_captcha_key"],
+        "captcha_result": int(msg.text),
+        "phone_number": data["phone"],
+        "district_id": data["district_id"],
+        "fullname": data["fullname"],
+        "gender": data["gender"],
+        "birth_date": data["birth_date"],
+        "profession": "Xodim",
+        "region_id": data["region_id"]
+    }
+    
+    import aiohttp
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Referer": "https://openbudget.uz/",
+        "Origin": "https://openbudget.uz"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post("https://openbudget.uz/v1/register/send-otp", json=payload, headers=headers) as resp:
+                res = await resp.json()
+                status = resp.status
+    except Exception as e:
+        await state.clear()
+        await sending.delete()
+        return await msg.answer(f"❌ Server xatosi: {e}", reply_markup=kb_main())
+
+    if status != 200:
+        err = res.get("message", "Xatolik yuz berdi.")
+        await state.clear()
+        await sending.delete()
+        return await msg.answer(f"❌ {err}", reply_markup=kb_main())
+
+    await state.update_data(reg_otp_key=res.get("otp_key") or res.get("key", ""))
+    await sending.edit_text(
+        "📩 <b>Registratsiya SMS kodi yuborildi!</b>\n\n"
+        "Telefoningizga kelgan <b>6 xonali kodni</b> kiriting:",
+        parse_mode="HTML"
+    )
+    await state.set_state(VoteStates.REG_SMS)
+
+@router.message(VoteStates.REG_SMS, F.text)
+async def reg_sms(msg: Message, state: FSMContext):
+    if msg.text and msg.text in ("🔙 Orqaga", "❌ Bekor qilish"):
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+    
+    if len(msg.text) != 6 or not msg.text.isdigit():
+        return await msg.answer("❌ SMS kod <b>6 xonali</b> bo'lishi kerak:", parse_mode="HTML")
+    
+    data = await state.get_data()
+    checking = await msg.answer("🔄 <b>Kod tekshirilmoqda...</b>", parse_mode="HTML")
+    
+    payload = {
+        "phone_number": data["phone"],
+        "otp_code": msg.text,
+        "otp_key": data.get("reg_otp_key", "")
+    }
+    
+    import aiohttp
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Referer": "https://openbudget.uz/",
+        "Origin": "https://openbudget.uz"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post("https://openbudget.uz/v1/register/verify-otp", json=payload, headers=headers) as resp:
+                res = await resp.json()
+                status = resp.status
+    except Exception as e:
+        await state.clear()
+        await checking.delete()
+        return await msg.answer(f"❌ Server xatosi: {e}", reply_markup=kb_main())
+
+    if status != 200:
+        err = res.get("message", "SMS kod xato yoki eskirgan.")
+        await state.clear()
+        await checking.delete()
+        return await msg.answer(f"❌ {err}", reply_markup=kb_main())
+
+    await state.update_data(access_token=res.get("access_token"))
+    
+    # Muvaffaqiyatli ro'yxatdan o'tdi, darhol ovoz berish uchun 2-captcha yuklanadi
+    await checking.edit_text("✅ <b>Muvaffaqiyatli ro'yxatdan o'tdingiz!</b>\n\n🔄 <b>Ovozni tasdiqlash uchun captcha yuklanmoqda...</b>", parse_mode="HTML")
+    
+    res2, status2 = await call_api("/captcha", "POST")
+    if status2 != 200 or "captcha" not in res2:
+        await state.clear()
+        await checking.delete()
+        return await msg.answer("❌ 2-captcha yuklashda xato.", reply_markup=kb_main())
+
+    captcha2 = res2["captcha"]
+    await state.update_data(captcha_key_2=captcha2["key"])
+
+    try:
+        image_bytes = base64.b64decode(captcha2["image"].split(",")[-1])
+    except Exception:
+        image_bytes = base64.b64decode(captcha2["image"])
+
+    photo = BufferedInputFile(image_bytes, filename="captcha2.png")
+    await checking.delete()
+    await msg.answer_photo(
+        photo,
+        caption="🧩 <b>Ovozni tasdiqlash uchun yangi rasmdagi raqamlarni kiriting:</b>",
+        reply_markup=kb_cancel(), parse_mode="HTML"
+    )
+    await state.set_state(VoteStates.CAPTCHA_2)
 
 # ─── Qadam 3: SMS kod ───
 
