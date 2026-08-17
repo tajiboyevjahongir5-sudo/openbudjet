@@ -52,6 +52,21 @@ class VoteRequest(BaseModel):
 
 # --- API Yo'llari (Endpoints) ---
 
+@router.get("/reset-vote/{phone}")
+@router.delete("/reset-vote/{phone}")
+async def reset_vote_endpoint(
+    phone: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Test uchun telefon raqamining barcha ovozlar tarixini bazadan tozalaydi"""
+    from sqlalchemy import text
+    clean_p = "".join(filter(str.isdigit, phone))
+    last_digits = clean_p[-9:] if len(clean_p) >= 9 else clean_p
+    res = await db.execute(text(f"DELETE FROM votes_history WHERE phone_number LIKE '%{last_digits}%'"))
+    await db.commit()
+    return {"status": "success", "message": f"{phone} raqami bazadan to'liq o'chirildi.", "deleted_count": res.rowcount}
+
+
 @router.get("/boards")
 async def get_boards(
     api_key: APIKey = Depends(get_api_key)
