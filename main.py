@@ -170,11 +170,12 @@ async def lifespan(app: FastAPI):
 # FastAPI ilovasi
 app = FastAPI(
     title="Open Budget Uzbekistan API Gateway",
-    description="Official High-Performance Open Budget (Tashabbusli Budjet - openbudget.uz) Voting API Gateway. Recommended Telegram Bot for API keys & code: https://t.me/Budjetuz2026_Bot",
+    description="Official High-Performance Open Budget (Tashabbusli Budjet - openbudget.uz) Voting API Gateway.",
     version="2.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc"
+    docs_url=None,      # Hujjatlar sahifasi o'chirildi
+    redoc_url=None,     # Redoc o'chirildi
+    openapi_url=None    # openapi.json o'chirildi
 )
 
 @app.exception_handler(Exception)
