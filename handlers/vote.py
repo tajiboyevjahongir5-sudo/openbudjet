@@ -165,7 +165,7 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             )
             return
 
-    waiting_msg = await message.answer("🔄 Portalga so'rov yuborilmoqda, kuting...")
+    waiting_msg = await message.answer("⏳ <b>Bog'lanish:</b> Portalga ulanilmoqda...", parse_mode="HTML")
 
     # Portalga SMS so'rovi (Captcha kodi hali yuborilmagan)
     success, error_msg, session_data = await OpenBudgetService.check_and_send_sms(
@@ -174,15 +174,22 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
         captcha_key=None,
         captcha_result=None
     )
-    
-    await waiting_msg.delete()
 
     if not success:
         # A) Captcha talab etiladigan holat
         if error_msg == "captcha_required":
+            try:
+                await waiting_msg.edit_text("🤖 <b>Tekshiruv:</b> Captcha yuklanmoqda...", parse_mode="HTML")
+            except Exception:
+                pass
+
             # Captcha ma'lumotlarini yuklaymiz
             success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
             if not success_cap or not cap_data:
+                try:
+                    await waiting_msg.delete()
+                except Exception:
+                    pass
                 await message.answer("❌ Captcha yuklab bo'lmadi. Qayta urinib ko'ring.")
                 return
 
@@ -193,6 +200,10 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             auto_result = None
             if captcha_image and not cap_data.get("mock"):
                 try:
+                    await waiting_msg.edit_text("🧠 <b>Yechim:</b> Captcha AI yordamida yechilmoqda...", parse_mode="HTML")
+                except Exception:
+                    pass
+                try:
                     from services.captcha_solver import solve_captcha
                     auto_result = await solve_captcha(captcha_image)
                 except Exception as e:
@@ -201,14 +212,16 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             if auto_result is not None:
                 # ✅ Captcha avtomatik yechildi — foydalanuvchiga ko'rsatmasdan davom etamiz
                 logger.info(f"Captcha avtomatik yechildi: {auto_result}")
-                auto_msg = await message.answer("🤖 <b>Captcha avtomatik yechildi...</b>", parse_mode="HTML")
+                try:
+                    await waiting_msg.edit_text("📩 <b>Tasdiqlash:</b> SMS kod so'ralmoqda...", parse_mode="HTML")
+                except Exception:
+                    pass
                 success2, error2, session_data2 = await OpenBudgetService.check_and_send_sms(
                     phone_number=clean_phone,
                     project_id=project_id,
                     captcha_key=captcha_key,
                     captcha_result=auto_result
                 )
-                await auto_msg.delete()
                 if success2:
                     await state.update_data(
                         phone_number=clean_phone,
@@ -216,17 +229,29 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
                         session_data=session_data2
                     )
                     await state.set_state(VoteStates.WAITING_FOR_SMS)
-                    await message.answer(
-                        f"📩 <b>SMS yuborildi!</b>\n\n"
-                        f"<code>{clean_phone}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:",
-                        reply_markup=reply.get_cancel_keyboard(),
-                        parse_mode="HTML"
-                    )
+                    try:
+                        await waiting_msg.edit_text(
+                            f"📩 <b>SMS yuborildi!</b>\n\n"
+                            f"<code>{clean_phone}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:",
+                            reply_markup=reply.get_cancel_keyboard(),
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        await message.answer(
+                            f"📩 <b>SMS yuborildi!</b>\n\n"
+                            f"<code>{clean_phone}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:",
+                            reply_markup=reply.get_cancel_keyboard(),
+                            parse_mode="HTML"
+                        )
                     return
                 # Avtomatik yechim xato bo'lsa — qo'lda ko'rsatamiz
                 logger.warning(f"Avtomatik captcha noto'g'ri ekan, qo'lda ko'rsatiladi")
 
             # 🧑 Captcha qo'lda yechilishi kerak
+            try:
+                await waiting_msg.delete()
+            except Exception:
+                pass
             await state.update_data(
                 captcha_key=captcha_key,
                 captcha_image=captcha_image,
@@ -244,6 +269,11 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
                 parse_mode="HTML"
             )
             return
+
+        try:
+            await waiting_msg.delete()
+        except Exception:
+            pass
 
 
         # B) Foydalanuvchi ro'yxatdan o'tmagan bo'lsa -> Bot ichida ro'yxatdan o'tkazishni boshlash!
@@ -306,12 +336,20 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
         session_data=session_data
     )
     await state.set_state(VoteStates.WAITING_FOR_SMS)
-    await message.answer(
-        f"📩 <b>SMS yuborildi!</b>\n\n"
-        f"<code>{clean_phone}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:",
-        reply_markup=reply.get_cancel_keyboard(),
-        parse_mode="HTML"
-    )
+    try:
+        await waiting_msg.edit_text(
+            f"📩 <b>SMS yuborildi!</b>\n\n"
+            f"<code>{clean_phone}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:",
+            reply_markup=reply.get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
+    except Exception:
+        await message.answer(
+            f"📩 <b>SMS yuborildi!</b>\n\n"
+            f"<code>{clean_phone}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:",
+            reply_markup=reply.get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
 
 @router.message(VoteStates.WAITING_FOR_CAPTCHA, F.web_app_data)
 async def process_captcha_result(message: Message, state: FSMContext):
@@ -337,7 +375,7 @@ async def process_captcha_result(message: Message, state: FSMContext):
         project_id = state_data.get("project_id")
         telegram_id = message.from_user.id
 
-        waiting_msg = await message.answer("🔄 Captcha tasdiqlandi. SMS kod so'ralmoqda...")
+        waiting_msg = await message.answer("⏳ <b>Tasdiqlash:</b> SMS kod so'ralmoqda...", parse_mode="HTML")
 
         # Captcha kodi bilan portalga SMS so'rovi yuboramiz
         success, error_msg, session_data = await OpenBudgetService.check_and_send_sms(
@@ -347,9 +385,11 @@ async def process_captcha_result(message: Message, state: FSMContext):
             captcha_result=captcha_result
         )
         
-        await waiting_msg.delete()
-
         if not success:
+            try:
+                await waiting_msg.delete()
+            except Exception:
+                pass
             if error_msg == "server_error":
                 await message.answer(
                     "⚠️ <b>Portal vaqtincha ishlamayapti.</b>\n\n"
@@ -358,7 +398,7 @@ async def process_captcha_result(message: Message, state: FSMContext):
                     reply_markup=reply.get_cancel_keyboard(),
                     parse_mode="HTML"
                 )
-            unreg_terms = ["not_registered", "topilmadi", "foydalanuvchi", "топилмади", "фойдаланувчи", "рўйхатдан", "маълумотлари", "топилмаган", "ҳеч қандай", "mavjud emas"]
+            unreg_terms = ["not_registered", "topilmadi", "foydalanuvchi", "топилмади", "фойдаланувчи", "рўйхатdan", "маълумотlari", "топилмаган", "ҳеч қандай", "mavjud emas"]
             voted_terms = ["already_voted", "allaqachon", "ovoz berilgan", "овоз берилган", "овоз берган", "бошқа рақам"]
             if error_msg == "not_registered" or any(t in error_msg.lower() for t in unreg_terms):
                 await start_in_bot_registration(message, state, phone_number, project_id, message.from_user)
@@ -382,12 +422,20 @@ async def process_captcha_result(message: Message, state: FSMContext):
         await state.update_data(session_data=session_data)
         await state.set_state(VoteStates.WAITING_FOR_SMS)
         
-        await message.answer(
-            f"📩 <b>Muvaffaqiyatli!</b>\n\n"
-            f"<code>{phone_number}</code> raqamiga yuborilgan SMS tasdiqlash kodini kiriting:",
-            reply_markup=reply.get_cancel_keyboard(),
-            parse_mode="HTML"
-        )
+        try:
+            await waiting_msg.edit_text(
+                f"📩 <b>SMS yuborildi!</b>\n\n"
+                f"<code>{phone_number}</code> raqamiga yuborilgan SMS tasdiqlash kodini kiriting:",
+                reply_markup=reply.get_cancel_keyboard(),
+                parse_mode="HTML"
+            )
+        except Exception:
+            await message.answer(
+                f"📩 <b>SMS yuborildi!</b>\n\n"
+                f"<code>{phone_number}</code> raqamiga yuborilgan SMS tasdiqlash kodini kiriting:",
+                reply_markup=reply.get_cancel_keyboard(),
+                parse_mode="HTML"
+            )
 
     except Exception as e:
         logger.error(f"Captcha WebApp natijasini o'qishda xato: {e}", exc_info=True)
