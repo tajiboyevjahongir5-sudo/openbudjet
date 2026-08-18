@@ -56,10 +56,7 @@ def _get_next_key() -> Optional[str]:
 
 async def solve_captcha_with_gemini(image_base64: str) -> Optional[int]:
     """
-    Captcha rasmini Gemini Vision API orqali yechadi.
-    
-    :param image_base64: Base64 kodlangan captcha rasmi (data:image/... prefiksi bo'lishi yoki bo'lmasligi mumkin)
-    :return: Yechilgan son yoki None (muvaffaqiyatsiz bo'lsa)
+    Captcha rasmini parallel ravishda bir nechta Gemini API keylar orqali yechadi (Tezkorlik uchun).
     """
     global _keys
     if not _keys:
@@ -79,18 +76,39 @@ async def solve_captcha_with_gemini(image_base64: str) -> Optional[int]:
         logger.error(f"Captcha rasmi base64 decode xatosi: {e}")
         return None
 
-    # Har bir key bilan urinib ko'ramiz
-    for attempt, key in enumerate(_keys):
-        try:
-            result = await _try_solve_with_key(key, image_bytes)
-            if result is not None:
-                logger.info(f"Captcha muvaffaqiyatli yechildi: {result} (key #{attempt + 1})")
-                return result
-        except Exception as e:
-            logger.warning(f"Gemini key #{attempt + 1} xatosi: {e}")
-            continue
+    # Navbatdagi 3 ta kalitni parallel ishlash uchun tanlaymiz (Round-robin)
+    global _key_index
+    n_keys = len(_keys)
+    selected_keys = []
+    for _ in range(min(3, n_keys)):
+        selected_keys.append(_keys[_key_index % n_keys])
+        _key_index = (_key_index + 1) % n_keys
 
-    logger.warning("Barcha Gemini keylari bilan captcha yechib bo'lmadi")
+    # Parallel so'rovlarni yaratamiz
+    tasks = [
+        asyncio.create_task(_try_solve_with_key(key, image_bytes))
+        for key in selected_keys
+    ]
+
+    # Birinchi bo'lib muvaffaqiyatli kelgan javobni qabul qilamiz
+    result = None
+    for finished_task in asyncio.as_completed(tasks):
+        try:
+            res = await finished_task
+            if res is not None:
+                result = res
+                # Muvaffaqiyatli natija olgach, qolgan parallel vazifalarni bekor qilamiz
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
+                break
+        except Exception as e:
+            logger.warning(f"Parallel Gemini so'rovida xatolik: {e}")
+
+    if result is not None:
+        return result
+
+    logger.warning("Barcha parallel Gemini so'rovlari muvaffaqiyatsiz yakunlandi")
     return None
 
 
@@ -128,14 +146,13 @@ async def _try_solve_with_key(api_key: str, image_bytes: bytes) -> Optional[int]
         }
     }
 
-    timeout = aiohttp.ClientTimeout(total=10)
+    # Tezkor ishlash uchun timeoutni 5 soniya qilamiz
+    timeout = aiohttp.ClientTimeout(total=5)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(url, json=payload) as resp:
             if resp.status == 429:
-                logger.warning(f"Gemini rate limit (429) — keyingi key'ga o'tiladi")
                 return None
             if resp.status != 200:
-                logger.warning(f"Gemini API status: {resp.status}")
                 return None
 
             data = await resp.json()
