@@ -1523,6 +1523,39 @@ async def vote_phone(msg: Message, state: FSMContext):
     captcha = res["captcha"]
     await state.update_data(captcha_key=captcha["key"])
 
+    solved_result = captcha.get("solved_result")
+    if solved_result is not None:
+        await loading.delete()
+        sending = await msg.answer("🤖 <b>Captcha avtomatik yechildi. SMS kod yuborilmoqda...</b>", parse_mode="HTML")
+        res_otp, status_otp = await call_api("/send-otp", "POST", {
+            "phone_number": phone,
+            "captcha_key":  captcha["key"],
+            "captcha_result": int(solved_result),
+            "project_id":   await get_setting("project_id"),
+        })
+        
+        if status_otp != 200:
+            err = res_otp.get("detail", "")
+            err_lower = err.lower()
+            not_reg_keywords = ["not_registered", "topilmadi", "foydalanuvchi",
+                "топилмади", "фойдаланувчи", "маъluмотlari", "ҳеч қандай", "mavjud emas"]
+            if any(k in err_lower for k in not_reg_keywords):
+                await sending.delete()
+                await start_reg_flow(msg, state, phone)
+                return
+            await state.clear()
+            await sending.delete()
+            return await msg.answer(f"❌ {err or 'Xatolik yuz berdi.'}", reply_markup=kb_main())
+
+        await state.update_data(otp_key=res_otp.get("otp_key"))
+        await sending.edit_text(
+            f"📩 <b>SMS kod yuborildi!</b>\n\n"
+            f"<code>{phone}</code> raqamiga yuborilgan <b>6 xonali kodni</b> kiriting:",
+            parse_mode="HTML"
+        )
+        await state.set_state(VoteStates.SMS)
+        return
+
     try:
         image_bytes = base64.b64decode(captcha["image"].split(",")[-1])
     except Exception:
@@ -1656,6 +1689,60 @@ async def reg_district(cb: CallbackQuery, state: FSMContext):
     captcha = res["captcha"]
     await state.update_data(reg_captcha_key=captcha["key"])
 
+    solved_result = captcha.get("solved_result")
+    if solved_result is not None:
+        await loading.delete()
+        sending = await cb.message.answer("🤖 <b>Captcha avtomatik yechildi. Ro'yxatdan o'tish ma'lumotlari yuborilmoqda...</b>", parse_mode="HTML")
+        data = await state.get_data()
+        
+        payload = {
+            "captcha_key": captcha["key"],
+            "captcha_result": int(solved_result),
+            "phone_number": data["phone"],
+            "district_id": data["district_id"],
+            "fullname": data["fullname"],
+            "gender": data["gender"],
+            "birth_date": data["birth_date"],
+            "profession": "Xodim",
+            "region_id": data["region_id"]
+        }
+        
+        import aiohttp
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Referer": "https://openbudget.uz/",
+            "Origin": "https://openbudget.uz"
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post("https://openbudget.uz/v1/register/send-otp", json=payload, headers=headers) as resp:
+                    res_reg = await resp.json()
+                    status_reg = resp.status
+        except Exception as e:
+            await state.clear()
+            await sending.delete()
+            await cb.answer()
+            return await cb.message.answer(f"❌ Server xatosi: {e}", reply_markup=kb_main())
+
+        if status_reg != 200:
+            err = res_reg.get("message", "Xatolik yuz berdi.")
+            await state.clear()
+            await sending.delete()
+            await cb.answer()
+            return await cb.message.answer(f"❌ {err}", reply_markup=kb_main())
+
+        await state.update_data(reg_otp_key=res_reg.get("otp_key") or res_reg.get("key", ""))
+        await sending.edit_text(
+            f"📩 <b>Registratsiya SMS kodi yuborildi!</b>\n\n"
+            f"<code>{data['phone']}</code> raqamiga yuborilgan <b>6 xonali kodni</b> kiriting:",
+            parse_mode="HTML"
+        )
+        await state.set_state(VoteStates.REG_SMS)
+        await cb.answer()
+        return
+
     try:
         image_bytes = base64.b64decode(captcha["image"].split(",")[-1])
     except Exception:
@@ -1783,6 +1870,19 @@ async def reg_sms(msg: Message, state: FSMContext):
     captcha2 = res2["captcha"]
     await state.update_data(captcha_key_2=captcha2["key"])
 
+    solved_result2 = captcha2.get("solved_result")
+    if solved_result2 is not None:
+        await execute_cast_vote(
+            msg=msg,
+            state=state,
+            access_token=res.get("access_token"),
+            phone=data["phone"],
+            captcha_key=captcha2["key"],
+            captcha_result=int(solved_result2),
+            waiting_msg_to_delete=checking
+        )
+        return
+
     try:
         image_bytes = base64.b64decode(captcha2["image"].split(",")[-1])
     except Exception:
@@ -1837,6 +1937,19 @@ async def vote_sms(msg: Message, state: FSMContext):
     captcha2 = res2["captcha"]
     await state.update_data(captcha_key_2=captcha2["key"])
 
+    solved_result2 = captcha2.get("solved_result")
+    if solved_result2 is not None:
+        await execute_cast_vote(
+            msg=msg,
+            state=state,
+            access_token=res.get("access_token"),
+            phone=data["phone"],
+            captcha_key=captcha2["key"],
+            captcha_result=int(solved_result2),
+            waiting_msg_to_delete=checking
+        )
+        return
+
     try:
         image_bytes = base64.b64decode(captcha2["image"].split(",")[-1])
     except Exception:
@@ -1851,29 +1964,23 @@ async def vote_sms(msg: Message, state: FSMContext):
     )
     await state.set_state(VoteStates.CAPTCHA_2)
 
-# ─── Qadam 4: 2-Captcha va Yakuniy Ovoz ───
-
-@router.message(VoteStates.CAPTCHA_2, F.text)
-async def vote_captcha2(msg: Message, state: FSMContext):
-    text = msg.text.strip()
-    if text == "❌ Bekor qilish":
-        await state.clear()
-        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
-    if not text.isdigit():
-        return await msg.answer("❌ Faqat rasmdagi <b>raqamlarni</b> kiriting:", parse_mode="HTML")
-
-    data     = await state.get_data()
-    casting  = await msg.answer("⚡ <b>Ovoz berilmoqda...</b>", parse_mode="HTML")
-
+async def execute_cast_vote(msg: Message, state: FSMContext, access_token: str, phone: str, captcha_key: str, captcha_result: int, waiting_msg_to_delete: Message = None):
+    if waiting_msg_to_delete:
+        try:
+            await waiting_msg_to_delete.delete()
+        except Exception:
+            pass
+    casting = await msg.answer("⚡ <b>Ovoz berilmoqda...</b>", parse_mode="HTML")
+    
     res, status = await call_api("/cast-vote", "POST", {
         "project_id":   await get_setting("project_id"),
-        "access_token": data["access_token"],
-        "captcha_key":  data["captcha_key_2"],
-        "captcha_result": int(text),
+        "access_token": access_token,
+        "captcha_key":  captcha_key,
+        "captcha_result": captcha_result,
     })
-
+    
     await state.clear()
-
+    
     if status != 200:
         err = res.get("detail", "Ovoz berish muvaffaqiyatsiz tugadi.")
         await casting.delete()
@@ -1881,7 +1988,7 @@ async def vote_captcha2(msg: Message, state: FSMContext):
 
     # ── Muvaffaqiyatli ovoz ──
     reward = int(await get_setting("voter_reward") or 1000)
-    await add_vote(msg.from_user.id, data["phone"], reward)
+    await add_vote(msg.from_user.id, phone, reward)
 
     u       = await get_user(msg.from_user.id)
     new_bal = u[3] if u else reward
@@ -1893,6 +2000,27 @@ async def vote_captcha2(msg: Message, state: FSMContext):
         f"<tg-emoji emoji-id='5469950790893946284'>💎</tg-emoji> Yangi hamyon balansi: <b>{new_bal:,} UZS</b>\n\n"
         "Davom eting — qancha ko'p ovoz, shuncha ko'p daromad! 🚀",
         reply_markup=kb_main(), parse_mode="HTML"
+    )
+
+# ─── Qadam 4: 2-Captcha va Yakuniy Ovoz ───
+
+@router.message(VoteStates.CAPTCHA_2, F.text)
+async def vote_captcha2(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    if text == "❌ Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+    if not text.isdigit():
+        return await msg.answer("❌ Faqat rasmdagi <b>raqamlarni</b> kiriting:", parse_mode="HTML")
+
+    data = await state.get_data()
+    await execute_cast_vote(
+        msg=msg,
+        state=state,
+        access_token=data["access_token"],
+        phone=data["phone"],
+        captcha_key=data["captcha_key_2"],
+        captcha_result=int(text)
     )
 
 # ══════════════════════════════════════════════

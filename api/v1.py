@@ -115,6 +115,18 @@ async def get_captcha(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Captcha yuklashda xatolik: {msg}"
         )
+    
+    # Gemini orqali avtomatik yechish
+    image_base64 = data.get("image_base64")
+    if image_base64 and not data.get("mock"):
+        try:
+            from services.captcha_solver import solve_captcha
+            auto_result = await solve_captcha(image_base64)
+            if auto_result is not None:
+                data["solved_result"] = auto_result
+        except Exception as e:
+            logger.warning(f"API Captcha auto-solve error: {e}")
+
     return {"status": "success", "captcha": data}
 
 
