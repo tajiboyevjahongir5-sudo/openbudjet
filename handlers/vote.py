@@ -186,9 +186,50 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
                 await message.answer("❌ Captcha yuklab bo'lmadi. Qayta urinib ko'ring.")
                 return
 
+            captcha_key = cap_data.get("key")
+            captcha_image = cap_data.get("image_base64")
+
+            # 🤖 Gemini bilan avtomatik yechishga urinish
+            auto_result = None
+            if captcha_image and not cap_data.get("mock"):
+                try:
+                    from services.captcha_solver import solve_captcha
+                    auto_result = await solve_captcha(captcha_image)
+                except Exception as e:
+                    logger.warning(f"Gemini captcha solver xatosi: {e}")
+
+            if auto_result is not None:
+                # ✅ Captcha avtomatik yechildi — foydalanuvchiga ko'rsatmasdan davom etamiz
+                logger.info(f"Captcha avtomatik yechildi: {auto_result}")
+                auto_msg = await message.answer("🤖 <b>Captcha avtomatik yechildi...</b>", parse_mode="HTML")
+                success2, error2, session_data2 = await OpenBudgetService.check_and_send_sms(
+                    phone_number=clean_phone,
+                    project_id=project_id,
+                    captcha_key=captcha_key,
+                    captcha_result=auto_result
+                )
+                await auto_msg.delete()
+                if success2:
+                    await state.update_data(
+                        phone_number=clean_phone,
+                        project_id=project_id,
+                        session_data=session_data2
+                    )
+                    await state.set_state(VoteStates.WAITING_FOR_SMS)
+                    await message.answer(
+                        f"📩 <b>SMS yuborildi!</b>\n\n"
+                        f"<code>{clean_phone}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:",
+                        reply_markup=reply.get_cancel_keyboard(),
+                        parse_mode="HTML"
+                    )
+                    return
+                # Avtomatik yechim xato bo'lsa — qo'lda ko'rsatamiz
+                logger.warning(f"Avtomatik captcha noto'g'ri ekan, qo'lda ko'rsatiladi")
+
+            # 🧑 Captcha qo'lda yechilishi kerak
             await state.update_data(
-                captcha_key=cap_data.get("key"),
-                captcha_image=cap_data.get("image_base64"),
+                captcha_key=captcha_key,
+                captcha_image=captcha_image,
                 phone_number=clean_phone,
                 project_id=project_id,
                 session_data=session_data,
@@ -203,6 +244,7 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
                 parse_mode="HTML"
             )
             return
+
 
         # B) Foydalanuvchi ro'yxatdan o'tmagan bo'lsa -> Bot ichida ro'yxatdan o'tkazishni boshlash!
         unreg_terms = ["not_registered", "topilmadi", "foydalanuvchi", "топилмади", "фойдаланувчи", "рўйхатдан", "маълумотлари", "топилмаган", "ҳеч қандай", "mavjud emas"]

@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # Standart HTTP/SOCKS5 turar-joy proksi ulanishi (masalan: http://user:pass@ip:port)
     PROXY_URL: str = ""
 
+    # Gemini Vision API kalitlari (captcha avtomatik yechish uchun, vergul bilan ajratilgan)
+    GEMINI_API_KEYS: str = ""
+
     # FastAPI Server parametrlari
     HOST: str = "0.0.0.0"
     PORT: int = 8000
