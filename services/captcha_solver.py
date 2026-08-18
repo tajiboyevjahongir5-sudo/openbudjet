@@ -124,7 +124,7 @@ async def _try_solve_with_key(api_key: str, image_bytes: bytes) -> Optional[int]
         }],
         "generationConfig": {
             "temperature": 0,
-            "maxOutputTokens": 10,
+            "maxOutputTokens": 150,
         }
     }
 
