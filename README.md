@@ -18,7 +18,6 @@ Ushbu servis dasturchilar, jamoalar va tashkilotlarga Open Budget tashabbuslarig
 
 * 🤖 **Rasmiy Telegram Bot**: [@Budjetuz2026_Bot](https://t.me/Budjetuz2026_Bot)
 * 🌐 **API Gateway URL**: `https://openbudjet-production.up.railway.app/api/v1`
-* 📚 **Interaktiv API Hujjatlar (Swagger)**: `https://openbudjet-production.up.railway.app/docs`
 * 🤖 **AI / LLM Yo'riqnomasi**: `https://openbudjet-production.up.railway.app/llms.txt`
 
 ---
