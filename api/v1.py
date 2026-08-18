@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Header
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.session import get_db
-from database.models import APIKey
+from database.models import APIKey, VoteStatus
 from database import crud
 from utils.api_auth import get_api_key
 from services.openbudget import OpenBudgetService
@@ -48,6 +48,7 @@ class VoteRequest(BaseModel):
     access_token: str = Field(..., description="Verify-OTP bosqichida olingan login tokeni")
     captcha_key: str = Field(..., description="2-captcha kaliti")
     captcha_result: int = Field(..., description="2-captcha yechimi (rasmdagi raqamlar)")
+    phone_number: str | None = Field(None, description="Ovoz berilgan telefon raqami (bazaga yozish uchun)")
 
 
 # --- API Yo'llari (Endpoints) ---
@@ -133,12 +134,22 @@ async def get_captcha(
 @router.post("/send-otp")
 async def send_otp(
     req: OTPRequest,
-    api_key: APIKey = Depends(get_api_key)
+    api_key: APIKey = Depends(get_api_key),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Kiritilgan telefon raqam va captcha natijasi asosida SMS tasdiqlash kodini yuboradi.
     Narxi: Bepul
     """
+    # Global bazani tekshiramiz: bu raqam allaqachon ovoz berganmi?
+    clean_phone = "".join(filter(str.isdigit, req.phone_number))
+    already_voted = await crud.check_phone_voted(db, clean_phone, req.project_id)
+    if already_voted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="already_voted"
+        )
+
     success, msg, session_data = await OpenBudgetService.check_and_send_sms(
         phone_number=req.phone_number,
         project_id=req.project_id,
@@ -177,12 +188,22 @@ async def get_regions_and_districts():
 @router.post("/register/send-otp")
 async def register_send_otp(
     req: RegisterOTPRequest,
-    api_key: APIKey = Depends(get_api_key)
+    api_key: APIKey = Depends(get_api_key),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Open Budget'da ro'yxatdan o'tmagan yangi fuqaro uchun SMS OTP yuborish.
     Narxi: Bepul
     """
+    # Global bazani tekshiramiz: bu raqam allaqachon ovoz berganmi?
+    clean_phone = "".join(filter(str.isdigit, req.phone_number))
+    already_voted = await crud.check_phone_voted(db, clean_phone, req.project_id)
+    if already_voted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="already_voted"
+        )
+
     success, msg, session_data = await OpenBudgetService.send_registration_otp(
         first_name=req.first_name,
         last_name=req.last_name,
@@ -324,6 +345,21 @@ async def cast_vote(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result_msg
         )
+
+    # 3. Ovoz tarixini asosiy bazaga muvaffaqiyatli deb yozib qo'yamiz (global cheklov uchun)
+    if req.phone_number:
+        try:
+            clean_phone = "".join(filter(str.isdigit, req.phone_number))
+            await crud.add_vote_history(
+                db=db,
+                telegram_id=api_key.owner_id or 0,
+                phone_number=clean_phone,
+                project_id=req.project_id,
+                status=VoteStatus.SUCCESS,
+                commit=True
+            )
+        except Exception as e:
+            logger.error(f"API cast_vote history yozishda xatolik: {e}")
         
     return {
         "status": "success",

@@ -1977,6 +1977,7 @@ async def execute_cast_vote(msg: Message, state: FSMContext, access_token: str, 
         "access_token": access_token,
         "captcha_key":  captcha_key,
         "captcha_result": captcha_result,
+        "phone_number":   phone,
     })
     
     await state.clear()
