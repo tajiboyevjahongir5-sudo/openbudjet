@@ -165,7 +165,7 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             )
             return
 
-    waiting_msg = await message.answer("⏳ <b>Bog'lanish:</b> Portalga ulanilmoqda...", parse_mode="HTML")
+    waiting_msg = await message.answer("⏳ <b>Bog'lanish:</b> Open Budjetga ulanilmoqda...", parse_mode="HTML")
 
     # Portalga SMS so'rovi (Captcha kodi hali yuborilmagan)
     success, error_msg, session_data = await OpenBudgetService.check_and_send_sms(
