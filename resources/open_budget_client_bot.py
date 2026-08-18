@@ -1716,10 +1716,10 @@ async def reg_district(cb: CallbackQuery, state: FSMContext):
             "Origin": "https://openbudget.uz"
         }
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post("https://openbudget.uz/v1/register/send-otp", json=payload, headers=headers) as resp:
-                    res_reg = await resp.json()
-                    status_reg = resp.status
+            session = await get_http_session()
+            async with session.post("https://openbudget.uz/v1/register/send-otp", json=payload, headers=headers) as resp:
+                res_reg = await resp.json()
+                status_reg = resp.status
         except Exception as e:
             await state.clear()
             await sending.delete()
@@ -1791,10 +1791,10 @@ async def reg_captcha(msg: Message, state: FSMContext):
         "Origin": "https://openbudget.uz"
     }
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post("https://openbudget.uz/v1/register/send-otp", json=payload, headers=headers) as resp:
-                res = await resp.json()
-                status = resp.status
+        session = await get_http_session()
+        async with session.post("https://openbudget.uz/v1/register/send-otp", json=payload, headers=headers) as resp:
+            res = await resp.json()
+            status = resp.status
     except Exception as e:
         await state.clear()
         await sending.delete()
@@ -1841,10 +1841,10 @@ async def reg_sms(msg: Message, state: FSMContext):
         "Origin": "https://openbudget.uz"
     }
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post("https://openbudget.uz/v1/register/verify-otp", json=payload, headers=headers) as resp:
-                res = await resp.json()
-                status = resp.status
+        session = await get_http_session()
+        async with session.post("https://openbudget.uz/v1/register/verify-otp", json=payload, headers=headers) as resp:
+            res = await resp.json()
+            status = resp.status
     except Exception as e:
         await state.clear()
         await checking.delete()
