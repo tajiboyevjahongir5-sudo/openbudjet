@@ -15,6 +15,7 @@ import logging
 import base64
 import asyncio
 import re
+import aiohttp
 from io import BytesIO
 from typing import Optional
 
@@ -38,12 +39,53 @@ def _load_keys() -> list[str]:
 
 # Keylarni global holatda saqlaymiz va round-robin qilamiz
 _keys: list[str] = []
+_keys_verified: bool = False
 _key_index: int = 0
+
+async def verify_all_api_keys():
+    """
+    Tizimdagi barcha API kalitlarni bir marta tezkor tekshiradi
+    va faqat ishlaydigan hamda tezkor javob beradigan kalitlarni ro'yxatda qoldiradi.
+    """
+    global _keys, _keys_verified
+    _keys = _load_keys()
+    if not _keys:
+        _keys_verified = True
+        return
+
+    logger.info("Gemini API kalitlarini liveness check tekshiruvi boshlandi...")
+    
+    async def check_key(key):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={key}"
+        payload = {
+            "contents": [{"parts": [{"text": "Hello, respond with OK"}]}]
+        }
+        # 6 soniya kutish limiti (agar sekin yoki yaroqsiz bo'lsa tashlab yuboramiz)
+        timeout = aiohttp.ClientTimeout(total=6)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=payload) as resp:
+                    if resp.status == 200:
+                        return key
+                    else:
+                        logger.warning(f"Gemini API key check failed ({resp.status}) for key: {key[:10]}...")
+        except Exception as e:
+            logger.warning(f"Gemini API key check error ({e.__class__.__name__}) for key: {key[:10]}...")
+        return None
+
+    tasks = [check_key(key) for key in _keys]
+    results = await asyncio.gather(*tasks)
+    
+    working_keys = [k for k in results if k is not None]
+    
+    _keys = working_keys
+    _keys_verified = True
+    logger.info(f"Gemini Liveness Check tugadi: {len(working_keys)} ta faol/ishlaydigan kalitlar qoldi.")
 
 def _get_next_key() -> Optional[str]:
     """Round-robin usulida keyingi API key'ni qaytaradi"""
-    global _keys, _key_index
-    if not _keys:
+    global _keys, _key_index, _keys_verified
+    if not _keys and not _keys_verified:
         _keys = _load_keys()
     if not _keys:
         return None
@@ -146,8 +188,8 @@ async def _try_solve_with_key(api_key: str, image_bytes: bytes) -> Optional[int]
         }
     }
 
-    # Tezkor ishlash uchun timeoutni 5 soniya qilamiz
-    timeout = aiohttp.ClientTimeout(total=5)
+    # Tezkor ishlash uchun timeoutni 8 soniya qilamiz
+    timeout = aiohttp.ClientTimeout(total=8)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(url, json=payload) as resp:
             if resp.status == 429:

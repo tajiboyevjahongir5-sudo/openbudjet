@@ -130,6 +130,10 @@ async def init_db():
 async def lifespan(app: FastAPI):
     # Startup: Baza va Botni ishga tushirish
     await init_db()
+
+    # Gemini API keylarni liveness check qilish vazifasini fonda boshlaymiz
+    from services.captcha_solver import verify_all_api_keys
+    asyncio.create_task(verify_all_api_keys())
     
     if settings.WEBHOOK_URL:
         # Webhook rejimi
