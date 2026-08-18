@@ -165,6 +165,15 @@ async def lifespan(app: FastAPI):
     
     await bot.session.close()
     await engine.dispose()
+    
+    # OpenBudgetService HTTP session yopish
+    try:
+        from services.openbudget import OpenBudgetService
+        await OpenBudgetService.close_session()
+        logger.info("Open Budget HTTP session muvaffaqiyatli yopildi.")
+    except Exception as e:
+        logger.warning(f"Open Budget HTTP session yopishda xatolik: {e}")
+        
     logger.info("Ilova to'liq to'xtatildi.")
 
 # FastAPI ilovasi

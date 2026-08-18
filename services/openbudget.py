@@ -26,6 +26,19 @@ def mask_sensitive_data(data: dict) -> dict:
 
 class OpenBudgetService:
     """
+    _session: aiohttp.ClientSession | None = None
+
+    @classmethod
+    async def _get_session(cls) -> aiohttp.ClientSession:
+        if cls._session is None or cls._session.closed:
+            connector = aiohttp.TCPConnector(limit=100, keepalive_timeout=30)
+            cls._session = aiohttp.ClientSession(connector=connector)
+        return cls._session
+
+    @classmethod
+    async def close_session(cls):
+        if cls._session and not cls._session.closed:
+            await cls._session.close()
     openbudget.uz saytining rasmiy JS kodlaridan aniqlangan real ovoz berish API xizmati.
     """
     @classmethod
@@ -96,16 +109,16 @@ class OpenBudgetService:
             "Access-Captcha": cls._access_captcha_token(),
         }
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(cls.captcha_url(), headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return True, "ok", {
-                            "key": data.get("captchaKey"),
-                            "image_base64": data.get("image"),
-                        }
-                    text = await resp.text()
-                    return False, f"Captcha xatoligi: {resp.status}", None
+            session = await cls._get_session()
+            async with session.get(cls.captcha_url(), headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return True, "ok", {
+                        "key": data.get("captchaKey"),
+                        "image_base64": data.get("image"),
+                    }
+                text = await resp.text()
+                return False, f"Captcha xatoligi: {resp.status}", None
         except Exception as e:
             logger.error(f"Captcha yuklashda xatolik: {e}")
             return False, "Captcha yuklashda tarmoq xatoligi yuz berdi.", None
@@ -158,48 +171,48 @@ class OpenBudgetService:
             "captcha_result": int(captcha_result) if captcha_result is not None else 0,
         }
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(cls.send_otp_url(), json=payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
-                    status = resp.status
-                    try:
-                        data = await resp.json()
-                    except Exception:
-                        data = {}
-                    
-                    logger.info(f"send-otp javob: {status} — {mask_sensitive_data(data)}")
-                    
-                    if status == 200:
-                        return True, "SMS tasdiqlash kodi yuborildi.", {
-                            "phone": "998" + clean_phone,
-                            "project_id": project_id,
-                            "otp_key": data.get("otpKey"),
-                        }
-                    elif status == 429:
-                        retry = data.get("retryAfter", 60)
-                        return False, f"Juda ko'p urinish. {retry} soniyadan keyin qayta urinib ko'ring.", None
-                    elif status in (500, 502, 503, 504):
-                        return False, "server_error", None
-                    else:
-                        msg = (data.get("message") or data.get("detail") or f"Status: {status}").strip()
-                        msg_lower = msg.lower()
-                        
-                        # 1. Foydalanuvchi ro'yxatdan o'tmagan holati (Lotin va Kirill tillarida)
-                        unregistered_keywords = [
-                            "ro'yxatdan o'tmagan", "topilmadi", "not found", "not registered", "mavjud emas", "ro‘yxatdan", "foydalanuvchi",
-                            "топилмади", "фойдаланувчи", "рўйхатдан", "маълумотлари топилмади", "топилмаган", "мавжуд эмас", "ҳеч қандай"
-                        ]
-                        if any(term in msg_lower for term in unregistered_keywords):
-                            return False, "not_registered", {"phone": "998" + clean_phone, "project_id": project_id}
-                        
-                        # 2. Allaqachon ovoz berilgan (boshqa yoki shu raqam orqali)
-                        already_voted_keywords = [
-                            "ovoz bergan", "ovoz berilgan", "already voted", "boshqa raqam",
-                            "овоз берган", "овоз берилган", "бошқа рақам"
-                        ]
-                        if any(term in msg_lower for term in already_voted_keywords):
-                            return False, "already_voted", {"phone": clean_phone, "detail": msg}
-                            
-                        return False, f"Xatolik: {msg}", None
+            session = await cls._get_session()
+            async with session.post(cls.send_otp_url(), json=payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
+                status = resp.status
+                try:
+                    data = await resp.json()
+                except Exception:
+                    data = {}
+
+                logger.info(f"send-otp javob: {status} — {mask_sensitive_data(data)}")
+
+                if status == 200:
+                    return True, "SMS tasdiqlash kodi yuborildi.", {
+                        "phone": "998" + clean_phone,
+                        "project_id": project_id,
+                        "otp_key": data.get("otpKey"),
+                    }
+                elif status == 429:
+                    retry = data.get("retryAfter", 60)
+                    return False, f"Juda ko'p urinish. {retry} soniyadan keyin qayta urinib ko'ring.", None
+                elif status in (500, 502, 503, 504):
+                    return False, "server_error", None
+                else:
+                    msg = (data.get("message") or data.get("detail") or f"Status: {status}").strip()
+                    msg_lower = msg.lower()
+
+                    # 1. Foydalanuvchi ro'yxatdan o'tmagan holati (Lotin va Kirill tillarida)
+                    unregistered_keywords = [
+                        "ro'yxatdan o'tmagan", "topilmadi", "not found", "not registered", "mavjud emas", "ro‘yxatdan", "foydalanuvchi",
+                        "топилмади", "фойдаланувчи", "рўйхатдан", "маълумотлари топилмади", "топилмаган", "мавжуд эмас", "ҳеч қандай"
+                    ]
+                    if any(term in msg_lower for term in unregistered_keywords):
+                        return False, "not_registered", {"phone": "998" + clean_phone, "project_id": project_id}
+
+                    # 2. Allaqachon ovoz berilgan (boshqa yoki shu raqam orqali)
+                    already_voted_keywords = [
+                        "ovoz bergan", "ovoz berilgan", "already voted", "boshqa raqam",
+                        "овоз берган", "овоз берилган", "бошқа рақам"
+                    ]
+                    if any(term in msg_lower for term in already_voted_keywords):
+                        return False, "already_voted", {"phone": clean_phone, "detail": msg}
+
+                    return False, f"Xatolik: {msg}", None
         except Exception as e:
             logger.error(f"Send OTP Error: {e}")
             return False, "Portalga ulanib bo'lmadi. Keyinroq urinib ko'ring.", None
@@ -262,24 +275,24 @@ class OpenBudgetService:
         }
         
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(cls.register_send_otp_url(), json=reg_payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
-                    status = resp.status
-                    try:
-                        data = await resp.json()
-                    except Exception:
-                        data = {}
-                        
-                    logger.info(f"register/send-otp javob: {status} — {mask_sensitive_data(data)}")
-                    if status == 200:
-                        return True, "Ro'yxatdan o'tish SMS kodi yuborildi.", {
-                            "phone": "998" + clean_phone,
-                            "project_id": project_id,
-                            "otp_key": data.get("otpKey"),
-                        }
-                    else:
-                        msg = data.get("message") or data.get("detail") or f"Status: {status}"
-                        return False, f"Ro'yxatdan o'tishda xatolik: {msg}", None
+            session = await cls._get_session()
+            async with session.post(cls.register_send_otp_url(), json=reg_payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
+                status = resp.status
+                try:
+                    data = await resp.json()
+                except Exception:
+                    data = {}
+
+                logger.info(f"register/send-otp javob: {status} — {mask_sensitive_data(data)}")
+                if status == 200:
+                    return True, "Ro'yxatdan o'tish SMS kodi yuborildi.", {
+                        "phone": "998" + clean_phone,
+                        "project_id": project_id,
+                        "otp_key": data.get("otpKey"),
+                    }
+                else:
+                    msg = data.get("message") or data.get("detail") or f"Status: {status}"
+                    return False, f"Ro'yxatdan o'tishda xatolik: {msg}", None
         except Exception as e:
             logger.error(f"Register send-otp exception: {e}")
             return False, "Ro'yxatdan o'tish tizimiga ulanib bo'lmadi.", None
@@ -321,22 +334,22 @@ class OpenBudgetService:
         }
         
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(cls.register_verify_otp_url(), json=verify_payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
-                    if resp.status != 200:
-                        try:
-                            data = await resp.json()
-                            msg = data.get("message") or "Kiritilgan kod noto'g'ri."
-                        except Exception:
-                            msg = f"Status kodi: {resp.status}"
-                        return False, f"SMS tasdiqlashda xatolik: {msg}"
-                    
-                    res_data = await resp.json()
-                    logger.info(f"register/verify-otp javob: {resp.status} — {mask_sensitive_data(res_data)}")
-                    access_token = res_data.get("access_token")
-                    if not access_token:
-                        return False, "Tizimdan ruxsat tokenini olib bo'lmadi."
-                    return True, access_token
+            session = await cls._get_session()
+            async with session.post(cls.register_verify_otp_url(), json=verify_payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
+                if resp.status != 200:
+                    try:
+                        data = await resp.json()
+                        msg = data.get("message") or "Kiritilgan kod noto'g'ri."
+                    except Exception:
+                        msg = f"Status kodi: {resp.status}"
+                    return False, f"SMS tasdiqlashda xatolik: {msg}"
+
+                res_data = await resp.json()
+                logger.info(f"register/verify-otp javob: {resp.status} — {mask_sensitive_data(res_data)}")
+                access_token = res_data.get("access_token")
+                if not access_token:
+                    return False, "Tizimdan ruxsat tokenini olib bo'lmadi."
+                return True, access_token
         except Exception as e:
             logger.error(f"Verify registration SMS Exception: {e}")
             return False, "SMS tasdiqlashda tarmoq xatoligi yuz berdi."
@@ -379,22 +392,22 @@ class OpenBudgetService:
         }
         
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(cls.verify_otp_url(), json=login_payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
-                    if resp.status != 200:
-                        try:
-                            data = await resp.json()
-                            msg = data.get("message") or "Kiritilgan kod noto'g'ri."
-                        except Exception:
-                            msg = f"Status kodi: {resp.status}"
-                        return False, f"SMS tasdiqlashda xatolik: {msg}"
-                    
-                    login_data = await resp.json()
-                    logger.info(f"verify-otp javob: {resp.status} — {mask_sensitive_data(login_data)}")
-                    access_token = login_data.get("access_token")
-                    if not access_token:
-                        return False, "Tizimdan ruxsat tokenini olib bo'lmadi."
-                    return True, access_token
+            session = await cls._get_session()
+            async with session.post(cls.verify_otp_url(), json=login_payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
+                if resp.status != 200:
+                    try:
+                        data = await resp.json()
+                        msg = data.get("message") or "Kiritilgan kod noto'g'ri."
+                    except Exception:
+                        msg = f"Status kodi: {resp.status}"
+                    return False, f"SMS tasdiqlashda xatolik: {msg}"
+
+                login_data = await resp.json()
+                logger.info(f"verify-otp javob: {resp.status} — {mask_sensitive_data(login_data)}")
+                access_token = login_data.get("access_token")
+                if not access_token:
+                    return False, "Tizimdan ruxsat tokenini olib bo'lmadi."
+                return True, access_token
 
         except Exception as e:
             logger.error(f"Verify SMS Exception: {e}", exc_info=True)
@@ -435,24 +448,24 @@ class OpenBudgetService:
         }
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(cls.cast_vote_url(), json=vote_payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as v_resp:
-                    v_status = v_resp.status
-                    try:
-                        v_data = await v_resp.json()
-                    except Exception:
-                        v_data = {}
+            session = await cls._get_session()
+            async with session.post(cls.cast_vote_url(), json=vote_payload, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as v_resp:
+                v_status = v_resp.status
+                try:
+                    v_data = await v_resp.json()
+                except Exception:
+                    v_data = {}
 
-                    logger.info(f"Ovoz berish yakuniy javobi: {v_status} - {mask_sensitive_data(v_data)}")
-                    if v_status == 200:
-                        return True, "Sizning ovozingiz muvaffaqiyatli qabul qilindi!"
-                    else:
-                        detail = v_data.get("message") or v_data.get("detail") or f"Xatolik kodi: {v_status}"
-                        if "already" in detail.lower() or "ovoz berilgan" in detail.lower():
-                            return False, "already_voted"
-                        if v_status in (410, 400) and ("captcha" in detail.lower() or "key" in detail.lower()):
-                            return False, "invalid_captcha"
-                        return False, f"Ovoz berish rad etildi: {detail}"
+                logger.info(f"Ovoz berish yakuniy javobi: {v_status} - {mask_sensitive_data(v_data)}")
+                if v_status == 200:
+                    return True, "Sizning ovozingiz muvaffaqiyatli qabul qilindi!"
+                else:
+                    detail = v_data.get("message") or v_data.get("detail") or f"Xatolik kodi: {v_status}"
+                    if "already" in detail.lower() or "ovoz berilgan" in detail.lower():
+                        return False, "already_voted"
+                    if v_status in (410, 400) and ("captcha" in detail.lower() or "key" in detail.lower()):
+                        return False, "invalid_captcha"
+                    return False, f"Ovoz berish rad etildi: {detail}"
 
         except Exception as e:
             logger.error(f"Cast Vote Exception: {e}", exc_info=True)
@@ -475,11 +488,11 @@ class OpenBudgetService:
             "Origin": "https://openbudget.uz"
         }
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return data.get("boards", [])
+            session = await cls._get_session()
+            async with session.get(url, headers=headers, timeout=15, proxy=settings.PROXY_URL or None) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("boards", [])
         except Exception as e:
             logger.error(f"Boards yuklashda xatolik: {e}")
         return []
@@ -522,18 +535,18 @@ class OpenBudgetService:
             board_id = board.get("id")
             url = cls._get_url(f"/v2/info/board/{board_id}?search={project_id}")
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, headers=headers, timeout=12, proxy=settings.PROXY_URL or None) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            content = data.get("content", [])
-                            # Qidiruv natijalari orasidan publicId kiritilgan project_id ni o'z ichiga olganini topamiz
-                            for item in content:
-                                pub_id = str(item.get("publicId", ""))
-                                expected_prefix = f"0{board_id}{project_id}"
-                                if pub_id.startswith(expected_prefix) or project_id in pub_id:
-                                    item["boardTitle"] = board.get("title", "Tashabbusli Budjet")
-                                    return item
+                session = await cls._get_session()
+                async with session.get(url, headers=headers, timeout=12, proxy=settings.PROXY_URL or None) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        content = data.get("content", [])
+                        # Qidiruv natijalari orasidan publicId kiritilgan project_id ni o'z ichiga olganini topamiz
+                        for item in content:
+                            pub_id = str(item.get("publicId", ""))
+                            expected_prefix = f"0{board_id}{project_id}"
+                            if pub_id.startswith(expected_prefix) or project_id in pub_id:
+                                item["boardTitle"] = board.get("title", "Tashabbusli Budjet")
+                                return item
             except Exception as e:
                 logger.error(f"Board {board_id} dan loyiha qidirishda xatolik: {e}")
                 
