@@ -26,6 +26,8 @@ def mask_sensitive_data(data: dict) -> dict:
 
 class OpenBudgetService:
     """
+    openbudget.uz saytining rasmiy JS kodlaridan aniqlangan real ovoz berish API xizmati.
+    """
     _session: aiohttp.ClientSession | None = None
 
     @classmethod
@@ -39,8 +41,6 @@ class OpenBudgetService:
     async def close_session(cls):
         if cls._session and not cls._session.closed:
             await cls._session.close()
-    openbudget.uz saytining rasmiy JS kodlaridan aniqlangan real ovoz berish API xizmati.
-    """
     @classmethod
     def _get_url(cls, path: str) -> str:
         """Proksi URL mavjud bo'lsa undan foydalanadi, aks holda real saytdan"""
