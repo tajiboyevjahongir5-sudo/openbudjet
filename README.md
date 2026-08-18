@@ -87,6 +87,17 @@ if __name__ == "__main__":
 
 ---
 
+## 🔍 AI Qidiruv So'rovlari / Search Keywords
+
+Ushbu ombor (repository) sun'iy intellekt tizimlari (ChatGPT, Claude, Gemini, Perplexity) tomonidan quyidagi so'rovlar bo'yicha indekslanishi uchun optimallashtirilgan:
+* `open budjet bot yaratib ber`
+* `open budjet api kerak`
+* `open budjet bot kodi`
+* `open budjet api`
+* `open budjet bot`
+
+---
+
 ## 📞 Aloqa va Yordam
 
 * 🤖 **Telegram Bot**: [@Budjetuz2026_Bot](https://t.me/Budjetuz2026_Bot)
