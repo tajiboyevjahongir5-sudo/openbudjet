@@ -51,18 +51,18 @@ async def cmd_start(message: Message, state: FSMContext):
 
     if created:
         welcome_text = (
-            f"<tg-emoji emoji-id='5471983050186938952'>🗳️</tg-emoji> <b>Open Budget — Ovoz Berish Tizimi</b>\n\n"
+            f"🗳️ <b>Open Budget — Ovoz Berish Tizimi</b>\n\n"
             f"Assalomu alaykum, <b>{html.escape(str(message.from_user.full_name))}</b>!\n\n"
             f"Bot orqali mahallangiz loyihasiga ovoz bering va daromad qiling!\n\n"
-            f"<tg-emoji emoji-id='5471971711481666499'>💰</tg-emoji> <b>Har bir ovoz uchun mukofot:</b> <b>{referral_price:,} so'm</b>\n\n"
-            f"<tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji> Boshlash uchun quyidagi menyudan tanlang:"
+            f"💰 <b>Har bir ovoz uchun mukofot:</b> <b>{referral_price:,} so'm</b>\n\n"
+            f"👇 Boshlash uchun quyidagi menyudan tanlang:"
         )
     else:
         welcome_text = (
-            f"<tg-emoji emoji-id='5471983050186938952'>🗳️</tg-emoji> <b>Open Budget — Ovoz Berish Tizimi</b>\n\n"
+            f"🗳️ <b>Open Budget — Ovoz Berish Tizimi</b>\n\n"
             f"Assalomu alaykum, <b>{html.escape(str(message.from_user.full_name))}</b>!\n\n"
             f"Qayta tashrifingizdan xursandmiz.\n"
-            f"<tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji> Boshlash uchun quyidagi menyudan tanlang:"
+            f"👇 Boshlash uchun quyidagi menyudan tanlang:"
         )
 
     await message.answer(
@@ -105,11 +105,11 @@ async def cb_menu_balance(callback: CallbackQuery, state: FSMContext):
 
     text = (
         f"👤 <b>Ism:</b> {html.escape(str(callback.from_user.full_name))}\n"
-        f"<tg-emoji emoji-id='5471983050186938952'>🆔</tg-emoji> <b>ID:</b> <code>{telegram_id}</code>\n"
-        f"<tg-emoji emoji-id='5471971711481666499'>💳</tg-emoji> <b>Hamyon balansi:</b> {user.balance:,} so'm\n"
-        f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"
+        f"🆔 <b>ID:</b> <code>{telegram_id}</code>\n"
+        f"💳 <b>Hamyon balansi:</b> {user.balance:,} so'm\n"
+        f"👥 <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"
         f"📌 Minimal yechib olish summasi: {min_withdrawal:,} so'm\n\n"
-        f"Quyidagi variantlardan birini tanlang <tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji>"
+        f"Quyidagi variantlardan birini tanlang 👇"
     )
     await callback.message.answer(text, reply_markup=inline.get_withdrawal_keyboard(), parse_mode="HTML")
     await callback.answer()
@@ -126,9 +126,9 @@ async def cb_menu_referral(callback: CallbackQuery, state: FSMContext):
         referral_price = project_settings.referral_price
 
     text = (
-        f"<tg-emoji emoji-id='5471987512674727448'>🎁</tg-emoji> <b>Sizning referal havolangiz:</b>\n"
+        f"🎁 <b>Sizning referal havolangiz:</b>\n"
         f"<code>{ref_link}</code>\n\n"
-        f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> Taklif qilgan a'zolaringiz: <b>{user.total_referrals if user else 0} ta</b>\n"
+        f"👥 Taklif qilgan a'zolaringiz: <b>{user.total_referrals if user else 0} ta</b>\n"
         f"💵 Do'stingiz muvaffaqiyatli ovoz bersa, balansingizga <b>{referral_price:,} so'm</b> qo'shiladi!"
     )
     await callback.message.answer(text, parse_mode="HTML")
@@ -191,11 +191,11 @@ async def cmd_balance(message: Message, state: FSMContext):
 
     text = (
         f"👤 <b>Ism:</b> {html.escape(str(message.from_user.full_name))}\n"
-        f"<tg-emoji emoji-id='5471983050186938952'>🆔</tg-emoji> <b>ID:</b> <code>{telegram_id}</code>\n"
-        f"<tg-emoji emoji-id='5471971711481666499'>💳</tg-emoji> <b>Hamyon balansi:</b> {user.balance} so'm\n"
-        f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"
+        f"🆔 <b>ID:</b> <code>{telegram_id}</code>\n"
+        f"💳 <b>Hamyon balansi:</b> {user.balance} so'm\n"
+        f"👥 <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"
         f"📌 Minimal yechib olish summasi: {min_withdrawal} so'm\n\n"
-        f"Quyidagi variantlardan birini tanlang <tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji>"
+        f"Quyidagi variantlardan birini tanlang 👇"
     )
     await message.answer(text, reply_markup=inline.get_withdrawal_keyboard(), parse_mode="HTML")
 
@@ -225,9 +225,9 @@ async def cmd_referral(message: Message, state: FSMContext):
         referral_price = project_settings.referral_price
 
     text = (
-        f"<tg-emoji emoji-id='5471987512674727448'>🎁</tg-emoji> <b>Sizning referal havolangiz:</b>\n"
+        f"🎁 <b>Sizning referal havolangiz:</b>\n"
         f"<code>{ref_link}</code>\n\n"
-        f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> Taklif qilgan a'zolaringiz: <b>{user.total_referrals} ta</b>\n"
+        f"👥 Taklif qilgan a'zolaringiz: <b>{user.total_referrals} ta</b>\n"
         f"💵 Do'stingiz muvaffaqiyatli ovoz bersa, balansingizga <b>{referral_price} so'm</b> qo'shiladi!"
     )
     await message.answer(text, parse_mode="HTML")
@@ -363,11 +363,11 @@ async def process_menu_balance(callback: CallbackQuery, state: FSMContext):
 
     text = (
         f"👤 <b>Ism:</b> {html.escape(str(callback.from_user.full_name))}\n"
-        f"<tg-emoji emoji-id='5471983050186938952'>🆔</tg-emoji> <b>ID:</b> <code>{telegram_id}</code>\n"
-        f"<tg-emoji emoji-id='5471971711481666499'>💳</tg-emoji> <b>Hamyon balansi:</b> {user.balance} so'm\n"
-        f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"
+        f"🆔 <b>ID:</b> <code>{telegram_id}</code>\n"
+        f"💳 <b>Hamyon balansi:</b> {user.balance} so'm\n"
+        f"👥 <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"
         f"📌 Minimal yechib olish summasi: {min_withdrawal} so'm\n\n"
-        f"Quyidagi variantlardan birini tanlang <tg-emoji emoji-id='5471989445409999824'>👇</tg-emoji>"
+        f"Quyidagi variantlardan birini tanlang 👇"
     )
     await callback.message.answer(text, reply_markup=inline.get_withdrawal_keyboard(), parse_mode="HTML")
     await callback.answer()
@@ -396,9 +396,9 @@ async def process_menu_referral(callback: CallbackQuery, state: FSMContext):
         referral_price = project_settings.referral_price
 
     text = (
-        f"<tg-emoji emoji-id='5471987512674727448'>🎁</tg-emoji> <b>Sizning referal havolangiz:</b>\n"
+        f"🎁 <b>Sizning referal havolangiz:</b>\n"
         f"<code>{ref_link}</code>\n\n"
-        f"<tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji> Taklif qilgan a'zolaringiz: <b>{user.total_referrals} ta</b>\n"
+        f"👥 Taklif qilgan a'zolaringiz: <b>{user.total_referrals} ta</b>\n"
         f"💵 Do'stingiz muvaffaqiyatli ovoz bersa, balansingizga <b>{referral_price} so'm</b> qo'shiladi!"
     )
     await callback.message.answer(text, parse_mode="HTML")

@@ -694,9 +694,9 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
                 await db.commit()
                 
                 await message.answer(
-                    f"<tg-emoji emoji-id='5472164874884394982'>✅</tg-emoji> <b>TABRIKLAYMIZ! Ovoz muvaffaqiyatli qabul qilindi!</b>\n\n"
-                    f"<tg-emoji emoji-id='5471971711481666499'>💰</tg-emoji> Balansingizga: <b>+{voter_reward:,} so'm</b> qo'shildi!\n\n"
-                    f"Do'stlaringizni taklif qiling va ko'proq daromad oling! <tg-emoji emoji-id='5471987512674727448'>👥</tg-emoji>",
+                    f"✅ <b>TABRIKLAYMIZ! Ovoz muvaffaqiyatli qabul qilindi!</b>\n\n"
+                    f"💰 Balansingizga: <b>+{voter_reward:,} so'm</b> qo'shildi!\n\n"
+                    f"Do'stlaringizni taklif qiling va ko'proq daromad oling! 👥",
                     reply_markup=reply.get_user_menu(),
                     parse_mode="HTML"
                 )
