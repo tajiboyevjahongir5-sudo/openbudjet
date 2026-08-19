@@ -24,10 +24,11 @@ class ThrottlingMiddleware(BaseMiddleware):
             uid = user.id
             last = self._data.get(uid, 0)
             if now - last < self.limit:
-                if isinstance(event, Message):
-                    await event.answer("⚠️ Iltimos, biroz kuting!")
-                elif isinstance(event, CallbackQuery):
-                    await event.answer("⚠️ Juda tez! Biroz kuting.", show_alert=True)
+                if isinstance(event, CallbackQuery):
+                    try:
+                        await event.answer("⚠️ Juda tez! Biroz kuting.", show_alert=True)
+                    except Exception:
+                        pass
                 return
             self._data[uid] = now
             if len(self._data) > self._cleanup_threshold:
