@@ -1,6 +1,7 @@
 import logging
 import random
 import secrets
+import hashlib
 import re
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, FSInputFile
@@ -238,17 +239,31 @@ async def process_payment_notification(message: Message):
             if purchase.unique_price_uzs in numbers:
                 logger.info(f"Mos keluvchi to'lov topildi: {purchase.unique_price_uzs} UZS. Xarid ID: {purchase.id}")
                 
-                # 1. Yangi API kalit yaratamiz
-                plain_key = f"ob_api_{secrets.token_hex(16)}"
-                await crud.create_api_key(
-                    db=db,
-                    plain_key=plain_key,
-                    owner_id=purchase.telegram_id,
-                    initial_balance=purchase.votes_count * 1500 # 1 ovoz = 1500 so'm
-                )
-                
-                # 2. Xaridni yakunlaymiz (COMPLETED holatiga o'tkazib, kalitni saqlaymiz)
-                await crud.complete_purchase(db, purchase.id, generated_key=plain_key)
+                # 1. Agar xaridda mavjud kalit ko'rsatilgan bo'lsa (Top-up), uning balansini to'ldiramiz
+                if purchase.generated_key:
+                    plain_key = purchase.generated_key
+                    key_hash = hashlib.sha256(plain_key.encode()).hexdigest()
+                    api_key_obj = await crud.get_api_key_by_hash(db, key_hash)
+                    if api_key_obj:
+                        await crud.update_api_key_balance(db, api_key_obj.id, purchase.votes_count * 1500)
+                    else:
+                        await crud.create_api_key(
+                            db=db,
+                            plain_key=plain_key,
+                            owner_id=purchase.telegram_id,
+                            initial_balance=purchase.votes_count * 1500
+                        )
+                    await crud.complete_purchase(db, purchase.id, generated_key=plain_key)
+                else:
+                    # Yangi API kalit yaratamiz
+                    plain_key = f"ob_api_{secrets.token_hex(16)}"
+                    await crud.create_api_key(
+                        db=db,
+                        plain_key=plain_key,
+                        owner_id=purchase.telegram_id,
+                        initial_balance=purchase.votes_count * 1500 # 1 ovoz = 1500 so'm
+                    )
+                    await crud.complete_purchase(db, purchase.id, generated_key=plain_key)
                 
                 # 3. Agar xarid asosiy bot orqali amalga oshirilgan bo'lsa, asosiy botdan xabar yuboramiz
                 # Agar mijoz botidan sotib olingan bo'lsa, kalitni mijoz boti o'zi avtomatik ulab oladi

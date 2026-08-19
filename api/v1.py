@@ -374,6 +374,7 @@ async def cast_vote(
 class BuyKeyRequest(BaseModel):
     telegram_id: int = Field(..., description="Xaridorning Telegram ID raqami")
     votes: int = Field(..., description="Tanlangan tarifdagi ovozlar soni")
+    target_key: str | None = Field(None, description="Balansi to'ldiriladigan mavjud API kalit")
 
 
 @router.get("/tariffs")
@@ -402,7 +403,7 @@ async def get_key_info(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    API kalit holati, balansi va qolgan ovozlar sonini qaytaradi.
+    API kalit holati, balansi, yaratilgan sanasi va qolgan ovozlar sonini qaytaradi.
     """
     if not x_api_key:
         raise HTTPException(status_code=401, detail="X-API-Key talab qilinadi")
@@ -412,12 +413,36 @@ async def get_key_info(
     if not api_key:
         raise HTTPException(status_code=401, detail="Yaroqsiz API kalit")
     
+    from sqlalchemy import select, func
+    from database.models import APIKeyPurchase
+    
     votes_remaining = max(0, api_key.balance_uzs // 1500)
+    
+    result = await db.execute(
+        select(func.sum(APIKeyPurchase.votes_count), func.sum(APIKeyPurchase.price_uzs))
+        .where(
+            APIKeyPurchase.generated_key == x_api_key,
+            APIKeyPurchase.status == "COMPLETED"
+        )
+    )
+    row = result.first()
+    total_votes_bought = (row[0] if row and row[0] else 0)
+    total_paid_uzs = (row[1] if row and row[1] else 0)
+    
+    if total_votes_bought == 0:
+        total_votes_bought = votes_remaining
+        total_paid_uzs = total_votes_bought * 1000
+    
+    created_at_str = api_key.created_at.strftime("%d.%m.%Y, %H:%M") if api_key.created_at else "—"
+    
     return {
         "status": "ok",
-        "key_name": api_key.name,
+        "key_name": getattr(api_key, "name", "API Key"),
+        "created_at": created_at_str,
         "balance_uzs": api_key.balance_uzs,
         "votes_remaining": votes_remaining,
+        "total_votes_bought": total_votes_bought,
+        "total_paid_uzs": total_paid_uzs,
         "is_active": api_key.is_active
     }
 
@@ -428,8 +453,7 @@ async def create_buy_key_invoice(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    API kalit sotib olish uchun unikal tiyinli to'lov fakturasini yaratadi.
-    To'lov bank kartasiga tushishi bilan asosiy bot avtomatik aniqlab kalitni yaratadi.
+    API kalit sotib olish yoki mavjud kalit balansini to'ldirish uchun unikal tiyinli to'lov fakturasini yaratadi.
     """
     if req.votes < 1:
         raise HTTPException(status_code=400, detail="Ovozlar soni kamida 1 bo'lishi kerak.")
@@ -470,6 +494,9 @@ async def create_buy_key_invoice(
                 votes_count=req.votes,
                 source="CLIENT_BOT"
             )
+            if req.target_key:
+                purchase.generated_key = req.target_key
+                await db.commit()
             break
         except Exception:
             await db.rollback()
