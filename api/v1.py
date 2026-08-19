@@ -431,16 +431,27 @@ async def create_buy_key_invoice(
     API kalit sotib olish uchun unikal tiyinli to'lov fakturasini yaratadi.
     To'lov bank kartasiga tushishi bilan asosiy bot avtomatik aniqlab kalitni yaratadi.
     """
+    if req.votes < 1:
+        raise HTTPException(status_code=400, detail="Ovozlar soni kamida 1 bo'lishi kerak.")
+        
     tariff = await crud.get_tariff_by_votes(db, req.votes)
-    if not tariff:
-        raise HTTPException(status_code=404, detail="Bunday tarif topilmadi.")
+    if tariff:
+        price = tariff.price
+        tariff_name = tariff.name
+    else:
+        all_tariffs = await crud.get_all_tariffs(db)
+        if all_tariffs:
+            unit_price = all_tariffs[0].price // all_tariffs[0].votes
+        else:
+            unit_price = 1000
+        price = req.votes * unit_price
+        tariff_name = f"{req.votes} ta Ovoz (Maxsus)"
         
     settings_db = await crud.get_project_settings(db)
     if not settings_db.card_number:
         raise HTTPException(status_code=400, detail="To'lov qabul qilish kartasi sozlanmagan.")
         
     import random
-    price = tariff.price
     purchase = None
     
     for _ in range(50):
@@ -453,7 +464,7 @@ async def create_buy_key_invoice(
             purchase = await crud.create_pending_purchase(
                 db=db,
                 telegram_id=req.telegram_id,
-                tariff_name=tariff.name,
+                tariff_name=tariff_name,
                 price_uzs=price,
                 unique_price_uzs=unique_price,
                 votes_count=req.votes,
@@ -473,7 +484,7 @@ async def create_buy_key_invoice(
     return {
         "status": "success",
         "purchase_id": purchase.id,
-        "tariff_name": tariff.name,
+        "tariff_name": tariff_name,
         "votes_count": req.votes,
         "base_price": price,
         "unique_price": purchase.unique_price_uzs,
