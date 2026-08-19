@@ -114,7 +114,7 @@ async def get_api_key(
     if not api_key.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Ushbu API kalit faolsizlantirilgan (bloklangan)."
+            detail="Ushbu API kalit ega tomonidan o'chirilgan (@jahongir_1220)."
         )
         
     # Balansni tekshiramiz (kamida bitta ovoz berish uchun yetarli pul bo'lishi shart)

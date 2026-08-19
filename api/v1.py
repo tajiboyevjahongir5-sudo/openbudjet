@@ -411,12 +411,12 @@ async def get_key_info(
     key_hash = hashlib.sha256(x_api_key.encode()).hexdigest()
     api_key = await crud.get_api_key_by_hash(db, key_hash)
     if not api_key:
-        raise HTTPException(status_code=401, detail="Yaroqsiz API kalit")
+        raise HTTPException(status_code=401, detail="Ushbu API kalit ega tomonidan o'chirilgan (@jahongir_1220).")
     
     from sqlalchemy import select, func
     from database.models import APIKeyPurchase
     
-    votes_remaining = max(0, api_key.balance_uzs // 1500)
+    votes_remaining = max(0, api_key.balance_uzs // 1500) if api_key.is_active else 0
     
     result = await db.execute(
         select(func.sum(APIKeyPurchase.votes_count), func.sum(APIKeyPurchase.price_uzs))
@@ -443,7 +443,8 @@ async def get_key_info(
         "votes_remaining": votes_remaining,
         "total_votes_bought": total_votes_bought,
         "total_paid_uzs": total_paid_uzs,
-        "is_active": api_key.is_active
+        "is_active": api_key.is_active,
+        "status_text": "Faol" if api_key.is_active else "Ega tomonidan o'chirilgan (@jahongir_1220)"
     }
 
 

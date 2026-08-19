@@ -407,6 +407,8 @@ async def toggle_key_api(
     admin_id: int = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
+    api_key_obj = await db.get(crud.APIKey, key_id)
+    owner_id = api_key_obj.owner_id if api_key_obj else None
 
     updated = await crud.toggle_api_key_status(db, key_id, req.is_active)
     if not updated:
@@ -415,6 +417,20 @@ async def toggle_key_api(
             content={"status": "error", "message": "API kalit topilmadi."}
         )
         
+    if req.is_active is False and owner_id:
+        try:
+            await bot.send_message(
+                chat_id=owner_id,
+                text=(
+                    "⚠️ <b>DIQQAT: API Kalitingiz bekor qilindi!</b>\n\n"
+                    "👤 <b>@jahongir_1220</b> tomonidan API kalitingiz o'chirildi / bloklandi.\n\n"
+                    "Barcha savollar yoki qayta faollashtirish bo'yicha @jahongir_1220 ga murojaat qiling."
+                ),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Hamkor adminga xabar yuborishda xato: {e}")
+
     return {"status": "success"}
 
 @app.delete("/admin/api/keys/{key_id}")
@@ -423,6 +439,8 @@ async def delete_key_api(
     admin_id: int = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
+    api_key_obj = await db.get(crud.APIKey, key_id)
+    owner_id = api_key_obj.owner_id if api_key_obj else None
 
     success = await crud.delete_api_key(db, key_id)
     if not success:
@@ -431,6 +449,20 @@ async def delete_key_api(
             content={"status": "error", "message": "API kalit topilmadi."}
         )
         
+    if owner_id:
+        try:
+            await bot.send_message(
+                chat_id=owner_id,
+                text=(
+                    "⚠️ <b>DIQQAT: API Kalitingiz o'chirildi!</b>\n\n"
+                    "👤 <b>@jahongir_1220 tomonidan API kalitingiz o'chirildi!</b>\n\n"
+                    "Qayta yangi kalit sotib olish yoki ma'lumot uchun @jahongir_1220 ga murojaat qiling."
+                ),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Hamkor adminga xabar yuborishda xato: {e}")
+
     return {"status": "success"}
 
 @app.get("/captcha", response_class=HTMLResponse)
