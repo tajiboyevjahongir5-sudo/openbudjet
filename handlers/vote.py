@@ -244,8 +244,41 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
                             parse_mode="HTML"
                         )
                     return
+
+                # Aylanib o'tish: agar avtomatik yechilgandan keyin portal "ro'yxatdan o'tmagan" yoki "ovoz bergan" deb qaytarsa:
+                unreg_terms = ["not_registered", "topilmadi", "foydalanuvchi", "топилмади", "фойдаланувчи", "рўйхатдан", "маълумотlari", "топилмаган", "ҳеч қандай", "mavjud emas"]
+                if error2 == "not_registered" or any(t in str(error2).lower() for t in unreg_terms):
+                    try:
+                        await waiting_msg.delete()
+                    except Exception:
+                        pass
+                    await start_in_bot_registration(message, state, clean_phone, project_id, message.from_user)
+                    return
+
+                voted_terms = ["already_voted", "allaqachon", "ovoz berilgan", "овоз беrilgan", "овоз берган", "бошқа рақам"]
+                if error2 == "already_voted" or any(t in str(error2).lower() for t in voted_terms):
+                    try:
+                        await waiting_msg.delete()
+                    except Exception:
+                        pass
+                    async with async_session() as db:
+                        await crud.add_vote_history(
+                            db=db,
+                            telegram_id=telegram_id,
+                            phone_number=clean_phone,
+                            project_id=project_id,
+                            status="ALREADY_VOTED"
+                        )
+                    await message.answer(
+                        "❌ Ushbu fuqaro / telefon raqami orqali Open Budget portalida allaqachon ovoz berilgan.\n"
+                        "Qonun bo'yicha har bir fuqaro faqat 1 marta ovoz bera oladi.",
+                        reply_markup=reply.get_user_menu()
+                    )
+                    await state.clear()
+                    return
+
                 # Avtomatik yechim xato bo'lsa — qo'lda ko'rsatamiz
-                logger.warning(f"Avtomatik captcha noto'g'ri ekan, qo'lda ko'rsatiladi")
+                logger.warning(f"Avtomatik captcha noto'g'ri ekan (yoki boshqa xatolik: {error2}), qo'lda ko'rsatiladi")
 
             # 🧑 Captcha qo'lda yechilishi kerak
             try:
