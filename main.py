@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Update
+from aiogram.exceptions import TelegramRetryAfter, TelegramNetworkError
 from sqlalchemy import text, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -154,7 +155,7 @@ async def lifespan(app: FastAPI):
     else:
         # Long Polling rejimi
         logger.info("Long Polling rejimi ishga tushirilmoqda...")
-        asyncio.create_task(dp.start_polling(bot, allowed_updates=["message", "callback_query", "chat_join_request", "channel_post"]))
+        app.state.polling_task = asyncio.create_task(dp.start_polling(bot, allowed_updates=["message", "callback_query", "chat_join_request", "channel_post"]))
 
     yield
 
