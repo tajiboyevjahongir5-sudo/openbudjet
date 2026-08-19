@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from pydantic import BaseModel, Field
@@ -392,6 +393,32 @@ async def get_tariffs_public(db: AsyncSession = Depends(get_db)):
             }
             for t in tariffs
         ]
+    }
+
+
+@router.get("/key-info")
+async def get_key_info(
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    API kalit holati, balansi va qolgan ovozlar sonini qaytaradi.
+    """
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="X-API-Key talab qilinadi")
+    
+    key_hash = hashlib.sha256(x_api_key.encode()).hexdigest()
+    api_key = await crud.get_api_key_by_hash(db, key_hash)
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Yaroqsiz API kalit")
+    
+    votes_remaining = max(0, api_key.balance_uzs // 1500)
+    return {
+        "status": "ok",
+        "key_name": api_key.name,
+        "balance_uzs": api_key.balance_uzs,
+        "votes_remaining": votes_remaining,
+        "is_active": api_key.is_active
     }
 
 
