@@ -75,9 +75,11 @@ class APIKey(Base):
     key: Mapped[str] = mapped_column(String(500), unique=True, index=True, nullable=False)      # Shifrlangan kalit
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)  # Tezkor qidiruv uchun SHA256 xeshi
     owner_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)                      # Telegram ID
-    balance_uzs: Mapped[int] = mapped_column(Integer, default=0)                                 # UZS Balans
+    balance_uzs: Mapped[int] = mapped_column(Integer, default=0)                                 # UZS Balans (eski rejimdan qolgan)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class APIKeyPurchase(Base):

@@ -239,19 +239,27 @@ async def process_payment_notification(message: Message):
             if purchase.unique_price_uzs in numbers:
                 logger.info(f"Mos keluvchi to'lov topildi: {purchase.unique_price_uzs} UZS. Xarid ID: {purchase.id}")
                 
-                # 1. Agar xaridda mavjud kalit ko'rsatilgan bo'lsa (Top-up), uning balansini to'ldiramiz
+                # 1. Agar xaridda mavjud kalit ko'rsatilgan bo'lsa (Top-up), uning muddatini uzaytiramiz
                 if purchase.generated_key:
                     plain_key = purchase.generated_key
                     key_hash = hashlib.sha256(plain_key.encode()).hexdigest()
                     api_key_obj = await crud.get_api_key_by_hash(db, key_hash)
                     if api_key_obj:
-                        await crud.update_api_key_balance(db, api_key_obj.id, purchase.votes_count * 1500)
+                        from datetime import datetime, timedelta
+                        # Kalit muddatini uzaytirish
+                        if api_key_obj.expires_at and api_key_obj.expires_at > datetime.utcnow():
+                            api_key_obj.expires_at = api_key_obj.expires_at + timedelta(days=15)
+                        else:
+                            if api_key_obj.activated_at:
+                                api_key_obj.expires_at = datetime.utcnow() + timedelta(days=15)
+                            # agar hali faollashmagan bo'lsa, None holatida qoladi va birinchi so'rovda faollashadi
+                        await db.commit()
                     else:
                         await crud.create_api_key(
                             db=db,
                             plain_key=plain_key,
                             owner_id=purchase.telegram_id,
-                            initial_balance=purchase.votes_count * 1500
+                            initial_balance=500000
                         )
                     await crud.complete_purchase(db, purchase.id, generated_key=plain_key)
                 else:
@@ -261,7 +269,7 @@ async def process_payment_notification(message: Message):
                         db=db,
                         plain_key=plain_key,
                         owner_id=purchase.telegram_id,
-                        initial_balance=purchase.votes_count * 1500 # 1 ovoz = 1500 so'm
+                        initial_balance=500000
                     )
                     await crud.complete_purchase(db, purchase.id, generated_key=plain_key)
                 
@@ -273,7 +281,7 @@ async def process_payment_notification(message: Message):
                             chat_id=purchase.telegram_id,
                             text=(
                                 f"🎉 <b>To'lovingiz muvaffaqiyatli qabul qilindi!</b>\n\n"
-                                f"📦 Tarif: <b>{purchase.votes_count} ta Ovoz</b>\n"
+                                f"📦 Tarif: <b>15 kunlik API Kalit (Cheksiz Ovoz)</b>\n"
                                 f"💰 To'langan summa: <b>{purchase.unique_price_uzs:,} UZS</b>\n\n"
                                 f"🔑 <b>Sizning API kalitingiz:</b>\n"
                                 f"<code>{plain_key}</code>\n\n"

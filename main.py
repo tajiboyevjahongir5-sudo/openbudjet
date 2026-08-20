@@ -96,6 +96,8 @@ async def init_db():
             "ALTER TABLE project_settings ADD COLUMN payment_channel_id BIGINT;",
             "ALTER TABLE api_key_purchases ADD COLUMN source VARCHAR(20) DEFAULT 'MAIN_BOT';",
             "ALTER TABLE api_key_purchases ADD COLUMN generated_key VARCHAR(500);",
+            "ALTER TABLE api_keys ADD COLUMN activated_at TIMESTAMP NULL;",
+            "ALTER TABLE api_keys ADD COLUMN expires_at TIMESTAMP NULL;",
         ]:
             try:
                 await conn.execute(text(sql))

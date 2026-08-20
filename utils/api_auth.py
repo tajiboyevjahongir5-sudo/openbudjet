@@ -92,7 +92,7 @@ async def get_api_key(
 ) -> APIKey:
     """
     Dasturchilar API so'rovlarida X-API-Key headerini tekshiruvchi FastAPI dependencysi.
-    Kalit mavjudligi, faolligi va balansda kamida 1500 so'm borligini tekshiradi.
+    Kalit mavjudligi, faolligi va amal qilish muddatini tekshiradi (15 kun).
     """
     if not x_api_key:
         raise HTTPException(
@@ -117,11 +117,19 @@ async def get_api_key(
             detail="Ushbu API kalit ega tomonidan o'chirilgan (@jahongir_1220)."
         )
         
-    # Balansni tekshiramiz (kamida bitta ovoz berish uchun yetarli pul bo'lishi shart)
-    if api_key.balance_uzs < 1500:
+    # Faollashtirilmagan bo'lsa, birinchi chaqirilganda faollashtiramiz (15 kun)
+    from datetime import datetime, timedelta
+    if not api_key.activated_at:
+        api_key.activated_at = datetime.utcnow()
+        api_key.expires_at = datetime.utcnow() + timedelta(days=15)
+        await db.commit()
+        await db.refresh(api_key)
+        
+    # Amal qilish muddatini tekshiramiz
+    if api_key.expires_at and datetime.utcnow() > api_key.expires_at:
         raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="API kalit balansi yetarli emas. Kamida 1 500 so'm bo'lishi shart."
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API kalitining amal qilish muddati tugagan (15 kunlik muddat tugadi)."
         )
         
     return api_key

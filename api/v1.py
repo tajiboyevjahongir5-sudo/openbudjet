@@ -309,17 +309,9 @@ async def cast_vote(
 ):
     """
     Olingan login tokeni va 2-captcha natijasi yordamida yakuniy ovozni rasmiylashtiradi.
-    Narxi: Muvaffaqiyatli ovoz berilsagina API kalit balansidan 1 500 so'm yozib olinadi.
+    Narxi: 15 kunlik obuna asosida cheksiz ovoz berish.
     """
-    # 1. Balansdan mablag'ni atomik tarzda band qilamiz (Race Condition va Double-Spend oldi olinadi)
-    deducted = await crud.deduct_api_key_balance(db, api_key.id, 1500)
-    if not deducted:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="API kalit balansi yetarli emas (kamida 1 500 UZS bo'lishi shart)."
-        )
-        
-    # 2. Ovoz berish so'rovini yuboramiz (istalgan kutilmagan xatoda ham mablag' avtomatik qaytariladi)
+    # 1. Ovoz berish so'rovini yuboramiz
     try:
         success, result_msg = await OpenBudgetService.cast_vote(
             project_id=req.project_id,
@@ -327,24 +319,14 @@ async def cast_vote(
             captcha_key=req.captcha_key,
             captcha_result=req.captcha_result
         )
-    except asyncio.CancelledError:
-        # Foydalanuvchi so'rovni uzib qo'ygan holatda yangi mustaqil DB sessiyasi orqali kafolatli qaytariladi
-        from database.session import async_session
-        async with async_session() as new_db:
-            await asyncio.shield(crud.update_api_key_balance(new_db, api_key.id, 1500))
-        logger.warning(f"cast_vote so'rovi bekor qilindi (CancelledError). Mablag' yangi sessiyada qaytarildi.")
-        raise
     except Exception as e:
-        await crud.update_api_key_balance(db, api_key.id, 1500)
         logger.error(f"cast_vote kutilmagan xatolik: {e}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Tashqi OpenBudget serveri bilan ulanishda xatolik yuz berdi. Mablag' balansingizga qaytarildi."
+            detail="Tashqi OpenBudget serveri bilan ulanishda xatolik yuz berdi."
         )
     
     if not success:
-        # Ovoz berish muvaffaqiyatsiz tugasa, band qilingan mablag' to'liq qaytariladi (Refund)
-        await crud.update_api_key_balance(db, api_key.id, 1500)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result_msg
@@ -385,17 +367,15 @@ async def get_tariffs_public(db: AsyncSession = Depends(get_db)):
     """
     Barcha mavjud API kalit tariflari ro'yxatini qaytaradi (Mijoz boti orqali ko'rish uchun).
     """
-    tariffs = await crud.get_all_tariffs(db)
     return {
         "status": "success",
         "tariffs": [
             {
-                "id": t.id,
-                "name": t.name,
-                "votes": t.votes,
-                "price": t.price
+                "id": 1,
+                "name": "15 kunlik API Kalit",
+                "votes": 15,
+                "price": 500000
             }
-            for t in tariffs
         ]
     }
 
@@ -406,7 +386,7 @@ async def get_key_info(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    API kalit holati, balansi, yaratilgan sanasi va qolgan ovozlar sonini qaytaradi.
+    API kalit holati, balansi, yaratilgan sanasi va qolgan muddatini qaytaradi.
     """
     if not x_api_key:
         raise HTTPException(status_code=401, detail="X-API-Key talab qilinadi")
@@ -414,37 +394,45 @@ async def get_key_info(
     key_hash = hashlib.sha256(x_api_key.encode()).hexdigest()
     api_key = await crud.get_api_key_by_hash(db, key_hash)
     if not api_key:
-        raise HTTPException(status_code=401, detail="Ushbu API kalit ega tomonidan o'chirilgan (@jahongir_1220).")
+        raise HTTPException(status_code=401, detail="Ushbu API kalit yaroqsiz.")
     
     from sqlalchemy import select, func
     from database.models import APIKeyPurchase
     
-    votes_remaining = max(0, api_key.balance_uzs // 1500) if api_key.is_active else 0
-    
     result = await db.execute(
-        select(func.sum(APIKeyPurchase.votes_count), func.sum(APIKeyPurchase.price_uzs))
+        select(func.sum(APIKeyPurchase.price_uzs))
         .where(
             APIKeyPurchase.generated_key == x_api_key,
             APIKeyPurchase.status == "COMPLETED"
         )
     )
     row = result.first()
-    total_votes_bought = (row[0] if row and row[0] else 0)
-    total_paid_uzs = (row[1] if row and row[1] else 0)
-    
-    if total_votes_bought == 0:
-        total_votes_bought = votes_remaining
-        total_paid_uzs = total_votes_bought * 1000
+    total_paid_uzs = (row[0] if row and row[0] else 500000)
     
     created_at_str = api_key.created_at.strftime("%d.%m.%Y, %H:%M") if api_key.created_at else "—"
+    activated_str = api_key.activated_at.strftime("%d.%m.%Y, %H:%M") if api_key.activated_at else "Faollashtirilmagan"
+    expires_str = api_key.expires_at.strftime("%d.%m.%Y, %H:%M") if api_key.expires_at else "Faollashtirilmagan"
+    
+    from datetime import datetime
+    if not api_key.activated_at:
+        days_remaining = "15 kun (ishlatilganda boshlanadi)"
+    else:
+        delta = api_key.expires_at - datetime.utcnow()
+        if delta.total_seconds() <= 0:
+            days_remaining = "Muddati tugagan"
+        else:
+            days_remaining = f"{max(1, delta.days)} kun qoldi"
     
     return {
         "status": "ok",
         "key_name": getattr(api_key, "name", "API Key"),
         "created_at": created_at_str,
-        "balance_uzs": api_key.balance_uzs,
-        "votes_remaining": votes_remaining,
-        "total_votes_bought": total_votes_bought,
+        "activated_at": activated_str,
+        "expires_at": expires_str,
+        "days_remaining": days_remaining,
+        "balance_uzs": 500000,
+        "votes_remaining": "Cheksiz (15 kun)",
+        "total_votes_bought": "Cheksiz",
         "total_paid_uzs": total_paid_uzs,
         "is_active": api_key.is_active,
         "status_text": "Faol" if api_key.is_active else "Ega tomonidan o'chirilgan (@jahongir_1220)"
@@ -457,24 +445,11 @@ async def create_buy_key_invoice(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    API kalit sotib olish yoki mavjud kalit balansini to'ldirish uchun unikal tiyinli to'lov fakturasini yaratadi.
+    15 kunlik API kalit sotib olish uchun unikal tiyinli to'lov fakturasini yaratadi.
     """
-    if req.votes < 1:
-        raise HTTPException(status_code=400, detail="Ovozlar soni kamida 1 bo'lishi kerak.")
-        
-    tariff = await crud.get_tariff_by_votes(db, req.votes)
-    if tariff:
-        price = tariff.price
-        tariff_name = tariff.name
-    else:
-        all_tariffs = await crud.get_all_tariffs(db)
-        if all_tariffs:
-            unit_price = all_tariffs[0].price // all_tariffs[0].votes
-        else:
-            unit_price = 1000
-        price = req.votes * unit_price
-        tariff_name = f"{req.votes} ta Ovoz (Maxsus)"
-        
+    price = 500000
+    tariff_name = "15 kunlik API Kalit"
+         
     settings_db = await crud.get_project_settings(db)
     if not settings_db.card_number:
         raise HTTPException(status_code=400, detail="To'lov qabul qilish kartasi sozlanmagan.")
@@ -495,7 +470,7 @@ async def create_buy_key_invoice(
                 tariff_name=tariff_name,
                 price_uzs=price,
                 unique_price_uzs=unique_price,
-                votes_count=req.votes,
+                votes_count=15, # 15 kunni bildiradi
                 source="CLIENT_BOT"
             )
             if req.target_key:
@@ -516,7 +491,7 @@ async def create_buy_key_invoice(
         "status": "success",
         "purchase_id": purchase.id,
         "tariff_name": tariff_name,
-        "votes_count": req.votes,
+        "votes_count": 15,
         "base_price": price,
         "unique_price": purchase.unique_price_uzs,
         "card_number": settings_db.card_number
