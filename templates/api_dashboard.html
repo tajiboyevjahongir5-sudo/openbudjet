@@ -366,6 +366,40 @@
             padding-top: 12px;
         }
 
+        /* Neumorphic Tariff Item */
+        .tariff-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            background: var(--card-bg);
+            box-shadow: inset 3px 3px 6px var(--dark-shadow), inset -3px -3px 6px var(--light-shadow);
+            padding: 12px;
+            border-radius: 14px;
+            border: none;
+            flex-wrap: wrap;
+        }
+
+        .tariff-item .form-input {
+            text-align: center;
+            margin: 0;
+            height: 38px;
+            border-radius: 10px;
+            border: none;
+            box-shadow: inset 2.5px 2.5px 5px var(--dark-shadow), inset -2.5px -2.5px 5px var(--light-shadow);
+            background: var(--card-bg);
+            color: #ffffff;
+        }
+
+        .tariff-item .btn {
+            height: 38px;
+            font-size: 13px;
+            padding: 0 16px;
+            width: auto;
+            margin: 0;
+            border-radius: 10px;
+        }
+
         /* Loader */
         .loader-container {
             display: none;
@@ -750,18 +784,18 @@
 
             tariffs.forEach(t => {
                 const item = document.createElement("div");
-                item.style.cssText = "display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--component-bg); box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.2), inset -3px -3px 6px rgba(255, 255, 255, 0.8); padding: 12px; border-radius: 14px; border: none; flex-wrap: wrap;";
+                item.className = "tariff-item";
                 
                 item.innerHTML = `
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 14px; font-weight: 800; color: var(--component-text);">ID: ${t.id}</span>
-                        <input type="number" id="tariff-votes-${t.id}" class="form-input" style="width: 80px; text-align: center; margin: 0; height: 38px; border-radius: 8px; border: 1.5px solid #e2e8f0; box-shadow: inset 1px 1px 3px rgba(0,0,0,0.05);" value="${t.votes}" placeholder="Kun">
-                        <span style="font-size: 13px; color: var(--component-muted); font-weight: 600;">Kun</span>
+                        <span style="font-size: 14px; font-weight: 800; color: #ffffff;">ID: ${t.id}</span>
+                        <input type="number" id="tariff-votes-${t.id}" class="form-input" style="width: 80px;" value="${t.votes}" placeholder="Kun">
+                        <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">Kun</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px; flex-grow: 1; justify-content: flex-end;">
-                        <input type="number" id="tariff-price-${t.id}" class="form-input" style="width: 120px; text-align: center; margin: 0; height: 38px; border-radius: 8px; border: 1.5px solid #e2e8f0; box-shadow: inset 1px 1px 3px rgba(0,0,0,0.05);" value="${t.price}" placeholder="Narxi">
-                        <span style="font-size: 13px; color: var(--component-muted); font-weight: 600;">UZS</span>
-                        <button onclick="updateTariff(${t.id})" class="btn" style="height: 38px; font-size: 13px; padding: 0 16px; width: auto; margin: 0; border-radius: 8px; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);">💾 Saqlash</button>
+                        <input type="number" id="tariff-price-${t.id}" class="form-input" style="width: 120px;" value="${t.price}" placeholder="Narxi">
+                        <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">UZS</span>
+                        <button onclick="updateTariff(${t.id})" class="btn">💾 Saqlash</button>
                     </div>
                 `;
                 container.appendChild(item);
