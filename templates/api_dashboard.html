@@ -41,6 +41,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            overscroll-behavior: none;
         }
 
         .container {
@@ -522,6 +523,19 @@
         const tg = window.Telegram.WebApp;
         tg.ready();
         tg.expand();
+        
+        // Pastga tortganda yopilib ketmasligi uchun vertikal swipe (tortish) imo-ishorasini o'chiramiz
+        if (tg.isVerticalSwipesEnabled !== undefined) {
+            tg.isVerticalSwipesEnabled = false;
+        }
+        
+        // Tasodifan yopilib ketishining oldini olish uchun yopishni tasdiqlash oynasini faollashtiramiz
+        try {
+            tg.enableClosingConfirmation();
+        } catch (e) {
+            console.warn("Closing confirmation faollashtirilmadi:", e);
+        }
+
         if (tg.requestFullscreen) {
             try {
                 tg.requestFullscreen();
