@@ -772,8 +772,8 @@
                 item.innerHTML = `
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 14px; font-weight: 800; color: var(--component-text);">ID: ${t.id}</span>
-                        <input type="number" id="tariff-votes-${t.id}" class="form-input" style="width: 80px; text-align: center; margin: 0; height: 38px; border-radius: 8px; border: 1.5px solid #e2e8f0; box-shadow: inset 1px 1px 3px rgba(0,0,0,0.05);" value="${t.votes}" placeholder="Ovoz">
-                        <span style="font-size: 13px; color: var(--component-muted); font-weight: 600;">Ovoz</span>
+                        <input type="number" id="tariff-votes-${t.id}" class="form-input" style="width: 80px; text-align: center; margin: 0; height: 38px; border-radius: 8px; border: 1.5px solid #e2e8f0; box-shadow: inset 1px 1px 3px rgba(0,0,0,0.05);" value="${t.votes}" placeholder="Kun">
+                        <span style="font-size: 13px; color: var(--component-muted); font-weight: 600;">Kun</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px; flex-grow: 1; justify-content: flex-end;">
                         <input type="number" id="tariff-price-${t.id}" class="form-input" style="width: 120px; text-align: center; margin: 0; height: 38px; border-radius: 8px; border: 1.5px solid #e2e8f0; box-shadow: inset 1px 1px 3px rgba(0,0,0,0.05);" value="${t.price}" placeholder="Narxi">
@@ -793,7 +793,7 @@
             const price = parseInt(priceInput.value);
             
             if (isNaN(votes) || votes <= 0) {
-                alert("Iltimos, to'g'ri ovoz sonini kiriting!");
+                alert("Iltimos, to'g'ri kun sonini kiriting!");
                 return;
             }
             if (isNaN(price) || price <= 0) {
