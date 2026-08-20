@@ -561,19 +561,15 @@ async def update_tariff_price(db: AsyncSession, votes: int, new_price: int) -> T
     return None
 
 async def seed_default_tariffs(db: AsyncSession):
-    """Agar bazada tariflar mavjud bo'lmasa, 5 ta standart tarifni kiritadi"""
+    """Bazada faqat 1 ta 15 kunlik obuna tarifi bo'lishini ta'minlaydi"""
+    from sqlalchemy import delete
     tariffs = await get_all_tariffs(db)
-    if not tariffs:
-        default_tariffs = [
-            Tariff(votes=50, name="50 Ovoz", price=75000),
-            Tariff(votes=100, name="100 Ovoz", price=150000),
-            Tariff(votes=500, name="500 Ovoz", price=750000),
-            Tariff(votes=1000, name="1000 Ovoz", price=1500000),
-            Tariff(votes=5000, name="5000 Ovoz", price=7500000)
-        ]
-        db.add_all(default_tariffs)
+    if not tariffs or len(tariffs) > 1:
+        await db.execute(delete(Tariff))
+        single_tariff = Tariff(id=1, votes=15, name="15 kunlik API Kalit", price=500000)
+        db.add(single_tariff)
         await db.commit()
-        logger.info("Birlamchi tariflar bazaga muvaffaqiyatli kiritildi (seed).")
+        logger.info("Birlamchi yagona 15 kunlik tarif bazaga kiritildi.")
 
 
 

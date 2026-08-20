@@ -311,7 +311,7 @@ async def get_keys_api(
 
 
     keys = await crud.get_all_api_keys(db)
-    total_balance = sum(k.balance_uzs for k in keys)
+    active_keys = sum(1 for k in keys if k.is_active)
     
     # Jami muvaffaqiyatli ovozlar soni
     from database.models import VotesHistory, VoteStatus
@@ -319,6 +319,7 @@ async def get_keys_api(
     total_votes = v_result.scalar_one() or 0
 
     from utils.encrypt import decrypt_key
+    from datetime import datetime
     serialized_keys = []
     for k in keys:
         try:
@@ -328,14 +329,29 @@ async def get_keys_api(
             plain = ""
             masked = "xatolik..."
             
+        activated_str = k.activated_at.strftime("%d.%m.%Y, %H:%M") if k.activated_at else "Faollashtirilmagan"
+        expires_str = k.expires_at.strftime("%d.%m.%Y, %H:%M") if k.expires_at else "Faollashtirilmagan"
+        
+        if not k.activated_at:
+            days_remaining = "15 kun (so'rovda boshlanadi)"
+        else:
+            delta = k.expires_at - datetime.utcnow()
+            if delta.total_seconds() <= 0:
+                days_remaining = "Muddati tugagan"
+            else:
+                days_remaining = f"{max(1, delta.days)} kun qoldi"
+            
         serialized_keys.append({
             "id": k.id,
             "key_masked": masked,
-            "raw_key_decrypted": plain, # Faqattgina dashboardda nusxalash uchun uzatamiz
+            "raw_key_decrypted": plain,
             "owner_id": k.owner_id,
             "balance_uzs": k.balance_uzs,
             "is_active": k.is_active,
-            "created_at": k.created_at.isoformat()
+            "created_at": k.created_at.isoformat(),
+            "activated_at": activated_str,
+            "expires_at": expires_str,
+            "days_remaining": days_remaining
         })
         
     tariffs = await crud.get_all_tariffs(db)
@@ -356,7 +372,7 @@ async def get_keys_api(
         "status": "success",
         "stats": {
             "total_keys": len(keys),
-            "total_balance": total_balance,
+            "total_balance": active_keys, # Faol kalitlar sonini qaytaramiz (JS stat-total-balance ni yangilaydi)
             "total_votes": total_votes
         },
         "keys": serialized_keys,
@@ -393,14 +409,24 @@ async def topup_key_api(
     admin_id: int = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-
-    updated = await crud.update_api_key_balance(db, key_id, req.amount)
-    if not updated:
+    api_key_obj = await db.get(crud.APIKey, key_id)
+    if not api_key_obj:
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND, 
             content={"status": "error", "message": "API kalit topilmadi."}
         )
         
+    from datetime import datetime, timedelta
+    days = req.amount
+    # Kalit muddatini uzaytirish
+    if api_key_obj.expires_at and api_key_obj.expires_at > datetime.utcnow():
+        api_key_obj.expires_at = api_key_obj.expires_at + timedelta(days=days)
+    else:
+        if api_key_obj.activated_at:
+            api_key_obj.expires_at = datetime.utcnow() + timedelta(days=days)
+        # agar hali faollashmagan bo'lsa, None holatida qoladi va birinchi so'rovda faollashadi
+        
+    await db.commit()
     return {"status": "success"}
 
 @app.post("/admin/api/keys/{key_id}/toggle")

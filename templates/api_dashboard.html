@@ -443,8 +443,8 @@
                 <div class="label">Jami kalitlar</div>
             </div>
             <div class="stat-card">
-                <div class="value" id="stat-total-balance">0 UZS</div>
-                <div class="label">Umumiy balans</div>
+                <div class="value" id="stat-total-balance">0</div>
+                <div class="label">Faol kalitlar</div>
             </div>
             <div class="stat-card">
                 <div class="value" id="stat-total-votes">0</div>
@@ -457,7 +457,7 @@
             <div class="section-title">➕ Yangi API kalit generatsiya qilish</div>
             <div class="form-group">
                 <input type="number" id="create-owner-id" class="form-input" placeholder="Telegram ID (ixtiyoriy)">
-                <input type="number" id="create-balance" class="form-input" placeholder="Boshlang'ich balans (UZS)" value="150000">
+                <input type="number" id="create-balance" class="form-input" placeholder="Muddat (kun)" value="15">
                 <button onclick="generateKey()" class="btn">🔑 Generatsiya</button>
             </div>
         </div>
@@ -566,7 +566,7 @@
 
         function renderStats(stats) {
             document.getElementById("stat-total-keys").innerText = stats.total_keys;
-            document.getElementById("stat-total-balance").innerText = stats.total_balance.toLocaleString() + " UZS";
+            document.getElementById("stat-total-balance").innerText = stats.total_balance.toLocaleString() + " ta";
             document.getElementById("stat-total-votes").innerText = stats.total_votes;
         }
 
@@ -598,13 +598,21 @@
                     </div>
                     <div class="key-row">
                         <div>
-                            <span class="key-label">Balans:</span> 
-                            <span style="color: ${key.balance_uzs >= 1500 ? 'var(--success-color)' : 'var(--danger-color)'}; font-weight: 700;">
-                                ${key.balance_uzs.toLocaleString()} UZS
+                            <span class="key-label">Muddati:</span> 
+                            <span style="color: ${key.days_remaining === 'Muddati tugagan' ? 'var(--danger-color)' : 'var(--success-color)'}; font-weight: 700;">
+                                ${key.days_remaining}
                             </span>
                         </div>
                         <div>
-                            <span class="key-label">Sana:</span> <span style="font-size: 13px;">${createdDate}</span>
+                            <span class="key-label">Yaratildi:</span> <span style="font-size: 12px;">${createdDate}</span>
+                        </div>
+                    </div>
+                    <div class="key-row" style="margin-top: 2px; font-size: 12px; color: var(--component-muted);">
+                        <div>
+                            <span class="key-label">Faollashuv:</span> ${key.activated_at}
+                        </div>
+                        <div>
+                            <span class="key-label">Tugash:</span> ${key.expires_at}
                         </div>
                     </div>
                     <div class="key-row" style="margin-top: 4px;">
@@ -614,7 +622,7 @@
                         </span>
                     </div>
                     <div class="key-actions">
-                        <button onclick="topUpPrompt(${key.id}, ${key.balance_uzs})" class="btn btn-secondary" style="height: 34px; font-size: 13px; padding: 0 12px;">💸 To'ldirish</button>
+                        <button onclick="topUpPrompt(${key.id})" class="btn btn-secondary" style="height: 34px; font-size: 13px; padding: 0 12px;">⏳ +15 kun</button>
                         <button onclick="deleteKey(${key.id})" class="btn btn-danger" style="height: 34px; font-size: 13px; padding: 0 12px;">🗑️ O'chirish</button>
                         <div style="flex: 1; display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
                             <span class="key-label">Aktivlik:</span>
@@ -633,8 +641,8 @@
             const ownerId = document.getElementById("create-owner-id").value;
             const balance = document.getElementById("create-balance").value;
 
-            if (!balance || parseInt(balance) < 0) {
-                alert("Iltimos, boshlang'ich balansni to'g'ri kiriting!");
+            if (!balance || parseInt(balance) < 1) {
+                alert("Iltimos, boshlang'ich muddatni (kun) to'g'ri kiriting!");
                 return;
             }
 
@@ -645,7 +653,8 @@
                     headers,
                     body: JSON.stringify({
                         owner_id: ownerId ? parseInt(ownerId) : null,
-                        balance_uzs: parseInt(balance)
+                        balance_uzs: 500000,
+                        duration_days: parseInt(balance)
                     })
                 });
                 const data = await response.json();
@@ -664,9 +673,8 @@
             }
         }
 
-        async function topUpPrompt(keyId, currentBalance) {
-            const amount = prompt(`API Kalit balansini to'ldirish (UZS):\nJoriy balans: ${currentBalance.toLocaleString()} UZS\n\nQo'shiladigan summani kiriting (masalan, balansni kamaytirish uchun -10000 kiritiladi):`);
-            if (amount === null || amount.trim() === "" || isNaN(amount)) {
+        async function topUpPrompt(keyId) {
+            if (!confirm("Ushbu kalit faollik muddatini yana +15 kunga uzaytirishni tasdiqlaysizmi?")) {
                 return;
             }
             
@@ -675,7 +683,7 @@
                 const response = await fetch(`/admin/api/keys/${keyId}/topup?init_data=` + encodeURIComponent(tg.initData || ""), {
                     method: "POST",
                     headers,
-                    body: JSON.stringify({ amount: parseInt(amount) })
+                    body: JSON.stringify({ amount: 15 })
                 });
                 const data = await response.json();
                 if (data.status === "success") {

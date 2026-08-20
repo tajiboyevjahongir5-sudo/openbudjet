@@ -367,15 +367,17 @@ async def get_tariffs_public(db: AsyncSession = Depends(get_db)):
     """
     Barcha mavjud API kalit tariflari ro'yxatini qaytaradi (Mijoz boti orqali ko'rish uchun).
     """
+    tariffs = await crud.get_all_tariffs(db)
     return {
         "status": "success",
         "tariffs": [
             {
-                "id": 1,
-                "name": "15 kunlik API Kalit",
-                "votes": 15,
-                "price": 500000
+                "id": t.id,
+                "name": t.name,
+                "votes": t.votes,
+                "price": t.price
             }
+            for t in tariffs
         ]
     }
 
@@ -447,8 +449,14 @@ async def create_buy_key_invoice(
     """
     15 kunlik API kalit sotib olish uchun unikal tiyinli to'lov fakturasini yaratadi.
     """
-    price = 500000
-    tariff_name = "15 kunlik API Kalit"
+    # Tarif narxini bazadan olamiz (yagona 15 kunlik obuna)
+    tariffs = await crud.get_all_tariffs(db)
+    if tariffs:
+        price = tariffs[0].price
+        tariff_name = tariffs[0].name
+    else:
+        price = 500000
+        tariff_name = "15 kunlik API Kalit"
          
     settings_db = await crud.get_project_settings(db)
     if not settings_db.card_number:
