@@ -225,9 +225,87 @@ async def _try_solve_with_key(api_key: str, image_bytes: bytes) -> Optional[int]
     return None
 
 
+async def solve_with_capmonster(image_base64: str) -> Optional[int]:
+    """
+    CapMonster.cloud API orqali captchani yechadi.
+    100% ishonchli va barqaror pullik yechim (1000 ta captcha = $0.30 - $0.60).
+    """
+    from config import settings
+    api_key = settings.CAPMONSTER_API_KEY.strip()
+    if not api_key:
+        return None
+
+    # Base64 prefiksni tozalaymiz
+    if "," in image_base64:
+        image_base64 = image_base64.split(",")[-1]
+
+    create_url = "https://api.capmonster.cloud/createTask"
+    result_url = "https://api.capmonster.cloud/getTaskResult"
+
+    payload = {
+        "clientKey": api_key,
+        "task": {
+            "type": "ImageToTextTask",
+            "body": image_base64
+        }
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            # 1. Task yaratamiz
+            async with session.post(create_url, json=payload) as resp:
+                if resp.status != 200:
+                    logger.warning(f"CapMonster createTask failed status: {resp.status}")
+                    return None
+                data = await resp.json()
+                if data.get("errorId", 0) != 0:
+                    logger.warning(f"CapMonster createTask error: {data.get('errorCode')}")
+                    return None
+                task_id = data.get("taskId")
+
+            if not task_id:
+                return None
+
+            # 2. Polling (natijani kutamiz)
+            result_payload = {
+                "clientKey": api_key,
+                "taskId": task_id
+            }
+
+            for _ in range(5):  # maks 5 marta tekshiramiz (jami ~6 soniya)
+                await asyncio.sleep(1.2)
+                async with session.post(result_url, json=result_payload) as resp:
+                    if resp.status != 200:
+                        continue
+                    res_data = await resp.json()
+                    if res_data.get("errorId", 0) != 0:
+                        logger.warning(f"CapMonster getTaskResult error: {res_data.get('errorCode')}")
+                        return None
+                    
+                    status = res_data.get("status")
+                    if status == "ready":
+                        solution = res_data.get("solution", {}).get("text", "")
+                        # Faqat raqamlarni ajratamiz (chunki matematika javobi doim raqam)
+                        numbers = re.findall(r'\d+', solution)
+                        if numbers:
+                            logger.info(f"CapMonster captcha yechdi: {numbers[0]}")
+                            return int(numbers[0])
+                        return None
+    except Exception as e:
+        logger.error(f"CapMonster captcha solving error: {e}")
+    return None
+
+
 async def solve_captcha(image_base64: str) -> Optional[int]:
     """
     Asosiy captcha yechish funksiyasi.
-    Avval Gemini bilan urinadi, muvaffaqiyatsiz bo'lsa None qaytaradi.
+    Avval CapMonster bilan urinib ko'radi (sozlagan bo'lsa), keyin Gemini'ga o'tadi.
     """
+    # 1. CapMonster ni tekshiramiz
+    res = await solve_with_capmonster(image_base64)
+    if res is not None:
+        return res
+        
+    # 2. Gemini ni tekshiramiz (fallback)
     return await solve_captcha_with_gemini(image_base64)

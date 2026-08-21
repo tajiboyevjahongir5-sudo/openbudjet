@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Gemini Vision API kalitlari (captcha avtomatik yechish uchun, vergul bilan ajratilgan)
     GEMINI_API_KEYS: str = ""
 
+    # CapMonster.cloud API kaliti (Gemini o'rniga pullik/tezkor captcha yechish uchun)
+    CAPMONSTER_API_KEY: str = ""
+
     # Muvaffaqiyatli to'lovlarni e'lon qilish kanali (masalan: @mening_tolovlarim yoki -1001234567)
     PAYOUTS_CHANNEL: str = ""
 
