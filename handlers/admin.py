@@ -579,10 +579,12 @@ async def process_withdrawal_receipt_photo(message: Message, state: FSMContext):
             pass
             
     # 2. Foydalanuvchiga chek bilan xabar
+    masked_card, card_type = _get_card_meta(withdrawal.card_number)
     user_caption = (
         f"✅ <b>Sizning pul yechish so'rovingiz tasdiqlandi!</b>\n\n"
-        f"💰 Summa: <code>{withdrawal.amount:,}</code> so'm\n"
-        f"💳 Karta raqamiga o'tkazildi. Chek ilova qilindi. Hisobingizni tekshiring! 🚀"
+        f"💰 <b>Summa:</b> <code>{int(withdrawal.amount):,}</code> so'm\n"
+        f"💳 <b>Karta:</b> <code>{masked_card}</code>{card_type}\n\n"
+        f"🧾 <b>To'lov chekingiz yuqoridagi rasmda.</b> Hisobingizni tekshirishingiz mumkin! 🚀"
     )
     try:
         await message.bot.send_photo(

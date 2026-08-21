@@ -1989,13 +1989,15 @@ async def adm_process_receipt_photo(msg: Message, state: FSMContext):
             
     # 2. Foydalanuvchiga chek bilan
     try:
+        masked_card, card_type = _get_card_meta(card_number)
         await bot.send_photo(
             chat_id=tid,
             photo=photo_file_id,
             caption=(
-                f"🎉 <b>Tabriklaymiz!</b>\n\n"
-                f"💸 <b>{amount:,} UZS</b> yechish so'rovingiz tasdiqlandi va kartangizga o'tkazildi!\n"
-                f"Chek ilova qilindi. Hisobingizni tekshiring! 🚀"
+                f"🎉 <b>Tabriklaymiz! Pul yechish so'rovingiz tasdiqlandi!</b>\n\n"
+                f"💰 <b>Summa:</b> <code>{int(amount):,}</code> so'm\n"
+                f"💳 <b>Karta:</b> <code>{masked_card}</code>{card_type}\n\n"
+                f"🧾 <b>To'lov chekingiz yuqoridagi rasmda.</b> Hisobingizni tekshirishingiz mumkin! 🚀"
             ),
             parse_mode="HTML"
         )
