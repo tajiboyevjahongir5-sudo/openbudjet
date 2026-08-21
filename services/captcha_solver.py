@@ -350,9 +350,9 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
                 "json": 1
             }
 
-            await asyncio.sleep(2)  # Dastlabki kutish
-            for _ in range(5):  # maks 5 marta tekshiramiz (jami ~12 soniya)
-                await asyncio.sleep(2)
+            await asyncio.sleep(3)  # Dastlabki kutish (2Captcha ishchisi olishi uchun)
+            for attempt in range(10):  # maks 10 marta tekshiramiz (jami ~25 soniya)
+                await asyncio.sleep(2.2)
                 async with session.get(result_url, params=params) as resp:
                     if resp.status != 200:
                         continue
@@ -362,13 +362,15 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
                         # Faqat raqamlarni ajratamiz (matematik javob)
                         numbers = re.findall(r'\d+', solution)
                         if numbers:
-                            logger.info(f"2Captcha captcha yechdi: {numbers[0]}")
+                            logger.info(f"2Captcha captcha muvaffaqiyatli yechdi ({attempt+1}-urinish): {numbers[0]}")
                             return int(numbers[0])
                         logger.warning(f"2Captcha javobida raqam topilmadi: {solution!r}")
                         return None
                     elif res_data.get("request") != "CAPCHA_NOT_READY":
                         logger.warning(f"2Captcha res.php error: {res_data.get('request')}")
                         return None
+
+            logger.warning("2Captcha timeout: 25 soniya ichida ishchi captchani yechib ulgurmadi")
     except Exception as e:
         logger.error(f"2Captcha captcha solving error: {e}")
     return None

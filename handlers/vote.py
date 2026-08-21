@@ -319,7 +319,7 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             auto_result = None
             if captcha_image and not cap_data.get("mock"):
                 try:
-                    await waiting_msg.edit_text("🧠 <b>Yechim:</b> Captcha AI yordamida yechilmoqda...", parse_mode="HTML")
+                    await waiting_msg.edit_text("🧠 <b>Yechim:</b> Captcha avtomatik yechilmoqda (10-15 soniya)...", parse_mode="HTML")
                 except Exception:
                     pass
                 try:
