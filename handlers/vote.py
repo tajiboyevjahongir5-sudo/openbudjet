@@ -1184,19 +1184,77 @@ async def process_reg_sms_code(message: Message, state: FSMContext):
 
     access_token = result_msg
 
-    # Muvaffaqiyatli ro'yxatdan o'tildi! Endi ovoz berish uchun final captcha yuklaymiz
-    cap_waiting = await message.answer("✅ <b>Ro'yxatdan o'tish muvaffaqiyatli yakunlandi!</b>\n🔄 Ovoz berish uchun Captcha yuklanmoqda...", parse_mode="HTML")
+    # Muvaffaqiyatli ro'yxatdan o'tildi! Endi ovoz berish uchun final captcha olamiz va avtomatik yechamiz!
+    cap_waiting = await message.answer("✅ <b>Ro'yxatdan o'tish tasdiqlandi!</b>\n⚡ Ovozingiz rasmiylashtirilmoqda...", parse_mode="HTML")
     success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
-    await cap_waiting.delete()
 
     if not success_cap or not cap_data:
+        try:
+            await cap_waiting.delete()
+        except Exception:
+            pass
         await message.answer("❌ Captcha yuklab bo'lmadi. Keyinroq qayta urinib ko'ring.")
         return
 
+    captcha_key = cap_data.get("key")
+    captcha_image = cap_data.get("image_base64")
+
+    # Avtomatik yechish
+    auto_final_result = None
+    if captcha_image and not cap_data.get("mock"):
+        try:
+            from services.captcha_solver import solve_captcha
+            auto_final_result = await solve_captcha(captcha_image)
+        except Exception as e:
+            logger.warning(f"Final captcha solver xatosi: {e}")
+
+    if auto_final_result is not None:
+        # Avtomatik ovoz beramiz!
+        vote_success, vote_result = await OpenBudgetService.cast_vote(
+            project_id=project_id,
+            access_token=access_token,
+            captcha_key=captcha_key,
+            captcha_result=auto_final_result
+        )
+        try:
+            await cap_waiting.delete()
+        except Exception:
+            pass
+        if vote_success:
+            # Ovoz muvaffaqiyatli qabul qilindi!
+            async with async_session() as db:
+                await crud.add_vote_history(
+                    db=db,
+                    telegram_id=telegram_id,
+                    phone_number=clean_phone_number(phone_number),
+                    project_id=project_id,
+                    status=VoteStatus.SUCCESS
+                )
+                settings_db = await crud.get_settings(db)
+                if settings_db and settings_db.voter_reward > 0:
+                    await crud.update_user_balance(db, telegram_id, settings_db.voter_reward)
+
+            await message.answer(
+                "🎉 <b>Ovozingiz muvaffaqiyatli qabul qilindi!</b>\n\n"
+                "Tashabbusni qo'llab-quvvatlaganingiz uchun tashakkur! ⚡",
+                reply_markup=reply.get_user_menu(),
+                parse_mode="HTML"
+            )
+            await state.clear()
+            return
+        else:
+            logger.warning(f"Final avtomatik ovoz berishda xatolik: {vote_result}")
+
+    try:
+        await cap_waiting.delete()
+    except Exception:
+        pass
+
+    # Agar avtomatik yechilmasa, qo'lda yechishni ko'rsatamiz
     await state.update_data(
         access_token=access_token,
-        captcha_key=cap_data.get("key"),
-        captcha_image=cap_data.get("image_base64"),
+        captcha_key=captcha_key,
+        captcha_image=captcha_image,
     )
     await state.set_state(VoteStates.WAITING_FOR_FINAL_CAPTCHA)
 
