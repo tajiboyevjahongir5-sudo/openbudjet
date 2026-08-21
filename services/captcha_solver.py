@@ -372,17 +372,12 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
 async def solve_captcha(image_base64: str) -> Optional[int]:
     """
     Asosiy captcha yechish funksiyasi.
-    Avval CapMonster, keyin 2Captcha bilan urinadi (sozlangan bo'lsa), oxiri Gemini'ga o'tadi.
+    Avval 2Captcha bilan urinadi (sozlangan bo'lsa), keyin Gemini'ga o'tadi (fallback).
     """
-    # 1. CapMonster ni tekshiramiz
-    res = await solve_with_capmonster(image_base64)
-    if res is not None:
-        return res
-        
-    # 2. 2Captcha ni tekshiramiz
+    # 1. 2Captcha ni tekshiramiz
     res = await solve_with_2captcha(image_base64)
     if res is not None:
         return res
         
-    # 3. Gemini ni tekshiramiz (fallback)
+    # 2. Gemini ni tekshiramiz (fallback)
     return await solve_captcha_with_gemini(image_base64)
