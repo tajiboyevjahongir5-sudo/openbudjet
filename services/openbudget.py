@@ -99,21 +99,21 @@ class OpenBudgetService:
         url: str,
         headers: dict,
         json_data: dict | None = None,
-        timeout_seconds: int = 10
+        timeout_seconds: int = 12
     ) -> tuple[int, dict, str]:
         """
-        HTTP so'rovini xavfsiz va tezkor bajaradi.
-        Agar PROXY_URL sozlangan bo'lsa, avval proxy orqali (4s) urinib ko'radi.
-        Agar proxy javob bermasa yoki xato bersa, zudlik bilan to'g'ridan-to'g'ri (direct) ulanadi.
+        HTTP so'rovini bajaradi.
+        - PROXY_URL bo'lsa: faqat proksi orqali (12s timeout)
+        - PROXY_URL yo'q bo'lsa: to'g'ridan-to'g'ri yoki Cloudflare Worker orqali
         """
         session = await cls._get_session()
 
         async def _do_request(use_proxy: bool) -> tuple[int, dict, str]:
             kw: dict = {
                 "headers": headers,
-                "timeout": aiohttp.ClientTimeout(total=4 if use_proxy else timeout_seconds),
+                "timeout": aiohttp.ClientTimeout(total=timeout_seconds),
             }
-            if use_proxy:
+            if use_proxy and settings.PROXY_URL:
                 kw["proxy"] = settings.PROXY_URL
             if json_data is not None:
                 kw["json"] = json_data
@@ -125,22 +125,22 @@ class OpenBudgetService:
                     data = await resp.json(content_type=None)
                 except Exception:
                     data = {}
-                text = ""
-                return status, data, text
+                return status, data, ""
 
-        # 1. Proxy bilan urinish
         if settings.PROXY_URL:
+            # Proksi bor — faqat proksi orqali (Railway IP blok bo'lgani uchun direct ishlamaydi)
             try:
                 return await _do_request(use_proxy=True)
             except Exception as pe:
-                logger.warning(f"Proxy kechikishi/xatosi ({pe.__class__.__name__}). To'g'ridan-to'g'ri (Direct) serverga yuborilmoqda...")
-
-        # 2. To'g'ridan-to'g'ri (Direct) urinish
-        try:
-            return await _do_request(use_proxy=False)
-        except Exception as de:
-            logger.error(f"Direct ulanish ham muvaffaqiyatsiz: {de.__class__.__name__}: {de}")
-            raise
+                logger.error(f"Proksi xatoligi ({pe.__class__.__name__}: {pe}). Proksi ishlamayapti.")
+                raise
+        else:
+            # Proksi yo'q — to'g'ridan-to'g'ri (Cloudflare Worker yoki real sayt)
+            try:
+                return await _do_request(use_proxy=False)
+            except Exception as de:
+                logger.error(f"Direct ulanish muvaffaqiyatsiz: {de.__class__.__name__}: {de}")
+                raise
 
 
     @classmethod
