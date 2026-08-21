@@ -526,9 +526,12 @@ async def get_captcha_page(request: Request, session_id: str = "default", sign: 
         }
     )
 
+_processed_webhook_updates: dict[int, float] = {}
+
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     """Telegram webhook orqali keladigan yangilanishlarni qabul qilish"""
+    global _processed_webhook_updates
     if not settings.WEBHOOK_URL:
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -556,6 +559,17 @@ async def telegram_webhook(request: Request):
     try:
         update_data = await request.json()
         update = Update.model_validate(update_data)
+        
+        # 3. Dublikat so'rovlarni (Telegram avto-qayta yuborishi) to'xtatish
+        now = time.time()
+        if len(_processed_webhook_updates) > 2000:
+            _processed_webhook_updates = {uid: ts for uid, ts in _processed_webhook_updates.items() if now - ts < 300}
+
+        if update.update_id in _processed_webhook_updates:
+            logger.info(f"Dublikat update_id={update.update_id} Telegram tomonidan qayta yuborildi va e'tiborsiz qoldirildi.")
+            return {"status": "ok"}
+
+        _processed_webhook_updates[update.update_id] = now
         await dp.feed_update(bot, update)
         return {"status": "ok"}
     except Exception as e:
