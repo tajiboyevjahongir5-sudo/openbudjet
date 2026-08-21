@@ -79,7 +79,7 @@ async def verify_all_api_keys():
     logger.info("Gemini API kalitlarini liveness check tekshiruvi boshlandi...")
     
     async def check_key(key):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={key}"
         payload = {
             "contents": [{"parts": [{"text": "Hello, respond with OK"}]}]
         }
@@ -170,8 +170,8 @@ async def _try_solve_with_key(api_key: str, image_bytes: bytes) -> Optional[int]
     """Bitta Gemini API key bilan captcha yechishga urinadi"""
     import aiohttp
 
-    # Gemini 1.5 Flash API endpoint (newer models support AQ and AIza keys on all regions)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    # Gemini 3.6 Flash API endpoint (newer models support AQ and AIza keys on all regions)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={api_key}"
 
     # Rasmni base64 ga o'tkazamiz
     image_b64 = base64.b64encode(image_bytes).decode()
