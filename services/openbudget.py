@@ -109,13 +109,22 @@ class OpenBudgetService:
         """
         session = await cls._get_session()
 
+        # Proxy URLni http:// ga normalizatsiya qilamiz (https:// TLS-in-TLS xatosini chiqaradi)
+        proxy_url: str | None = None
+        if settings.PROXY_URL:
+            raw = settings.PROXY_URL.strip()
+            if raw.startswith("https://"):
+                proxy_url = "http://" + raw[8:]
+            else:
+                proxy_url = raw
+
         async def _do_request(req_url: str, use_proxy: bool) -> tuple[int, dict, str]:
             kw: dict = {
                 "headers": headers,
                 "timeout": aiohttp.ClientTimeout(total=timeout_seconds),
             }
-            if use_proxy and settings.PROXY_URL:
-                kw["proxy"] = settings.PROXY_URL
+            if use_proxy and proxy_url:
+                kw["proxy"] = proxy_url
             if json_data is not None:
                 kw["json"] = json_data
             req = session.get if method.upper() == "GET" else session.post
@@ -128,18 +137,16 @@ class OpenBudgetService:
                 return status, data, ""
 
         # 1. IPRoyal proksi bilan urinish (to'g'ridan-to'g'ri openbudget.uz ga)
-        if settings.PROXY_URL:
-            # URL'dan path ni ajratib olish uchun
-            path = "/" + "/".join(url.split("/")[3:]) if url.count("/") >= 3 else url
-            # path ni /api dan boshlanishi uchun tozalaymiz
-            if settings.CLOUDFLARE_PROXY_URL and url.startswith(settings.CLOUDFLARE_PROXY_URL):
-                path = url[len(settings.CLOUDFLARE_PROXY_URL.rstrip('/')):]
-            direct_url = f"https://openbudget.uz/api{path}" if not path.startswith("https") else url
+        if proxy_url:
+            path = url[len(settings.CLOUDFLARE_PROXY_URL.rstrip('/')):] if (
+                settings.CLOUDFLARE_PROXY_URL and url.startswith(settings.CLOUDFLARE_PROXY_URL)
+            ) else ("/" + "/".join(url.split("/")[3:]) if url.count("/") >= 3 else url)
+            direct_url = f"https://openbudget.uz/api{path}" if not path.startswith("http") else url
             try:
-                logger.info(f"Proksi orqali so'rov: {direct_url[:60]}...")
+                logger.info(f"IPRoyal proksi orqali: {direct_url[:70]}...")
                 return await _do_request(direct_url, use_proxy=True)
             except Exception as pe:
-                logger.warning(f"Proksi ({pe.__class__.__name__}) xato. Cloudflare Worker orqali urinilmoqda...")
+                logger.warning(f"IPRoyal ({pe.__class__.__name__}). Cloudflare Worker orqali urinilmoqda...")
 
         # 2. Cloudflare Worker orqali (proksisiz)
         try:
