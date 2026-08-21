@@ -1963,6 +1963,28 @@ async def cmd_cancel(msg: Message, state: FSMContext):
     else:
         await msg.answer("Bekor qilindi.", reply_markup=kb_main())
 
+@router.message(F.text == "📢 To'lovlar kanali", StateFilter("*"))
+async def cmd_payouts_channel(msg: Message, state: FSMContext):
+    await state.clear()
+    payout_channel = (await get_setting("payouts_channel")) or PAYOUTS_CHANNEL
+    if not payout_channel:
+        return await msg.answer("❌ To'lovlar kanali hozircha sozlanmagan.")
+        
+    username = payout_channel
+    if username.startswith("@"):
+        username = username[1:]
+        
+    url = f"https://t.me/{username}"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📢 Kanalga o'tish", url=url)
+    ]])
+    await msg.answer(
+        f"📢 <b>To'lovlar kanalimiz:</b> {payout_channel}\n\n"
+        f"Muvaffaqiyatli amalga oshirilgan to'lovlar va cheklarni ushbu kanal orqali shaffof kuzatib boring! 👇",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+
 # ──────────────────────────────────────────────
 #  💎 MENING HISOBIM
 # ──────────────────────────────────────────────
@@ -2360,17 +2382,8 @@ async def start_reg_flow(msg: Message, state: FSMContext, phone: str):
     
     # 2. Loyiha viloyat va tuman IDlarini olamiz
     project_id = await get_setting("project_id")
-    region_id = 14  # Toshkent sh. (default)
-    district_id = 123  # Yunusobod (default)
-    
-    # Loyiha ma'lumotlarini qidirib ko'ramiz
-    res_init, status_init = await call_api(f"/initiative/{project_id}", "GET")
-    if status_init == 200 and "initiative" in res_init:
-        init = res_init["initiative"]
-        if init.get("regionId"):
-            region_id = int(init["regionId"])
-        if init.get("districtId"):
-            district_id = int(init["districtId"])
+    region_id = 1   # Toshkent sh. (default)
+    district_id = 1  # Bektemir (default)
 
     # 3. Captcha olamiz
     loading = await msg.answer("🔄 <b>Ro'yxatdan o'tish boshlanmoqda, kuting...</b>", parse_mode="HTML")

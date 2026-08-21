@@ -2382,17 +2382,8 @@ async def start_reg_flow(msg: Message, state: FSMContext, phone: str):
     
     # 2. Loyiha viloyat va tuman IDlarini olamiz
     project_id = await get_setting("project_id")
-    region_id = 14  # Toshkent sh. (default)
-    district_id = 123  # Yunusobod (default)
-    
-    # Loyiha ma'lumotlarini qidirib ko'ramiz
-    res_init, status_init = await call_api(f"/initiative/{project_id}", "GET")
-    if status_init == 200 and "initiative" in res_init:
-        init = res_init["initiative"]
-        if init.get("regionId"):
-            region_id = int(init["regionId"])
-        if init.get("districtId"):
-            district_id = int(init["districtId"])
+    region_id = 1   # Toshkent sh. (default)
+    district_id = 1  # Bektemir (default)
 
     # 3. Captcha olamiz
     loading = await msg.answer("🔄 <b>Ro'yxatdan o'tish boshlanmoqda, kuting...</b>", parse_mode="HTML")
