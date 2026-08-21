@@ -147,89 +147,91 @@ async def start_in_bot_registration(message: Message, state: FSMContext, phone: 
         parse_mode="HTML"
     )
 
-    # 4. Ro'yxatdan o'tish uchun Captcha olamiz
-    success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
-    if not success_cap or not cap_data:
-        try:
-            await auto_reg_msg.delete()
-        except Exception:
-            pass
-        await message.answer(
-            "❌ Ro'yxatdan o'tish uchun Captcha yuklab bo'lmadi. Qayta urinib ko'ring.",
-            reply_markup=reply.get_phone_keyboard()
-        )
-        await state.clear()
-        return
+    # 4. Ro'yxatdan o'tish uchun Captcha va OTP so'rovi (2 martagacha)
+    reg_success = False
+    reg_result_msg = ""
+    reg_session_data = None
 
-    captcha_key = cap_data.get("key")
-    captcha_image = cap_data.get("image_base64")
+    for reg_attempt in range(2):
+        if reg_attempt > 0:
+            try:
+                await auto_reg_msg.edit_text(
+                    f"🤖 <b>Avtomatik ro'yxatdan o'tkazilmoqda...</b>\n🔄 Yangi captcha olinmoqda ({reg_attempt+1}/2)...",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+        
+        success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
+        if not success_cap or not cap_data:
+            continue
 
-    # 5. Captcha avtomatik yechamiz
-    captcha_result = None
-    if captcha_image and not cap_data.get("mock"):
+        captcha_key = cap_data.get("key")
+        captcha_image = cap_data.get("image_base64")
+
+        captcha_result = None
+        if captcha_image and not cap_data.get("mock"):
+            try:
+                await auto_reg_msg.edit_text(
+                    "🤖 <b>Tizimda ro'yxatdan o'tmagansiz.</b>\n\n"
+                    "⏳ Bot sizni <b>avtomatik ravishda</b> ro'yxatdan o'tkazmoqda...\n"
+                    "🧠 Captcha avtomatik yechilmoqda...",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+            try:
+                from services.captcha_solver import solve_captcha
+                captcha_result = await solve_captcha(captcha_image)
+            except Exception as e:
+                logger.warning(f"Ro'yxatdan o'tish captcha avtomatik yechishda xato: {e}")
+
+        if captcha_result is None:
+            continue
+
+        logger.info(f"Ro'yxatdan o'tish captchasi avtomatik yechildi ({reg_attempt+1}-urinish): {captcha_result}")
+
         try:
             await auto_reg_msg.edit_text(
                 "🤖 <b>Tizimda ro'yxatdan o'tmagansiz.</b>\n\n"
                 "⏳ Bot sizni <b>avtomatik ravishda</b> ro'yxatdan o'tkazmoqda...\n"
-                "🧠 Captcha AI yordamida yechilmoqda...",
+                "📩 SMS kod so'ralmoqda...",
                 parse_mode="HTML"
             )
         except Exception:
             pass
-        try:
-            from services.captcha_solver import solve_captcha
-            captcha_result = await solve_captcha(captcha_image)
-        except Exception as e:
-            logger.warning(f"Ro'yxatdan o'tish captcha avtomatik yechishda xato: {e}")
 
-    if captcha_result is None:
-        try:
-            await auto_reg_msg.delete()
-        except Exception:
-            pass
-        await message.answer(
-            "❌ Captcha avtomatik yechib bo'lmadi. Qayta urinib ko'ring.",
-            reply_markup=reply.get_phone_keyboard()
+        success, result_msg, session_data = await OpenBudgetService.send_registration_otp(
+            first_name=first_name,
+            last_name=last_name,
+            phone_number=phone,
+            gender=gender,
+            birth_date=birth_date,
+            region_id=region_id,
+            district_id=district_id,
+            project_id=project_id,
+            captcha_key=captcha_key,
+            captcha_result=captcha_result,
+            profession="Xodim"
         )
-        await state.clear()
-        return
 
-    logger.info(f"Ro'yxatdan o'tish captchasi avtomatik yechildi: {captcha_result}")
-
-    # 6. Ro'yxatdan o'tish OTP so'rovi
-    try:
-        await auto_reg_msg.edit_text(
-            "🤖 <b>Tizimda ro'yxatdan o'tmagansiz.</b>\n\n"
-            "⏳ Bot sizni <b>avtomatik ravishda</b> ro'yxatdan o'tkazmoqda...\n"
-            "📩 SMS kod so'ralmoqda...",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
-
-    success, result_msg, session_data = await OpenBudgetService.send_registration_otp(
-        first_name=first_name,
-        last_name=last_name,
-        phone_number=phone,
-        gender=gender,
-        birth_date=birth_date,
-        region_id=region_id,
-        district_id=district_id,
-        project_id=project_id,
-        captcha_key=captcha_key,
-        captcha_result=captcha_result,
-        profession="Xodim"
-    )
+        if success:
+            reg_success = True
+            reg_session_data = session_data
+            break
+        else:
+            reg_result_msg = result_msg
+            logger.warning(f"Ro'yxatdan o'tish OTP xatosi ({reg_attempt+1}-urinish): {result_msg}")
 
     try:
         await auto_reg_msg.delete()
     except Exception:
         pass
 
-    if not success:
-        logger.warning(f"Avtomatik ro'yxatdan o'tishda xatolik: {result_msg}")
+    if not reg_success:
+        logger.warning(f"Avtomatik ro'yxatdan o'tishda xatolik: {reg_result_msg}")
         await message.answer(
-            f"❌ <b>Ro'yxatdan o'tishda xatolik:</b>\n{html.escape(str(result_msg))}\n\n"
+            f"❌ <b>Ro'yxatdan o'tishda xatolik:</b>\n{html.escape(str(reg_result_msg or 'Captcha xatosi'))}\n\n"
             f"Iltimos, qaytadan urinib ko'ring yoki boshqa raqam kiriting:",
             reply_markup=reply.get_phone_keyboard(),
             parse_mode="HTML"
@@ -237,8 +239,8 @@ async def start_in_bot_registration(message: Message, state: FSMContext, phone: 
         await state.clear()
         return
 
-    # 7. SMS muvaffaqiyatli ketdi — SMS kodni kiritishni so'raymiz
-    await state.update_data(session_data=session_data, phone_number=phone, project_id=project_id)
+    # 5. SMS muvaffaqiyatli ketdi — SMS kodni kiritishni so'raymiz
+    await state.update_data(session_data=reg_session_data, phone_number=phone, project_id=project_id)
     await state.set_state(VoteStates.REG_WAITING_SMS)
     await message.answer(
         f"✅ <b>Ro'yxatdan o'tish muvaffaqiyatli boshlandi!</b>\n\n"
@@ -315,22 +317,40 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             captcha_key = cap_data.get("key")
             captcha_image = cap_data.get("image_base64")
 
-            # 🤖 Gemini bilan avtomatik yechishga urinish
+            # 🤖 Avtomatik yechishga urinish (2 martagacha)
             auto_result = None
-            if captcha_image and not cap_data.get("mock"):
+            max_auto_attempts = 2
+            for auto_attempt in range(max_auto_attempts):
+                if auto_attempt > 0:
+                    # Yangi fresh captcha yuklaymiz
+                    try:
+                        await waiting_msg.edit_text(f"🔄 <b>Qayta urinish:</b> Yangi captcha yechilmoqda ({auto_attempt+1}/{max_auto_attempts})...", parse_mode="HTML")
+                    except Exception:
+                        pass
+                    success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
+                    if not success_cap or not cap_data:
+                        break
+                    captcha_key = cap_data.get("key")
+                    captcha_image = cap_data.get("image_base64")
+
+                if not captcha_image or cap_data.get("mock"):
+                    break
+
                 try:
-                    await waiting_msg.edit_text("🧠 <b>Yechim:</b> Captcha avtomatik yechilmoqda (10-15 soniya)...", parse_mode="HTML")
+                    await waiting_msg.edit_text("🧠 <b>Yechim:</b> Captcha avtomatik yechilmoqda...", parse_mode="HTML")
                 except Exception:
                     pass
                 try:
                     from services.captcha_solver import solve_captcha
                     auto_result = await solve_captcha(captcha_image)
                 except Exception as e:
-                    logger.warning(f"Gemini captcha solver xatosi: {e}")
+                    logger.warning(f"Captcha solver xatosi: {e}")
+                    auto_result = None
 
-            if auto_result is not None:
-                # ✅ Captcha avtomatik yechildi — foydalanuvchiga ko'rsatmasdan davom etamiz
-                logger.info(f"Captcha avtomatik yechildi: {auto_result}")
+                if auto_result is None:
+                    continue
+
+                logger.info(f"Captcha avtomatik yechildi ({auto_attempt+1}-urinish): {auto_result}")
                 try:
                     await waiting_msg.edit_text("📩 <b>Tasdiqlash:</b> SMS kod so'ralmoqda...", parse_mode="HTML")
                 except Exception:
@@ -396,8 +416,7 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
                     await state.clear()
                     return
 
-                # Avtomatik yechim xato bo'lsa — qo'lda ko'rsatamiz
-                logger.warning(f"Avtomatik captcha noto'g'ri ekan (yoki boshqa xatolik: {error2}), qo'lda ko'rsatiladi")
+                logger.warning(f"Avtomatik captcha noto'g'ri bo'ldi ({error2}), qayta uriniladi...")
 
             # 🧑 Captcha qo'lda yechilishi kerak
             try:

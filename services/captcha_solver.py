@@ -321,8 +321,9 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
         "method": "base64",
         "body": image_base64,
         "json": 1,
-        "math": 1,       # Matematik ifodani hisoblash (masalan: 3+4=? → 7)
-        "numeric": 1,    # Javob faqat raqam bo'ladi
+        "calc": 1,        # 2Captcha: rasm ichidagi matematik amalni hisoblash (5+3=8 -> 8)
+        "numeric": 1,     # Faqat raqamli javob
+        "textinstructions": "Calculate math expression and write ONLY the result number (e.g. 5+3 write 8)",
     }
 
     try:
