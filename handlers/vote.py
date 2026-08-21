@@ -135,9 +135,9 @@ async def start_in_bot_registration(message: Message, state: FSMContext, phone: 
     day = random.randint(1, 28)
     birth_date = f"{year}-{month:02d}-{day:02d}"
 
-    # 2. Loyiha region/district ID — tezlik uchun Toshkent default ishlatiladi
-    region_id = 11    # Toshkent viloyati
-    district_id = 1101  # Toshkent shahar
+    # 2. Loyiha region/district ID — Open Budget haqiqiy ID lari:
+    region_id = 1     # Toshkent shahri
+    district_id = 1   # Bektemir tumani
 
     # 3. Foydalanuvchiga jarayon boshlanganini ko'rsatamiz
     auto_reg_msg = await message.answer(
