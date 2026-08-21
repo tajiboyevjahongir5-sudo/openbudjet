@@ -320,7 +320,9 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
         "key": api_key,
         "method": "base64",
         "body": image_base64,
-        "json": 1
+        "json": 1,
+        "math": 1,       # Matematik ifodani hisoblash (masalan: 3+4=? → 7)
+        "numeric": 1,    # Javob faqat raqam bo'ladi
     }
 
     try:
