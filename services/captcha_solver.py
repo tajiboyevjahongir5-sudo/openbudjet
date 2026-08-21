@@ -124,8 +124,9 @@ def _get_next_key() -> Optional[str]:
 
 async def solve_captcha_with_gemini(image_base64: str) -> Optional[int]:
     """
-    Captcha rasmini ketma-ket (sequential) ravishda API keylar orqali yechadi.
-    Bu orqali keylar limitini (429 xatolarini) tejab qolamiz.
+    Captcha rasmini PARALLEL ravishda barcha mavjud API keylar orqali bir vaqtda yuboradi.
+    Birinchi to'g'ri javob kelishi bilan qaytaradi (race condition pattern).
+    Bu eng tez va ishonchli usul — bitta key timeout bo'lsa, boshqasi javob beradi.
     """
     global _keys
     if not _keys:
@@ -134,46 +135,39 @@ async def solve_captcha_with_gemini(image_base64: str) -> Optional[int]:
         logger.warning("Gemini API keylari yo'q — captcha qo'lda yechiladi")
         return None
 
-    # Base64 prefiksni tozalaymiz
     if "," in image_base64:
         image_base64 = image_base64.split(",")[-1]
 
-    # Rasm baytlarini olamiz
     try:
         image_bytes = base64.b64decode(image_base64)
     except Exception as e:
         logger.error(f"Captcha rasmi base64 decode xatosi: {e}")
         return None
 
-    # Navbatdagi 3 ta kalitni ketma-ket urinib ko'rish uchun tanlaymiz
-    global _key_index
     available_keys = get_available_keys()
-    n_keys = len(available_keys)
-    
-    # Maksimal 3 ta turli kalit bilan ketma-ket urinib ko'ramiz
-    for _ in range(min(3, n_keys)):
-        key = available_keys[_key_index % n_keys]
-        _key_index = (_key_index + 1) % n_keys
-        
-        try:
-            res = await _try_solve_with_key(key, image_bytes)
-            if res is not None:
-                return res
-        except Exception as e:
-            logger.warning(f"Key {_key_index} orqali captcha yechishda xatolik yuz berdi: {e}")
+    if not available_keys:
+        return None
 
-    logger.warning("Barcha tanlangan Gemini kalitlari muvaffaqiyatsiz yakunlandi (yoki limitga uchradi)")
+    # Barcha kalitlarni PARALLEL ravishda bir vaqtda ishga tushiramiz
+    # Birinchi to'g'ri javobni olamiz
+    tasks = [_try_solve_with_key(key, image_bytes) for key in available_keys[:5]]
+    
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for res in results:
+            if isinstance(res, int) and res is not None:
+                return res
+    except Exception as e:
+        logger.warning(f"Parallel Gemini urinishda umumiy xatolik: {e}")
+
+    logger.warning("Barcha Gemini kalitlari muvaffaqiyatsiz yakunlandi")
     return None
 
 
 async def _try_solve_with_key(api_key: str, image_bytes: bytes) -> Optional[int]:
-    """Bitta Gemini API key bilan captcha yechishga urinadi"""
-    import aiohttp
+    """Bitta Gemini API key bilan captcha yechishga urinadi (5 soniya limit)"""
 
-    # Gemini Flash Latest API endpoint
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
-
-    # Rasmni base64 ga o'tkazamiz
     image_b64 = base64.b64encode(image_bytes).decode()
 
     payload = {
@@ -196,31 +190,31 @@ async def _try_solve_with_key(api_key: str, image_bytes: bytes) -> Optional[int]
         }],
         "generationConfig": {
             "temperature": 0,
-            "maxOutputTokens": 150,
+            "maxOutputTokens": 10,
         }
     }
 
-    # Tezkor ishlash uchun timeoutni 8 soniya qilamiz
-    timeout = aiohttp.ClientTimeout(total=8)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, json=payload) as resp:
-            if resp.status == 429:
-                block_key(api_key, 120.0)
-                return None
-            if resp.status != 200:
-                return None
+    # 5 soniya timeout — Railway'dan Gemini'ga normal ulanish uchun yetarli
+    timeout = aiohttp.ClientTimeout(total=5)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json=payload) as resp:
+                if resp.status == 429:
+                    block_key(api_key, 120.0)
+                    return None
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+    except Exception:
+        return None
 
-            data = await resp.json()
-
-    # Javobni parse qilamiz
     try:
         text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        # Faqat raqamlarni ajratamiz
         numbers = re.findall(r'\d+', text)
         if numbers:
             return int(numbers[0])
-    except (KeyError, IndexError, ValueError) as e:
-        logger.warning(f"Gemini javobini parse qilib bo'lmadi: {e}, javob: {data}")
+    except (KeyError, IndexError, ValueError):
+        pass
 
     return None
 
