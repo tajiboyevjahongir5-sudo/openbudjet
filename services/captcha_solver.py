@@ -350,8 +350,8 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
                 "json": 1
             }
 
-            await asyncio.sleep(3)  # Dastlabki kutish (matematik captcha ko'proq vaqt oladi)
-            for _ in range(10):  # maks 10 marta tekshiramiz (jami ~23 soniya)
+            await asyncio.sleep(2)  # Dastlabki kutish
+            for _ in range(5):  # maks 5 marta tekshiramiz (jami ~12 soniya)
                 await asyncio.sleep(2)
                 async with session.get(result_url, params=params) as resp:
                     if resp.status != 200:

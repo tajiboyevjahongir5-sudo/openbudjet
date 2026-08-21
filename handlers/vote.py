@@ -135,16 +135,9 @@ async def start_in_bot_registration(message: Message, state: FSMContext, phone: 
     day = random.randint(1, 28)
     birth_date = f"{year}-{month:02d}-{day:02d}"
 
-    # 2. Loyiha region/district ID ni olamiz (portal API dan)
-    region_id = 11    # Toshkent default
-    district_id = 1101  # Toshkent shahar default
-    try:
-        initiative = await OpenBudgetService.find_initiative(project_id)
-        if initiative:
-            region_id = int(initiative.get("regionId", region_id))
-            district_id = int(initiative.get("districtId", district_id))
-    except Exception as e:
-        logger.warning(f"Initiative region/district ID olinmadi, default ishlatiladi: {e}")
+    # 2. Loyiha region/district ID — tezlik uchun Toshkent default ishlatiladi
+    region_id = 11    # Toshkent viloyati
+    district_id = 1101  # Toshkent shahar
 
     # 3. Foydalanuvchiga jarayon boshlanganini ko'rsatamiz
     auto_reg_msg = await message.answer(
