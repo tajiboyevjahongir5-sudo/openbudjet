@@ -306,6 +306,7 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
     from config import settings
     api_key = settings.TWOCAPTCHA_API_KEY.strip()
     if not api_key:
+        logger.warning("TWOCAPTCHA_API_KEY sozlanmagan — 2Captcha o'tkazib yuborildi")
         return None
 
     # Base64 prefiksni tozalaymiz
