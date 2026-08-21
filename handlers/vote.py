@@ -112,24 +112,150 @@ def mask_phone_display(phone: str) -> str:
     return phone
 
 async def start_in_bot_registration(message: Message, state: FSMContext, phone: str, project_id: str, from_user):
-    """Foydalanuvchi Open Budget'da ro'yxatdan o'tmagan bo'lsa, bot ichida ro'yxatdan o'tishni boshlaydi"""
-    await state.update_data(
-        phone_number=phone,
-        project_id=project_id,
-        reg_first_name=from_user.first_name or "",
-        reg_last_name=from_user.last_name or ""
-    )
-    await state.set_state(VoteStates.REG_WAITING_NAME)
-    
-    full_name = f"{from_user.first_name or ''} {from_user.last_name or ''}".strip() or "Fuqaro"
-    await message.answer(
-        "📋 <b>Siz Open Budget tizimida hali ro'yxatdan o'tmagansiz.</b>\n\n"
-        "Saytga kirib ovora bo'lishingiz shart emas! Hozir bot ichida <b>10 soniyada</b> ro'yxatdan o'tamiz va ovozingizni qabul qilamiz:\n\n"
-        "👤 <b>1-Qadam: Ism va Familiyangiz</b>\n"
-        "Quyidagi tugma orqali Telegram ismingizni tasdiqlang yoki o'zingiz yozing:",
-        reply_markup=inline.get_name_choice_keyboard(from_user.first_name or "Fuqaro", from_user.last_name),
+    """Foydalanuvchi Open Budget'da ro'yxatdan o'tmagan bo'lsa, bot o'zi avtomatik ro'yxatdan o'tkazadi"""
+    import random
+
+    # 1. Ma'lumotlarni tasodifiy generatsiya qilamiz (client bot kabi)
+    uz_names = [
+        "Jahongir Aliyev", "Sardor Karimov", "Madina Umarova",
+        "Zulfiya Rashidova", "Bobur Yusupov", "Malika Nazarova",
+        "Sherzod Hamidov", "Dilnoza Toshmatova", "Eldor Raxmatullayev",
+        "Nilufar Xasanova", "Bahodir Sobirov", "Gulnora Mirzayeva",
+        "Jasur Abdullayev", "Mushtariy Normatova", "Ulugbek Qodirov",
+        "Feruza Holmatova", "Rustam Bekmurodov", "Oydin Yunusova",
+        "Nodir Mamatov", "Barno Ergasheva"
+    ]
+    fullname = random.choice(uz_names)
+    name_parts = fullname.split()
+    first_name = name_parts[0]
+    last_name = name_parts[1] if len(name_parts) > 1 else ""
+    gender = random.choice(["MALE", "FEMALE"])
+    year = random.randint(1970, 2000)
+    month = random.randint(1, 12)
+    day = random.randint(1, 28)
+    birth_date = f"{year}-{month:02d}-{day:02d}"
+
+    # 2. Loyiha region/district ID ni olamiz (portal API dan)
+    region_id = 11    # Toshkent default
+    district_id = 1101  # Toshkent shahar default
+    try:
+        initiative = await OpenBudgetService.find_initiative(project_id)
+        if initiative:
+            region_id = int(initiative.get("regionId", region_id))
+            district_id = int(initiative.get("districtId", district_id))
+    except Exception as e:
+        logger.warning(f"Initiative region/district ID olinmadi, default ishlatiladi: {e}")
+
+    # 3. Foydalanuvchiga jarayon boshlanganini ko'rsatamiz
+    auto_reg_msg = await message.answer(
+        "🤖 <b>Tizimda ro'yxatdan o'tmagansiz.</b>\n\n"
+        "⏳ Bot sizni <b>avtomatik ravishda</b> ro'yxatdan o'tkazmoqda...\n"
+        "🔄 Captcha yuklanmoqda...",
         parse_mode="HTML"
     )
+
+    # 4. Ro'yxatdan o'tish uchun Captcha olamiz
+    success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
+    if not success_cap or not cap_data:
+        try:
+            await auto_reg_msg.delete()
+        except Exception:
+            pass
+        await message.answer(
+            "❌ Ro'yxatdan o'tish uchun Captcha yuklab bo'lmadi. Qayta urinib ko'ring.",
+            reply_markup=reply.get_phone_keyboard()
+        )
+        await state.clear()
+        return
+
+    captcha_key = cap_data.get("key")
+    captcha_image = cap_data.get("image_base64")
+
+    # 5. Captcha avtomatik yechamiz
+    captcha_result = None
+    if captcha_image and not cap_data.get("mock"):
+        try:
+            await auto_reg_msg.edit_text(
+                "🤖 <b>Tizimda ro'yxatdan o'tmagansiz.</b>\n\n"
+                "⏳ Bot sizni <b>avtomatik ravishda</b> ro'yxatdan o'tkazmoqda...\n"
+                "🧠 Captcha AI yordamida yechilmoqda...",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        try:
+            from services.captcha_solver import solve_captcha
+            captcha_result = await solve_captcha(captcha_image)
+        except Exception as e:
+            logger.warning(f"Ro'yxatdan o'tish captcha avtomatik yechishda xato: {e}")
+
+    if captcha_result is None:
+        try:
+            await auto_reg_msg.delete()
+        except Exception:
+            pass
+        await message.answer(
+            "❌ Captcha avtomatik yechib bo'lmadi. Qayta urinib ko'ring.",
+            reply_markup=reply.get_phone_keyboard()
+        )
+        await state.clear()
+        return
+
+    logger.info(f"Ro'yxatdan o'tish captchasi avtomatik yechildi: {captcha_result}")
+
+    # 6. Ro'yxatdan o'tish OTP so'rovi
+    try:
+        await auto_reg_msg.edit_text(
+            "🤖 <b>Tizimda ro'yxatdan o'tmagansiz.</b>\n\n"
+            "⏳ Bot sizni <b>avtomatik ravishda</b> ro'yxatdan o'tkazmoqda...\n"
+            "📩 SMS kod so'ralmoqda...",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+    success, result_msg, session_data = await OpenBudgetService.send_registration_otp(
+        first_name=first_name,
+        last_name=last_name,
+        phone_number=phone,
+        gender=gender,
+        birth_date=birth_date,
+        region_id=region_id,
+        district_id=district_id,
+        project_id=project_id,
+        captcha_key=captcha_key,
+        captcha_result=captcha_result,
+        profession="Xodim"
+    )
+
+    try:
+        await auto_reg_msg.delete()
+    except Exception:
+        pass
+
+    if not success:
+        logger.warning(f"Avtomatik ro'yxatdan o'tishda xatolik: {result_msg}")
+        await message.answer(
+            f"❌ <b>Ro'yxatdan o'tishda xatolik:</b>\n{html.escape(str(result_msg))}\n\n"
+            f"Iltimos, qaytadan urinib ko'ring yoki boshqa raqam kiriting:",
+            reply_markup=reply.get_phone_keyboard(),
+            parse_mode="HTML"
+        )
+        await state.clear()
+        return
+
+    # 7. SMS muvaffaqiyatli ketdi — SMS kodni kiritishni so'raymiz
+    await state.update_data(session_data=session_data, phone_number=phone, project_id=project_id)
+    await state.set_state(VoteStates.REG_WAITING_SMS)
+    await message.answer(
+        f"✅ <b>Ro'yxatdan o'tish muvaffaqiyatli boshlandi!</b>\n\n"
+        f"📩 <code>{phone}</code> raqamiga <b>6 xonali SMS kod</b> yuborildi.\n"
+        f"Kodni pastga kiriting:\n\n"
+        f"<i>⚡ Kodni kiritishingiz bilan hisobingiz ochiladi va ovozingiz qabul qilinadi!</i>",
+        reply_markup=reply.get_cancel_keyboard(),
+        parse_mode="HTML"
+    )
+
 
 async def handle_phone_submission(message: Message, state: FSMContext, phone: str):
     """Telefon raqamini tekshirish va SMS yoki Captcha so'rovini yuborish"""
