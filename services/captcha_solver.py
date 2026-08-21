@@ -374,14 +374,18 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
 async def solve_captcha(image_base64: str) -> Optional[int]:
     """
     Asosiy captcha yechish funksiyasi.
-    1. Gemini Vision Flash (1-2 soniyada 100% aniqlik bilan yechadi)
-    2. 2Captcha (Zaxira sifatida insonlar tomonidan yechiladi)
+    1. 2Captcha (insonlar tomonidan 100% aniq yechiladi)
+    2. Gemini Vision Flash (zaxira sifatida bepul AI bilan yechiladi)
     """
-    # 1. Gemini Flash bilan yechishga urinish (1-2 soniya)
+    # 1. Avval 2Captcha bilan yechishga urinish
+    res = await solve_with_2captcha(image_base64)
+    if res is not None:
+        logger.info(f"2Captcha captcha yechdi: {res}")
+        return res
+
+    # 2. Zaxira: Gemini Flash AI
+    logger.info("2Captcha muvaffaqiyatsiz — Gemini AI bilan urinilmoqda...")
     res = await solve_captcha_with_gemini(image_base64)
     if res is not None:
         logger.info(f"Gemini captcha yechdi: {res}")
-        return res
-        
-    # 2. 2Captcha zaxira tizimi
-    return await solve_with_2captcha(image_base64)
+    return res
