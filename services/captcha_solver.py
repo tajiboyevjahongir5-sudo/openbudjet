@@ -297,15 +297,92 @@ async def solve_with_capmonster(image_base64: str) -> Optional[int]:
     return None
 
 
+async def solve_with_2captcha(image_base64: str) -> Optional[int]:
+    """
+    2Captcha.com (RuCaptcha) API orqali captchani yechadi.
+    100% ishonchli pullik muqobil (1000 ta captcha = $1.00).
+    To'lov tizimlari juda ko'p (PerfectMoney, Payeer, AdvCash, xalqaro kartalar va mahalliy dilerlar).
+    """
+    from config import settings
+    api_key = settings.TWOCAPTCHA_API_KEY.strip()
+    if not api_key:
+        return None
+
+    # Base64 prefiksni tozalaymiz
+    if "," in image_base64:
+        image_base64 = image_base64.split(",")[-1]
+
+    create_url = "https://2captcha.com/in.php"
+    result_url = "https://2captcha.com/res.php"
+
+    payload = {
+        "key": api_key,
+        "method": "base64",
+        "body": image_base64,
+        "json": 1
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            # 1. Task yuboramiz
+            async with session.post(create_url, json=payload) as resp:
+                if resp.status != 200:
+                    logger.warning(f"2Captcha in.php failed status: {resp.status}")
+                    return None
+                data = await resp.json()
+                if data.get("status") != 1:
+                    logger.warning(f"2Captcha in.php error: {data.get('request')}")
+                    return None
+                task_id = data.get("request")
+
+            if not task_id:
+                return None
+
+            # 2. Polling (natijani kutamiz)
+            params = {
+                "key": api_key,
+                "action": "get",
+                "id": task_id,
+                "json": 1
+            }
+
+            for _ in range(6):  # maks 6 marta tekshiramiz (jami ~8 soniya)
+                await asyncio.sleep(1.3)
+                async with session.get(result_url, params=params) as resp:
+                    if resp.status != 200:
+                        continue
+                    res_data = await resp.json()
+                    if res_data.get("status") == 1:
+                        solution = res_data.get("request", "")
+                        # Faqat raqamlarni ajratamiz (matematik javob)
+                        numbers = re.findall(r'\d+', solution)
+                        if numbers:
+                            logger.info(f"2Captcha captcha yechdi: {numbers[0]}")
+                            return int(numbers[0])
+                        return None
+                    elif res_data.get("request") != "CAPCHA_NOT_READY":
+                        logger.warning(f"2Captcha res.php error: {res_data.get('request')}")
+                        return None
+    except Exception as e:
+        logger.error(f"2Captcha captcha solving error: {e}")
+    return None
+
+
 async def solve_captcha(image_base64: str) -> Optional[int]:
     """
     Asosiy captcha yechish funksiyasi.
-    Avval CapMonster bilan urinib ko'radi (sozlagan bo'lsa), keyin Gemini'ga o'tadi.
+    Avval CapMonster, keyin 2Captcha bilan urinadi (sozlangan bo'lsa), oxiri Gemini'ga o'tadi.
     """
     # 1. CapMonster ni tekshiramiz
     res = await solve_with_capmonster(image_base64)
     if res is not None:
         return res
         
-    # 2. Gemini ni tekshiramiz (fallback)
+    # 2. 2Captcha ni tekshiramiz
+    res = await solve_with_2captcha(image_base64)
+    if res is not None:
+        return res
+        
+    # 3. Gemini ni tekshiramiz (fallback)
     return await solve_captcha_with_gemini(image_base64)

@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # CapMonster.cloud API kaliti (Gemini o'rniga pullik/tezkor captcha yechish uchun)
     CAPMONSTER_API_KEY: str = ""
 
+    # 2Captcha.com / RuCaptcha.com API kaliti (muqobil to'lov qulay bo'lgan pullik captcha yechish)
+    TWOCAPTCHA_API_KEY: str = ""
+
     # Muvaffaqiyatli to'lovlarni e'lon qilish kanali (masalan: @mening_tolovlarim yoki -1001234567)
     PAYOUTS_CHANNEL: str = ""
 
