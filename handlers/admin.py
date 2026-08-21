@@ -499,20 +499,53 @@ async def process_approve_withdraw(callback: CallbackQuery):
     payout_channel = payouts_channel_db or getattr(settings, "PAYOUTS_CHANNEL", "")
     if payout_channel:
         try:
-            # Mask card number (e.g. 8600 **** **** 1234)
+            from datetime import datetime
             card = withdrawal.card_number or "—"
-            masked_card = f"{card[:4]} **** **** {card[-4:]}" if len(card) >= 16 else card
+            card_type = ""
+            if card.startswith("8600") or card.startswith("5614"):
+                card_type = " (Uzcard)"
+            elif card.startswith("9860"):
+                card_type = " (Humo)"
+            elif card.startswith("4"):
+                card_type = " (Visa)"
+            elif card.startswith("5"):
+                card_type = " (Mastercard)"
+                
+            masked_card = f"{card[:4]} •••• •••• {card[-4:]}" if len(card) >= 16 else (f"{card[:4]} ••••" if len(card) >= 4 else "—")
+            date_str = datetime.now().strftime("%d.%m.%Y • %H:%M")
+            
+            tid_str = str(withdrawal.telegram_id)
+            masked_user = f"{tid_str[:3]}***{tid_str[-2:]}" if len(tid_str) >= 5 else tid_str
             
             pay_text = (
-                f"✅ <b>Muvaffaqiyatli To'lov!</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━\n\n"
-                f"👤 Foydalanuvchi: <a href='tg://user?id={withdrawal.telegram_id}'>{withdrawal.telegram_id}</a>\n"
-                f"💰 Summa: <b>{withdrawal.amount:,} UZS</b>\n"
-                f"💳 Karta: <code>{masked_card}</code>\n\n"
-                f"🤖 Biz bilan ishlaganingiz uchun rahmat! Ovoz berishda davom eting va daromad toping."
+                f"💸 <b>YANGI TO'LOV AMALGA OSHIRILDI!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🧾 <b>To'lov ID:</b> <code>#{withdrawal.id}</code>\n"
+                f"👤 <b>Qabul qiluvchi:</b> <code>ID {masked_user}</code>\n"
+                f"💰 <b>To'langan summa:</b> <b>{int(withdrawal.amount):,} so'm</b>\n"
+                f"💳 <b>Hisob (karta):</b> <code>{masked_card}</code>{card_type}\n"
+                f"📅 <b>Vaqt:</b> {date_str}\n"
+                f"🟢 <b>Holati:</b> Muvaffaqiyatli to'landi ✅\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⚡ <b>Siz ham ovoz bering va har bir ovoz uchun pul mukofotini oling!</b>"
             )
-            await callback.bot.send_message(chat_id=payout_channel, text=pay_text, parse_mode="HTML")
-            logger.info(f"Asosiy botdan to'lov kanaliga ({payout_channel}) xabar yuborildi.")
+            
+            bot_info = await callback.bot.get_me()
+            bot_username = bot_info.username
+            channel_kb = None
+            if bot_username:
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                channel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🗳️ Ovoz berish va pul ishlash", url=f"https://t.me/{bot_username}")
+                ]])
+                
+            await callback.bot.send_message(
+                chat_id=payout_channel,
+                text=pay_text,
+                reply_markup=channel_kb,
+                parse_mode="HTML"
+            )
+            logger.info(f"Asosiy botdan to'lov kanaliga ({payout_channel}) chiroyli xabar yuborildi.")
         except Exception as e:
             logger.error(f"Asosiy botda to'lov kanaliga xabar yuborishda xatolik: {e}")
 

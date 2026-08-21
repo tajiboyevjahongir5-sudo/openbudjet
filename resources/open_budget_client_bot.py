@@ -1911,20 +1911,54 @@ async def adm_approve_wd(cb: CallbackQuery):
             pass
             
         # To'lovlar kanaliga xabar yuborish
-        if PAYOUTS_CHANNEL:
+        payout_ch = (await get_setting("payouts_channel")) or PAYOUTS_CHANNEL
+        if payout_ch:
             try:
-                # Mask card number (e.g. 8600 **** **** 1234)
-                masked_card = f"{card_number[:4]} **** **** {card_number[-4:]}" if len(card_number) >= 16 else card_number
+                from datetime import datetime
+                card = card_number or "—"
+                card_type = ""
+                if card.startswith("8600") or card.startswith("5614"):
+                    card_type = " (Uzcard)"
+                elif card.startswith("9860"):
+                    card_type = " (Humo)"
+                elif card.startswith("4"):
+                    card_type = " (Visa)"
+                elif card.startswith("5"):
+                    card_type = " (Mastercard)"
+                    
+                masked_card = f"{card[:4]} •••• •••• {card[-4:]}" if len(card) >= 16 else (f"{card[:4]} ••••" if len(card) >= 4 else "—")
+                date_str = datetime.now().strftime("%d.%m.%Y • %H:%M")
+                
+                tid_str = str(tid)
+                masked_user = f"{tid_str[:3]}***{tid_str[-2:]}" if len(tid_str) >= 5 else tid_str
                 
                 pay_text = (
-                    f"✅ <b>Muvaffaqiyatli To'lov!</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"👤 Foydalanuvchi: <a href='tg://user?id={tid}'>{tid}</a>\n"
-                    f"💰 Summa: <b>{amount:,} UZS</b>\n"
-                    f"💳 Karta: <code>{masked_card}</code>\n\n"
-                    f"🤖 Biz bilan ishlaganingiz uchun rahmat! Ovoz bering va pul ishlang!"
+                    f"💸 <b>YANGI TO'LOV AMALGA OSHIRILDI!</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"🧾 <b>To'lov ID:</b> <code>#{wd_id}</code>\n"
+                    f"👤 <b>Qabul qiluvchi:</b> <code>ID {masked_user}</code>\n"
+                    f"💰 <b>To'langan summa:</b> <b>{int(amount):,} so'm</b>\n"
+                    f"💳 <b>Hisob (karta):</b> <code>{masked_card}</code>{card_type}\n"
+                    f"📅 <b>Vaqt:</b> {date_str}\n"
+                    f"🟢 <b>Holati:</b> Muvaffaqiyatli to'landi ✅\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"⚡ <b>Siz ham ovoz bering va har bir ovoz uchun pul mukofotini oling!</b>"
                 )
-                await bot.send_message(chat_id=PAYOUTS_CHANNEL, text=pay_text, parse_mode="HTML")
+                
+                bot_info = await bot.get_me()
+                bot_username = bot_info.username
+                channel_kb = None
+                if bot_username:
+                    channel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                        InlineKeyboardButton(text="🗳️ Ovoz berish va pul ishlash", url=f"https://t.me/{bot_username}")
+                    ]])
+                    
+                await bot.send_message(
+                    chat_id=payout_ch,
+                    text=pay_text,
+                    reply_markup=channel_kb,
+                    parse_mode="HTML"
+                )
             except Exception as e:
                 logger.error(f"To'lov kanaliga xabar yuborishda xatolik: {e}")
                 
