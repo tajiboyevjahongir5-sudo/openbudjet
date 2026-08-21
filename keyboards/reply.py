@@ -11,7 +11,8 @@ def get_user_menu() -> ReplyKeyboardMarkup:
             KeyboardButton(text="👥 Do'stlarni taklif qilish", style="primary")
         ],
         [
-            KeyboardButton(text="🤝 Hamkorlik & API", style="primary")
+            KeyboardButton(text="🤝 Hamkorlik & API", style="primary"),
+            KeyboardButton(text="📢 To'lovlar kanali", style="primary")
         ]
     ]
     return ReplyKeyboardMarkup(

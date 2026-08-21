@@ -445,3 +445,33 @@ async def auto_approve_channel_join(event: ChatJoinRequest):
     except Exception as e:
         logger.error(f"ChatJoinRequest xatoligi: {e}", exc_info=True)
 
+@router.message(F.text == "📢 To'lovlar kanali")
+async def view_payouts_channel(message: Message):
+    async with async_session() as db:
+        project_settings = await crud.get_project_settings(db)
+        payouts_channel = project_settings.payouts_channel or getattr(settings, "PAYOUTS_CHANNEL", "")
+        
+    if not payouts_channel:
+        await message.answer("❌ To'lovlar kanali hozircha sozlanmagan.")
+        return
+        
+    # URL ni tayyorlaymiz
+    channel_username = payouts_channel
+    if channel_username.startswith("@"):
+        channel_username = channel_username[1:]
+        
+    channel_url = f"https://t.me/{channel_username}"
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📢 Kanalga o'tish", url=channel_url)
+    ]])
+    
+    await message.answer(
+        f"📢 <b>To'lovlar kanalimiz:</b> {payouts_channel}\n\n"
+        f"Foydalanuvchilarimizga to'lab berilgan barcha muvaffaqiyatli to'lovlar va cheklarni "
+        f"ushbu kanal orqali shaffof tarzda kuzatib borishingiz mumkin! 👇",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+
