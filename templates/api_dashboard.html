@@ -500,6 +500,10 @@
                     <label style="font-size: 13px; color: var(--text-muted); text-align: left;">To'lov kanali IDsi (Avtomat tekshirish uchun):</label>
                     <input type="text" id="settings-channel-id" class="form-input" placeholder="Kanal ID (masalan: -100...)" style="width: 100%; margin: 0;">
                 </div>
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <label style="font-size: 13px; color: var(--text-muted); text-align: left;">To'lovlarni e'lon qilish kanali (payouts_channel):</label>
+                    <input type="text" id="settings-payouts-channel" class="form-input" placeholder="Kanal usernamesi yoki ID (masalan: @mening_tolovlarim)" style="width: 100%; margin: 0;">
+                </div>
                 <button onclick="saveSystemSettings()" class="btn" style="margin-top: 8px; width: 100%;">💾 Sozlamalarni saqlash</button>
             </div>
         </div>
@@ -579,11 +583,15 @@
                     
                     const cardInput = document.getElementById("settings-card-number");
                     const channelInput = document.getElementById("settings-channel-id");
+                    const payoutsChannelInput = document.getElementById("settings-payouts-channel");
                     if (document.activeElement !== cardInput) {
                         cardInput.value = data.settings.card_number || "";
                     }
                     if (document.activeElement !== channelInput) {
                         channelInput.value = data.settings.payment_channel_id || "";
+                    }
+                    if (document.activeElement !== payoutsChannelInput) {
+                        payoutsChannelInput.value = data.settings.payouts_channel || "";
                     }
                 } else {
                     alert("Xatolik yuz berdi: " + data.message);
@@ -856,6 +864,7 @@
         async function saveSystemSettings() {
             const cardNumber = document.getElementById("settings-card-number").value.trim();
             const channelId = document.getElementById("settings-channel-id").value.trim();
+            const payoutsChannel = document.getElementById("settings-payouts-channel").value.trim();
 
             showLoader(true);
             try {
@@ -864,7 +873,8 @@
                     headers,
                     body: JSON.stringify({
                         card_number: cardNumber || null,
-                        payment_channel_id: channelId || null
+                        payment_channel_id: channelId || null,
+                        payouts_channel: payoutsChannel || null
                     })
                 });
                 const data = await response.json();

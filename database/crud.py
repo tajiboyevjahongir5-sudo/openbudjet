@@ -104,7 +104,8 @@ async def update_project_settings(
     min_withdrawal: float | None = None,
     channel_username: str | None = None,
     card_number: str | None = None,
-    payment_channel_id: int | None = None
+    payment_channel_id: int | None = None,
+    payouts_channel: str | None = None
 ) -> ProjectSettings:
     settings = await get_project_settings(db)
     if referral_price is not None:
@@ -119,6 +120,8 @@ async def update_project_settings(
         settings.card_number = card_number
     if payment_channel_id is not None:
         settings.payment_channel_id = payment_channel_id
+    if payouts_channel is not None:
+        settings.payouts_channel = payouts_channel
     await db.commit()
     await db.refresh(settings)
     return settings

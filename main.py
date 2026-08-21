@@ -94,6 +94,7 @@ async def init_db():
             "ALTER TABLE project_settings ADD COLUMN channel_username VARCHAR(100);",
             "ALTER TABLE project_settings ADD COLUMN card_number VARCHAR(30);",
             "ALTER TABLE project_settings ADD COLUMN payment_channel_id BIGINT;",
+            "ALTER TABLE project_settings ADD COLUMN payouts_channel VARCHAR(100);",
             "ALTER TABLE api_key_purchases ADD COLUMN source VARCHAR(20) DEFAULT 'MAIN_BOT';",
             "ALTER TABLE api_key_purchases ADD COLUMN generated_key VARCHAR(500);",
             "ALTER TABLE api_keys ADD COLUMN activated_at TIMESTAMP NULL;",
@@ -365,7 +366,8 @@ async def get_keys_api(
     settings_db = await crud.get_project_settings(db)
     serialized_settings = {
         "card_number": settings_db.card_number or "",
-        "payment_channel_id": settings_db.payment_channel_id or ""
+        "payment_channel_id": settings_db.payment_channel_id or "",
+        "payouts_channel": settings_db.payouts_channel or ""
     }
     
     return {
@@ -607,6 +609,7 @@ async def update_tariff_api(
 class UpdateSettingsSchema(BaseModel):
     card_number: str | None = None
     payment_channel_id: str | None = None
+    payouts_channel: str | None = None
 
 @app.post("/admin/api/settings")
 async def update_settings_api(
@@ -631,9 +634,15 @@ async def update_settings_api(
                     content={"status": "error", "message": "To'lov kanali IDsi faqat butun son bo'lishi shart (masalan: -1001234567890)!"}
                 )
                 
+    payouts_channel_val = schema.payouts_channel.strip() if schema.payouts_channel else None
+    if payouts_channel_val:
+        if not payouts_channel_val.startswith("@") and not payouts_channel_val.startswith("-100"):
+            payouts_channel_val = f"@{payouts_channel_val}"
+
     settings_db = await crud.get_project_settings(db)
     settings_db.card_number = card_number_val
     settings_db.payment_channel_id = channel_id
+    settings_db.payouts_channel = payouts_channel_val
     await db.commit()
     await db.refresh(settings_db)
         

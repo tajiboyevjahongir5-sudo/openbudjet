@@ -37,6 +37,7 @@ class ProjectSettings(Base):
     channel_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
     card_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
     payment_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    payouts_channel: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
 
 

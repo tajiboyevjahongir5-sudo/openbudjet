@@ -464,12 +464,16 @@ async def admin_statistics(message: Message):
 async def process_approve_withdraw(callback: CallbackQuery):
     withdraw_id = int(callback.data.split("_")[1])
     
+    payouts_channel_db = None
     async with async_session() as db:
         # Pul yechishni tasdiqlash
         withdrawal = await crud.approve_withdrawal(db, withdraw_id)
         if not withdrawal:
             await callback.answer("❌ Bu so'rov allaqachon tasdiqlangan, rad etilgan yoki topilmadi.", show_alert=True)
             return
+            
+        settings_db = await crud.get_project_settings(db)
+        payouts_channel_db = settings_db.payouts_channel
 
     # Admin xabarini yangilash (HTML formatida)
     original_html = callback.message.html_text
@@ -492,7 +496,7 @@ async def process_approve_withdraw(callback: CallbackQuery):
         logger.error(f"Tasdiqlanganlik haqida foydalanuvchiga (ID: {withdrawal.telegram_id}) xabar yuborishda xatolik: {e}")
 
     # To'lovlar kanaliga xabar yuborish (agar sozlangan bo'lsa)
-    payout_channel = getattr(settings, "PAYOUTS_CHANNEL", "")
+    payout_channel = payouts_channel_db or getattr(settings, "PAYOUTS_CHANNEL", "")
     if payout_channel:
         try:
             # Mask card number (e.g. 8600 **** **** 1234)
