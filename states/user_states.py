@@ -32,6 +32,7 @@ class AdminStates(StatesGroup):
     WAITING_FOR_ADMIN_CARD = State()      # To'lovlar uchun karta raqami sozlash
     WAITING_FOR_ADMIN_CHANNEL = State()   # To'lov kanali Telegram ID sini sozlash
     WAITING_FOR_TARIFF_PRICE = State()    # Tarif narxini o'zgartirish
+    WAITING_FOR_WITHDRAWAL_RECEIPT = State() # To'lov chekini qabul qilish holati
 
 
 

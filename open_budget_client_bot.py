@@ -395,6 +395,7 @@ class AdminStates(StatesGroup):
     CUSTOM_TARIFF = State()
     TOPUP_VOTES   = State()
     SET_PAYOUT_CHANNEL = State()
+    WAITING_RECEIPT = State()
 
 class WithdrawStates(StatesGroup):
     CARD   = State()
@@ -1882,11 +1883,180 @@ async def adm_wd_list(cb: CallbackQuery):
         )
     await cb.answer()
 
+def _get_card_meta(card_raw: str):
+    card = card_raw or "—"
+    card_type = ""
+    if card.startswith("8600") or card.startswith("5614"):
+        card_type = " (Uzcard)"
+    elif card.startswith("9860"):
+        card_type = " (Humo)"
+    elif card.startswith("4"):
+        card_type = " (Visa)"
+    elif card.startswith("5"):
+        card_type = " (Mastercard)"
+        
+    masked_card = f"{card[:4]} •••• •••• {card[-4:]}" if len(card) >= 16 else (f"{card[:4]} ••••" if len(card) >= 4 else "—")
+    return masked_card, card_type
+
 @router.callback_query(F.data.startswith("adm_app_"))
-async def adm_approve_wd(cb: CallbackQuery):
-    wd_id      = int(cb.data.split("_")[-1])
+async def adm_approve_wd(cb: CallbackQuery, state: FSMContext):
+    wd_id = int(cb.data.split("_")[-1])
     
-    # Karta raqamini olib turamiz
+    card_number = "—"
+    tid = 0
+    amount = 0
+    username = ""
+    full_name = ""
+    
+    conn = await get_db_conn()
+    async with conn.execute("SELECT telegram_id, amount, card_number, status FROM withdrawals WHERE id=?", (wd_id,)) as c:
+        row = await c.fetchone()
+        if not row or row[3] != "PENDING":
+            return await cb.answer("❌ Bu so'rov allaqachon ko'rib chiqilgan yoki topilmadi.", show_alert=True)
+        tid, amount, card_number = row[0], row[1], row[2]
+        
+    async with conn.execute("SELECT username, full_name FROM users WHERE telegram_id=?", (tid,)) as c:
+        urow = await c.fetchone()
+        if urow:
+            username, full_name = urow[0] or "", urow[1] or ""
+            
+    await state.update_data(
+        pending_wd_id=wd_id,
+        orig_msg_id=cb.message.message_id,
+        orig_chat_id=cb.message.chat.id,
+        orig_text=cb.message.html_text,
+        user_id=tid,
+        username=username,
+        full_name=full_name,
+        amount=amount,
+        card_number=card_number
+    )
+    await state.set_state(AdminStates.WAITING_RECEIPT)
+    
+    skip_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏩ Cheksiz tasdiqlash", callback_data=f"adm_nocheck_{wd_id}")],
+        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="adm_cancel_receipt")]
+    ])
+    
+    u_display = f"@{username}" if username else f"ID: {tid}"
+    await cb.message.reply(
+        f"🧾 <b>To'lov chekini (skrinshotini) yuboring:</b>\n\n"
+        f"👤 Foydalanuvchi: <b>{u_display}</b> (<code>{tid}</code>)\n"
+        f"💰 Summa: <b>{amount:,} so'm</b>\n"
+        f"💳 Karta: <code>{card_number}</code>\n\n"
+        f"<i>Iltimos, kartaga pul o'tkazilgan chek skrinshotini (rasm sifatida) yuboring:</i>",
+        reply_markup=skip_kb,
+        parse_mode="HTML"
+    )
+    await cb.answer()
+
+@router.callback_query(F.data == "adm_cancel_receipt")
+async def adm_cancel_receipt_upload(cb: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await cb.message.delete()
+    await cb.answer("Bekor qilindi.")
+
+@router.message(AdminStates.WAITING_RECEIPT, F.photo)
+async def adm_process_receipt_photo(msg: Message, state: FSMContext):
+    data = await state.get_data()
+    wd_id = data.get("pending_wd_id")
+    orig_msg_id = data.get("orig_msg_id")
+    orig_chat_id = data.get("orig_chat_id")
+    orig_text = data.get("orig_text", "")
+    card_number = data.get("card_number", "—")
+    
+    photo_file_id = msg.photo[-1].file_id
+    
+    ok, tid, amount = await process_withdrawal(wd_id, True)
+    if not ok:
+        await state.clear()
+        return await msg.answer("❌ Bu so'rov allaqachon ko'rib chiqilgan.")
+        
+    await state.clear()
+    
+    # 1. Admin xabarini yangilaymiz
+    if orig_msg_id and orig_chat_id:
+        try:
+            admin_u = html.escape(str(msg.from_user.username or msg.from_user.id))
+            await bot.edit_message_text(
+                chat_id=orig_chat_id,
+                message_id=orig_msg_id,
+                text=f"{orig_text}\n\n✅ <b>TASDIQLANDI (Chek biriktirildi)!</b> (Admin: @{admin_u})",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+            
+    # 2. Foydalanuvchiga chek bilan
+    try:
+        await bot.send_photo(
+            chat_id=tid,
+            photo=photo_file_id,
+            caption=(
+                f"🎉 <b>Tabriklaymiz!</b>\n\n"
+                f"💸 <b>{amount:,} UZS</b> yechish so'rovingiz tasdiqlandi va kartangizga o'tkazildi!\n"
+                f"Chek ilova qilindi. Hisobingizni tekshiring! 🚀"
+            ),
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+        
+    # 3. Kanalga chek bilan
+    payout_ch = (await get_setting("payouts_channel")) or PAYOUTS_CHANNEL
+    if payout_ch:
+        try:
+            from datetime import datetime
+            masked_card, card_type = _get_card_meta(card_number)
+            date_str = datetime.now().strftime("%d.%m.%Y • %H:%M")
+            
+            username = data.get("username")
+            full_name = data.get("full_name")
+            if username:
+                user_display = f"@{username} (<code>ID {tid}</code>)"
+            elif full_name:
+                user_display = f"<a href='tg://user?id={tid}'>{html.escape(full_name)}</a> (<code>ID {tid}</code>)"
+            else:
+                user_display = f"<code>ID {tid}</code>"
+                
+            pay_text = (
+                f"💸 <b>YANGI TO'LOV AMALGA OSHIRILDI!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🧾 <b>To'lov ID:</b> <code>#{wd_id}</code>\n"
+                f"👤 <b>Qabul qiluvchi:</b> {user_display}\n"
+                f"💰 <b>To'langan summa:</b> <b>{int(amount):,} so'm</b>\n"
+                f"💳 <b>Hisob (karta):</b> <code>{masked_card}</code>{card_type}\n"
+                f"📅 <b>Vaqt:</b> {date_str}\n"
+                f"🟢 <b>Holati:</b> Muvaffaqiyatli to'landi ✅\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⚡ <b>Siz ham ovoz bering va har bir ovoz uchun pul mukofotini oling!</b>"
+            )
+            
+            bot_info = await bot.get_me()
+            bot_username = bot_info.username
+            channel_kb = None
+            if bot_username:
+                channel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🗳️ Ovoz berish va pul ishlash", url=f"https://t.me/{bot_username}")
+                ]])
+                
+            await bot.send_photo(
+                chat_id=payout_ch,
+                photo=photo_file_id,
+                caption=pay_text,
+                reply_markup=channel_kb,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"To'lov kanaliga chek yuborishda xatolik: {e}")
+            
+    await msg.answer("✅ <b>To'lov cheki bilan kanalga va foydalanuvchiga muvaffaqiyatli yuborildi!</b>", parse_mode="HTML")
+
+@router.callback_query(F.data.startswith("adm_nocheck_"))
+async def adm_approve_nocheck(cb: CallbackQuery, state: FSMContext):
+    await state.clear()
+    wd_id = int(cb.data.split("_")[-1])
+    
     card_number = "—"
     conn = await get_db_conn()
     async with conn.execute("SELECT card_number FROM withdrawals WHERE id=?", (wd_id,)) as c:
@@ -1895,72 +2065,77 @@ async def adm_approve_wd(cb: CallbackQuery):
             card_number = row[0]
             
     ok, tid, amount = await process_withdrawal(wd_id, True)
-    if ok:
-        await cb.message.edit_text(
-            cb.message.text + "\n\n✅ <b>TASDIQLANDI</b>", parse_mode="HTML"
+    if not ok:
+        return await cb.answer("❌ Bu so'rov allaqachon ko'rib chiqilgan.", show_alert=True)
+        
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+        
+    # Foydalanuvchiga xabar
+    try:
+        await bot.send_message(
+            tid,
+            f"🎉 <b>Tabriklaymiz!</b>\n\n"
+            f"💸 <b>{amount:,} UZS</b> yechish so'rovingiz tasdiqlandi va kartangizga o'tkazildi!\n\n"
+            f"Ko'proq ovoz berib, ko'proq pul ishlang! 🚀",
+            parse_mode="HTML"
         )
+    except Exception:
+        pass
+        
+    # Kanalga xabar
+    payout_ch = (await get_setting("payouts_channel")) or PAYOUTS_CHANNEL
+    if payout_ch:
         try:
+            from datetime import datetime
+            masked_card, card_type = _get_card_meta(card_number)
+            date_str = datetime.now().strftime("%d.%m.%Y • %H:%M")
+            
+            async with conn.execute("SELECT username, full_name FROM users WHERE telegram_id=?", (tid,)) as c:
+                urow = await c.fetchone()
+                username = urow[0] if urow else ""
+                full_name = urow[1] if urow else ""
+                
+            if username:
+                user_display = f"@{username} (<code>ID {tid}</code>)"
+            elif full_name:
+                user_display = f"<a href='tg://user?id={tid}'>{html.escape(full_name)}</a> (<code>ID {tid}</code>)"
+            else:
+                user_display = f"<code>ID {tid}</code>"
+                
+            pay_text = (
+                f"💸 <b>YANGI TO'LOV AMALGA OSHIRILDI!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🧾 <b>To'lov ID:</b> <code>#{wd_id}</code>\n"
+                f"👤 <b>Qabul qiluvchi:</b> {user_display}\n"
+                f"💰 <b>To'langan summa:</b> <b>{int(amount):,} so'm</b>\n"
+                f"💳 <b>Hisob (karta):</b> <code>{masked_card}</code>{card_type}\n"
+                f"📅 <b>Vaqt:</b> {date_str}\n"
+                f"🟢 <b>Holati:</b> Muvaffaqiyatli to'landi ✅\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⚡ <b>Siz ham ovoz bering va har bir ovoz uchun pul mukofotini oling!</b>"
+            )
+            
+            bot_info = await bot.get_me()
+            bot_username = bot_info.username
+            channel_kb = None
+            if bot_username:
+                channel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🗳️ Ovoz berish va pul ishlash", url=f"https://t.me/{bot_username}")
+                ]])
+                
             await bot.send_message(
-                tid,
-                f"🎉 <b>Tabriklaymiz!</b>\n\n"
-                f"💸 <b>{amount:,} UZS</b> yechish so'rovingiz tasdiqlandi va kartangizga o'tkazildi!\n\n"
-                f"Ko'proq ovoz berib, ko'proq pul ishlang! 🚀",
+                chat_id=payout_ch,
+                text=pay_text,
+                reply_markup=channel_kb,
                 parse_mode="HTML"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"To'lov kanaliga xabar yuborishda xatolik: {e}")
             
-        # To'lovlar kanaliga xabar yuborish
-        payout_ch = (await get_setting("payouts_channel")) or PAYOUTS_CHANNEL
-        if payout_ch:
-            try:
-                from datetime import datetime
-                card = card_number or "—"
-                card_type = ""
-                if card.startswith("8600") or card.startswith("5614"):
-                    card_type = " (Uzcard)"
-                elif card.startswith("9860"):
-                    card_type = " (Humo)"
-                elif card.startswith("4"):
-                    card_type = " (Visa)"
-                elif card.startswith("5"):
-                    card_type = " (Mastercard)"
-                    
-                masked_card = f"{card[:4]} •••• •••• {card[-4:]}" if len(card) >= 16 else (f"{card[:4]} ••••" if len(card) >= 4 else "—")
-                date_str = datetime.now().strftime("%d.%m.%Y • %H:%M")
-                
-                tid_str = str(tid)
-                masked_user = f"{tid_str[:3]}***{tid_str[-2:]}" if len(tid_str) >= 5 else tid_str
-                
-                pay_text = (
-                    f"💸 <b>YANGI TO'LOV AMALGA OSHIRILDI!</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"🧾 <b>To'lov ID:</b> <code>#{wd_id}</code>\n"
-                    f"👤 <b>Qabul qiluvchi:</b> <code>ID {masked_user}</code>\n"
-                    f"💰 <b>To'langan summa:</b> <b>{int(amount):,} so'm</b>\n"
-                    f"💳 <b>Hisob (karta):</b> <code>{masked_card}</code>{card_type}\n"
-                    f"📅 <b>Vaqt:</b> {date_str}\n"
-                    f"🟢 <b>Holati:</b> Muvaffaqiyatli to'landi ✅\n\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"⚡ <b>Siz ham ovoz bering va har bir ovoz uchun pul mukofotini oling!</b>"
-                )
-                
-                bot_info = await bot.get_me()
-                bot_username = bot_info.username
-                channel_kb = None
-                if bot_username:
-                    channel_kb = InlineKeyboardMarkup(inline_keyboard=[[
-                        InlineKeyboardButton(text="🗳️ Ovoz berish va pul ishlash", url=f"https://t.me/{bot_username}")
-                    ]])
-                    
-                await bot.send_message(
-                    chat_id=payout_ch,
-                    text=pay_text,
-                    reply_markup=channel_kb,
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                logger.error(f"To'lov kanaliga xabar yuborishda xatolik: {e}")
+    await cb.answer("Tasdiqlandi (cheksiz).", show_alert=True)
                 
     await cb.answer("✅ Tasdiqlandi!" if ok else "❌ So'rov topilmadi")
 

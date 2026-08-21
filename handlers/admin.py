@@ -460,13 +460,177 @@ async def admin_statistics(message: Message):
 
 # --- 5. Pul Yechishni Tasdiqlash / Rad etish Callback Handler ---
 
+# --- 5. Pul Yechishni Tasdiqlash / Rad etish Callback Handler ---
+
+def _get_card_meta(card_raw: str):
+    card = card_raw or "—"
+    card_type = ""
+    if card.startswith("8600") or card.startswith("5614"):
+        card_type = " (Uzcard)"
+    elif card.startswith("9860"):
+        card_type = " (Humo)"
+    elif card.startswith("4"):
+        card_type = " (Visa)"
+    elif card.startswith("5"):
+        card_type = " (Mastercard)"
+        
+    masked_card = f"{card[:4]} •••• •••• {card[-4:]}" if len(card) >= 16 else (f"{card[:4]} ••••" if len(card) >= 4 else "—")
+    return masked_card, card_type
+
+def _build_payout_text(withdrawal, user, masked_card, card_type, date_str):
+    if user and user.username:
+        user_display = f"@{user.username} (<code>ID {withdrawal.telegram_id}</code>)"
+    elif user and user.full_name:
+        user_display = f"<a href='tg://user?id={withdrawal.telegram_id}'>{html.escape(user.full_name)}</a> (<code>ID {withdrawal.telegram_id}</code>)"
+    else:
+        user_display = f"<code>ID {withdrawal.telegram_id}</code>"
+        
+    return (
+        f"💸 <b>YANGI TO'LOV AMALGA OSHIRILDI!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🧾 <b>To'lov ID:</b> <code>#{withdrawal.id}</code>\n"
+        f"👤 <b>Qabul qiluvchi:</b> {user_display}\n"
+        f"💰 <b>To'langan summa:</b> <b>{int(withdrawal.amount):,} so'm</b>\n"
+        f"💳 <b>Hisob (karta):</b> <code>{masked_card}</code>{card_type}\n"
+        f"📅 <b>Vaqt:</b> {date_str}\n"
+        f"🟢 <b>Holati:</b> Muvaffaqiyatli to'landi ✅\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚡ <b>Siz ham ovoz bering va har bir ovoz uchun pul mukofotini oling!</b>"
+    )
+
 @router.callback_query(F.data.startswith("approve_"))
-async def process_approve_withdraw(callback: CallbackQuery):
+async def process_approve_withdraw(callback: CallbackQuery, state: FSMContext):
+    withdraw_id = int(callback.data.split("_")[1])
+    
+    async with async_session() as db:
+        withdrawal = await crud.get_withdrawal(db, withdraw_id)
+        if not withdrawal or withdrawal.status != WithdrawalStatus.PENDING:
+            await callback.answer("❌ Bu so'rov allaqachon ko'rib chiqilgan yoki topilmadi.", show_alert=True)
+            return
+        user = await crud.get_user(db, withdrawal.telegram_id)
+
+    # State ga saqlab olamiz va chek rasmini so'raymiz
+    await state.update_data(
+        pending_wd_id=withdraw_id,
+        admin_chat_id=callback.message.chat.id,
+        admin_msg_id=callback.message.message_id,
+        orig_html=callback.message.html_text
+    )
+    await state.set_state(AdminStates.WAITING_FOR_WITHDRAWAL_RECEIPT)
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    skip_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏩ Cheksiz tasdiqlash", callback_data=f"nocheck_{withdraw_id}")],
+        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="cancel_receipt_upload")]
+    ])
+    
+    u_display = f"@{user.username}" if user and user.username else f"ID: {withdrawal.telegram_id}"
+    await callback.message.reply(
+        f"🧾 <b>To'lov chekini (skrinshotini) yuboring:</b>\n\n"
+        f"👤 Foydalanuvchi: <b>{u_display}</b> (<code>{withdrawal.telegram_id}</code>)\n"
+        f"💰 Summa: <b>{withdrawal.amount:,} so'm</b>\n"
+        f"💳 Karta: <code>{withdrawal.card_number}</code>\n\n"
+        f"<i>Iltimos, kartaga pul o'tkazilgan chek skrinshotini (rasm sifatida) shu yerga yuboring:</i>",
+        reply_markup=skip_kb,
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "cancel_receipt_upload")
+async def process_cancel_receipt_upload(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.delete()
+    await callback.answer("Bekor qilindi.")
+
+@router.message(AdminStates.WAITING_FOR_WITHDRAWAL_RECEIPT, F.photo)
+async def process_withdrawal_receipt_photo(message: Message, state: FSMContext):
+    data = await state.get_data()
+    withdraw_id = data.get("pending_wd_id")
+    admin_msg_id = data.get("admin_msg_id")
+    admin_chat_id = data.get("admin_chat_id")
+    orig_html = data.get("orig_html", "")
+    
+    photo_file_id = message.photo[-1].file_id
+    
+    async with async_session() as db:
+        withdrawal = await crud.approve_withdrawal(db, withdraw_id)
+        if not withdrawal:
+            await state.clear()
+            await message.answer("❌ Bu so'rov allaqachon tasdiqlangan yoki topilmadi.")
+            return
+            
+        settings_db = await crud.get_project_settings(db)
+        payouts_channel = settings_db.payouts_channel or getattr(settings, "PAYOUTS_CHANNEL", "")
+        user = await crud.get_user(db, withdrawal.telegram_id)
+        
+    await state.clear()
+    
+    # 1. Admin xabarini yangilaymiz
+    if admin_msg_id and admin_chat_id:
+        try:
+            admin_username = html.escape(str(message.from_user.username or message.from_user.id))
+            await message.bot.edit_message_text(
+                chat_id=admin_chat_id,
+                message_id=admin_msg_id,
+                text=f"{orig_html}\n\n✅ <b>Tasdiqlandi (Chek biriktirildi)!</b> (Admin: @{admin_username})",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+            
+    # 2. Foydalanuvchiga chek bilan xabar
+    user_caption = (
+        f"✅ <b>Sizning pul yechish so'rovingiz tasdiqlandi!</b>\n\n"
+        f"💰 Summa: <code>{withdrawal.amount:,}</code> so'm\n"
+        f"💳 Karta raqamiga o'tkazildi. Chek ilova qilindi. Hisobingizni tekshiring! 🚀"
+    )
+    try:
+        await message.bot.send_photo(
+            chat_id=withdrawal.telegram_id,
+            photo=photo_file_id,
+            caption=user_caption,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Foydalanuvchiga chek yuborishda xatolik: {e}")
+        
+    # 3. To'lovlar kanaliga chek (rasm) bilan yuborish
+    if payouts_channel:
+        try:
+            from datetime import datetime
+            masked_card, card_type = _get_card_meta(withdrawal.card_number)
+            date_str = datetime.now().strftime("%d.%m.%Y • %H:%M")
+            pay_text = _build_payout_text(withdrawal, user, masked_card, card_type, date_str)
+            
+            bot_info = await message.bot.get_me()
+            bot_username = bot_info.username
+            channel_kb = None
+            if bot_username:
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                channel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🗳️ Ovoz berish va pul ishlash", url=f"https://t.me/{bot_username}")
+                ]])
+                
+            await message.bot.send_photo(
+                chat_id=payouts_channel,
+                photo=photo_file_id,
+                caption=pay_text,
+                reply_markup=channel_kb,
+                parse_mode="HTML"
+            )
+            logger.info(f"Asosiy botdan to'lov kanaliga ({payouts_channel}) chek bilan xabar yuborildi.")
+        except Exception as e:
+            logger.error(f"To'lov kanaliga chek yuborishda xatolik: {e}")
+            
+    await message.answer("✅ <b>To'lov cheki bilan kanalga va foydalanuvchiga muvaffaqiyatli yuborildi!</b>", parse_mode="HTML")
+
+@router.callback_query(F.data.startswith("nocheck_"))
+async def process_approve_nocheck(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     withdraw_id = int(callback.data.split("_")[1])
     
     payouts_channel_db = None
     async with async_session() as db:
-        # Pul yechishni tasdiqlash
         withdrawal = await crud.approve_withdrawal(db, withdraw_id)
         if not withdrawal:
             await callback.answer("❌ Bu so'rov allaqachon tasdiqlangan, rad etilgan yoki topilmadi.", show_alert=True)
@@ -474,15 +638,13 @@ async def process_approve_withdraw(callback: CallbackQuery):
             
         settings_db = await crud.get_project_settings(db)
         payouts_channel_db = settings_db.payouts_channel
+        user = await crud.get_user(db, withdrawal.telegram_id)
 
-    # Admin xabarini yangilash (HTML formatida)
-    original_html = callback.message.html_text
-    updated_text = (
-        f"{original_html}\n\n"
-        f"✅ <b>Tasdiqlandi!</b> (Admin: @{html.escape(str(callback.from_user.username or callback.from_user.id))})"
-    )
-    await callback.message.edit_text(text=updated_text, reply_markup=None, parse_mode="HTML")
-    await callback.answer("Pul yechish tasdiqlandi.", show_alert=True)
+    # Chek so'rov xabarini o'chirish
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
 
     # Foydalanuvchiga xabar yuborish
     user_message = (
@@ -493,42 +655,16 @@ async def process_approve_withdraw(callback: CallbackQuery):
     try:
         await callback.bot.send_message(chat_id=withdrawal.telegram_id, text=user_message, parse_mode="HTML")
     except Exception as e:
-        logger.error(f"Tasdiqlanganlik haqida foydalanuvchiga (ID: {withdrawal.telegram_id}) xabar yuborishda xatolik: {e}")
+        logger.error(f"Tasdiqlanganlik haqida foydalanuvchiga xabar yuborishda xatolik: {e}")
 
-    # To'lovlar kanaliga xabar yuborish (agar sozlangan bo'lsa)
+    # To'lovlar kanaliga xabar yuborish
     payout_channel = payouts_channel_db or getattr(settings, "PAYOUTS_CHANNEL", "")
     if payout_channel:
         try:
             from datetime import datetime
-            card = withdrawal.card_number or "—"
-            card_type = ""
-            if card.startswith("8600") or card.startswith("5614"):
-                card_type = " (Uzcard)"
-            elif card.startswith("9860"):
-                card_type = " (Humo)"
-            elif card.startswith("4"):
-                card_type = " (Visa)"
-            elif card.startswith("5"):
-                card_type = " (Mastercard)"
-                
-            masked_card = f"{card[:4]} •••• •••• {card[-4:]}" if len(card) >= 16 else (f"{card[:4]} ••••" if len(card) >= 4 else "—")
+            masked_card, card_type = _get_card_meta(withdrawal.card_number)
             date_str = datetime.now().strftime("%d.%m.%Y • %H:%M")
-            
-            tid_str = str(withdrawal.telegram_id)
-            masked_user = f"{tid_str[:3]}***{tid_str[-2:]}" if len(tid_str) >= 5 else tid_str
-            
-            pay_text = (
-                f"💸 <b>YANGI TO'LOV AMALGA OSHIRILDI!</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"🧾 <b>To'lov ID:</b> <code>#{withdrawal.id}</code>\n"
-                f"👤 <b>Qabul qiluvchi:</b> <code>ID {masked_user}</code>\n"
-                f"💰 <b>To'langan summa:</b> <b>{int(withdrawal.amount):,} so'm</b>\n"
-                f"💳 <b>Hisob (karta):</b> <code>{masked_card}</code>{card_type}\n"
-                f"📅 <b>Vaqt:</b> {date_str}\n"
-                f"🟢 <b>Holati:</b> Muvaffaqiyatli to'landi ✅\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"⚡ <b>Siz ham ovoz bering va har bir ovoz uchun pul mukofotini oling!</b>"
-            )
+            pay_text = _build_payout_text(withdrawal, user, masked_card, card_type, date_str)
             
             bot_info = await callback.bot.get_me()
             bot_username = bot_info.username
@@ -545,9 +681,10 @@ async def process_approve_withdraw(callback: CallbackQuery):
                 reply_markup=channel_kb,
                 parse_mode="HTML"
             )
-            logger.info(f"Asosiy botdan to'lov kanaliga ({payout_channel}) chiroyli xabar yuborildi.")
         except Exception as e:
-            logger.error(f"Asosiy botda to'lov kanaliga xabar yuborishda xatolik: {e}")
+            logger.error(f"To'lov kanaliga xabar yuborishda xatolik: {e}")
+            
+    await callback.answer("Pul yechish tasdiqlandi (cheksiz).", show_alert=True)
 
 # --- 📋 Hisobot chiqarish handlers ---
 
