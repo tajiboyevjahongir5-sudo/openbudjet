@@ -99,7 +99,7 @@ class OpenBudgetService:
         url: str,
         headers: dict,
         json_data: dict | None = None,
-        timeout_seconds: int = 7
+        timeout_seconds: int = 10
     ) -> tuple[int, dict, str]:
         """
         HTTP so'rovini xavfsiz va tezkor bajaradi.
@@ -107,58 +107,41 @@ class OpenBudgetService:
         Agar proxy javob bermasa yoki xato bersa, zudlik bilan to'g'ridan-to'g'ri (direct) ulanadi.
         """
         session = await cls._get_session()
-        
+
+        async def _do_request(use_proxy: bool) -> tuple[int, dict, str]:
+            kw: dict = {
+                "headers": headers,
+                "timeout": aiohttp.ClientTimeout(total=4 if use_proxy else timeout_seconds),
+            }
+            if use_proxy:
+                kw["proxy"] = settings.PROXY_URL
+            if json_data is not None:
+                kw["json"] = json_data
+
+            req = session.get if method.upper() == "GET" else session.post
+            async with req(url, **kw) as resp:
+                status = resp.status
+                try:
+                    data = await resp.json(content_type=None)
+                except Exception:
+                    data = {}
+                text = ""
+                return status, data, text
+
         # 1. Proxy bilan urinish
         if settings.PROXY_URL:
             try:
-                kw = {"headers": headers, "timeout": aiohttp.ClientTimeout(total=4), "proxy": settings.PROXY_URL}
-                if json_data is not None:
-                    kw["json"] = json_data
-                
-                if method.upper() == "GET":
-                    async with session.get(url, **kw) as resp:
-                        status = resp.status
-                        try:
-                            data = await resp.json()
-                        except Exception:
-                            data = {}
-                        text = await resp.text()
-                        return status, data, text
-                else:
-                    async with session.post(url, **kw) as resp:
-                        status = resp.status
-                        try:
-                            data = await resp.json()
-                        except Exception:
-                            data = {}
-                        text = await resp.text()
-                        return status, data, text
+                return await _do_request(use_proxy=True)
             except Exception as pe:
-                logger.warning(f"Proxy kechikishi/xatosi ({pe}). To'g'ridan-to'g'ri (Direct) serverga yuborilmoqda...")
-                
+                logger.warning(f"Proxy kechikishi/xatosi ({pe.__class__.__name__}). To'g'ridan-to'g'ri (Direct) serverga yuborilmoqda...")
+
         # 2. To'g'ridan-to'g'ri (Direct) urinish
-        kw = {"headers": headers, "timeout": aiohttp.ClientTimeout(total=timeout_seconds)}
-        if json_data is not None:
-            kw["json"] = json_data
-            
-        if method.upper() == "GET":
-            async with session.get(url, **kw) as resp:
-                status = resp.status
-                try:
-                    data = await resp.json()
-                except Exception:
-                    data = {}
-                text = await resp.text()
-                return status, data, text
-        else:
-            async with session.post(url, **kw) as resp:
-                status = resp.status
-                try:
-                    data = await resp.json()
-                except Exception:
-                    data = {}
-                text = await resp.text()
-                return status, data, text
+        try:
+            return await _do_request(use_proxy=False)
+        except Exception as de:
+            logger.error(f"Direct ulanish ham muvaffaqiyatsiz: {de.__class__.__name__}: {de}")
+            raise
+
 
     @classmethod
     async def get_captcha(cls) -> tuple[bool, str, dict | None]:
