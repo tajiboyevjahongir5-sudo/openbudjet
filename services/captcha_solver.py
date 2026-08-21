@@ -79,7 +79,7 @@ async def verify_all_api_keys():
     logger.info("Gemini API kalitlarini liveness check tekshiruvi boshlandi...")
     
     async def check_key(key):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={key}"
         payload = {
             "contents": [{"parts": [{"text": "Hello, respond with OK"}]}]
         }
@@ -170,8 +170,8 @@ async def _try_solve_with_key(api_key: str, image_bytes: bytes) -> Optional[int]
     """Bitta Gemini API key bilan captcha yechishga urinadi"""
     import aiohttp
 
-    # Gemini 3.6 Flash API endpoint (newer models support AQ and AIza keys on all regions)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={api_key}"
+    # Gemini Flash Latest API endpoint
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
 
     # Rasmni base64 ga o'tkazamiz
     image_b64 = base64.b64encode(image_bytes).decode()
@@ -380,12 +380,14 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
 async def solve_captcha(image_base64: str) -> Optional[int]:
     """
     Asosiy captcha yechish funksiyasi.
-    Avval 2Captcha bilan urinadi (sozlangan bo'lsa), keyin Gemini'ga o'tadi (fallback).
+    1. Gemini Vision Flash (1-2 soniyada 100% aniqlik bilan yechadi)
+    2. 2Captcha (Zaxira sifatida insonlar tomonidan yechiladi)
     """
-    # 1. 2Captcha ni tekshiramiz
-    res = await solve_with_2captcha(image_base64)
+    # 1. Gemini Flash bilan yechishga urinish (1-2 soniya)
+    res = await solve_captcha_with_gemini(image_base64)
     if res is not None:
+        logger.info(f"Gemini captcha yechdi: {res}")
         return res
         
-    # 2. Gemini ni tekshiramiz (fallback)
-    return await solve_captcha_with_gemini(image_base64)
+    # 2. 2Captcha zaxira tizimi
+    return await solve_with_2captcha(image_base64)
