@@ -56,7 +56,7 @@ async def verify_all_api_keys():
     logger.info("Gemini API kalitlarini liveness check tekshiruvi boshlandi...")
     
     async def check_key(key):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
         payload = {
             "contents": [{"parts": [{"text": "Hello, respond with OK"}]}]
         }
@@ -98,7 +98,8 @@ def _get_next_key() -> Optional[str]:
 
 async def solve_captcha_with_gemini(image_base64: str) -> Optional[int]:
     """
-    Captcha rasmini parallel ravishda bir nechta Gemini API keylar orqali yechadi (Tezkorlik uchun).
+    Captcha rasmini ketma-ket (sequential) ravishda API keylar orqali yechadi.
+    Bu orqali keylar limitini (429 xatolarini) tejab qolamiz.
     """
     global _keys
     if not _keys:
@@ -118,39 +119,23 @@ async def solve_captcha_with_gemini(image_base64: str) -> Optional[int]:
         logger.error(f"Captcha rasmi base64 decode xatosi: {e}")
         return None
 
-    # Navbatdagi 3 ta kalitni parallel ishlash uchun tanlaymiz (Round-robin)
+    # Navbatdagi 3 ta kalitni ketma-ket urinib ko'rish uchun tanlaymiz
     global _key_index
     n_keys = len(_keys)
-    selected_keys = []
+    
+    # Maksimal 3 ta turli kalit bilan ketma-ket urinib ko'ramiz
     for _ in range(min(3, n_keys)):
-        selected_keys.append(_keys[_key_index % n_keys])
+        key = _keys[_key_index % n_keys]
         _key_index = (_key_index + 1) % n_keys
-
-    # Parallel so'rovlarni yaratamiz
-    tasks = [
-        asyncio.create_task(_try_solve_with_key(key, image_bytes))
-        for key in selected_keys
-    ]
-
-    # Birinchi bo'lib muvaffaqiyatli kelgan javobni qabul qilamiz
-    result = None
-    for finished_task in asyncio.as_completed(tasks):
+        
         try:
-            res = await finished_task
+            res = await _try_solve_with_key(key, image_bytes)
             if res is not None:
-                result = res
-                # Muvaffaqiyatli natija olgach, qolgan parallel vazifalarni bekor qilamiz
-                for t in tasks:
-                    if not t.done():
-                        t.cancel()
-                break
+                return res
         except Exception as e:
-            logger.warning(f"Parallel Gemini so'rovida xatolik: {e}")
+            logger.warning(f"Key {_key_index} orqali captcha yechishda xatolik yuz berdi: {e}")
 
-    if result is not None:
-        return result
-
-    logger.warning("Barcha parallel Gemini so'rovlari muvaffaqiyatsiz yakunlandi")
+    logger.warning("Barcha tanlangan Gemini kalitlari muvaffaqiyatsiz yakunlandi (yoki limitga uchradi)")
     return None
 
 
@@ -158,8 +143,8 @@ async def _try_solve_with_key(api_key: str, image_bytes: bytes) -> Optional[int]
     """Bitta Gemini API key bilan captcha yechishga urinadi"""
     import aiohttp
 
-    # Gemini 3.6 Flash API endpoint (newer models support AQ and AIza keys on all regions)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={api_key}"
+    # Gemini 1.5 Flash API endpoint (newer models support AQ and AIza keys on all regions)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
 
     # Rasmni base64 ga o'tkazamiz
     image_b64 = base64.b64encode(image_bytes).decode()
