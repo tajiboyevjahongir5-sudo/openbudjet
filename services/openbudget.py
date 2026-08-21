@@ -43,33 +43,33 @@ class OpenBudgetService:
             await cls._session.close()
     @classmethod
     def _get_url(cls, path: str) -> str:
-        """Proksi URL mavjud bo'lsa undan foydalanadi, aks holda real saytdan"""
-        # Agar PROXY_URL (turar-joy proksisi) kiritilgan bo'lsa, so'rovlarni to'g'ridan-to'g'ri real saytga yuboramiz.
-        # Chunki proksi o'zi IPni yashiradi va Cloudflare Workerga ehtiyoj qolmaydi.
-        if settings.PROXY_URL:
-            base = "https://openbudget.uz/api"
-        elif settings.CLOUDFLARE_PROXY_URL:
+        """Har doim Cloudflare Worker orqali (agar sozlangan bo'lsa) yoki to'g'ridan-to'g'ri"""
+        if settings.CLOUDFLARE_PROXY_URL:
             base = settings.CLOUDFLARE_PROXY_URL.rstrip('/')
         else:
             base = "https://openbudget.uz/api"
-            
         return f"{base}{path}"
+
+    @classmethod
+    def _get_direct_url(cls, path: str) -> str:
+        """To'g'ridan-to'g'ri openbudget.uz URL (proksi bilan ishlatilganda)"""
+        return f"https://openbudget.uz/api{path}"
 
     # 1. Captcha olish manzili (GET)
     @classmethod
     def captcha_url(cls) -> str:
         return cls._get_url("/v2/vote/captcha-2")
-    
+
     # 2. Login va OTP yuborish (POST)
     @classmethod
     def send_otp_url(cls) -> str:
         return cls._get_url("/v1/login/send-otp")
-    
+
     # 3. OTP tasdiqlash va token olish (POST)
     @classmethod
     def verify_otp_url(cls) -> str:
         return cls._get_url("/v1/login/verify-otp")
-    
+
     # 4. Ro'yxatdan o'tish OTP yuborish (POST)
     @classmethod
     def register_send_otp_url(cls) -> str:
@@ -102,13 +102,14 @@ class OpenBudgetService:
         timeout_seconds: int = 12
     ) -> tuple[int, dict, str]:
         """
-        HTTP so'rovini bajaradi.
-        - PROXY_URL bo'lsa: faqat proksi orqali (12s timeout)
-        - PROXY_URL yo'q bo'lsa: to'g'ridan-to'g'ri yoki Cloudflare Worker orqali
+        HTTP so'rovini bajaradi. Tartib:
+        1. PROXY_URL bor → IPRoyal proksi orqali openbudget.uz ga to'g'ridan-to'g'ri
+        2. Proksi xato bersa → Cloudflare Worker orqali (proksisiz)
+        3. PROXY_URL yo'q → Cloudflare Worker orqali (proksisiz)
         """
         session = await cls._get_session()
 
-        async def _do_request(use_proxy: bool) -> tuple[int, dict, str]:
+        async def _do_request(req_url: str, use_proxy: bool) -> tuple[int, dict, str]:
             kw: dict = {
                 "headers": headers,
                 "timeout": aiohttp.ClientTimeout(total=timeout_seconds),
@@ -117,9 +118,8 @@ class OpenBudgetService:
                 kw["proxy"] = settings.PROXY_URL
             if json_data is not None:
                 kw["json"] = json_data
-
             req = session.get if method.upper() == "GET" else session.post
-            async with req(url, **kw) as resp:
+            async with req(req_url, **kw) as resp:
                 status = resp.status
                 try:
                     data = await resp.json(content_type=None)
@@ -127,21 +127,26 @@ class OpenBudgetService:
                     data = {}
                 return status, data, ""
 
+        # 1. IPRoyal proksi bilan urinish (to'g'ridan-to'g'ri openbudget.uz ga)
         if settings.PROXY_URL:
-            # Proksi bor — faqat proksi orqali (Railway IP blok bo'lgani uchun direct ishlamaydi)
+            # URL'dan path ni ajratib olish uchun
+            path = "/" + "/".join(url.split("/")[3:]) if url.count("/") >= 3 else url
+            # path ni /api dan boshlanishi uchun tozalaymiz
+            if settings.CLOUDFLARE_PROXY_URL and url.startswith(settings.CLOUDFLARE_PROXY_URL):
+                path = url[len(settings.CLOUDFLARE_PROXY_URL.rstrip('/')):]
+            direct_url = f"https://openbudget.uz/api{path}" if not path.startswith("https") else url
             try:
-                return await _do_request(use_proxy=True)
+                logger.info(f"Proksi orqali so'rov: {direct_url[:60]}...")
+                return await _do_request(direct_url, use_proxy=True)
             except Exception as pe:
-                logger.error(f"Proksi xatoligi ({pe.__class__.__name__}: {pe}). Proksi ishlamayapti.")
-                raise
-        else:
-            # Proksi yo'q — to'g'ridan-to'g'ri (Cloudflare Worker yoki real sayt)
-            try:
-                return await _do_request(use_proxy=False)
-            except Exception as de:
-                logger.error(f"Direct ulanish muvaffaqiyatsiz: {de.__class__.__name__}: {de}")
-                raise
+                logger.warning(f"Proksi ({pe.__class__.__name__}) xato. Cloudflare Worker orqali urinilmoqda...")
 
+        # 2. Cloudflare Worker orqali (proksisiz)
+        try:
+            return await _do_request(url, use_proxy=False)
+        except Exception as de:
+            logger.error(f"Cloudflare Worker ham muvaffaqiyatsiz: {de.__class__.__name__}: {de}")
+            raise
 
     @classmethod
     async def get_captcha(cls) -> tuple[bool, str, dict | None]:
