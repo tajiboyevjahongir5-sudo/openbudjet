@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Gemini Vision API kalitlari (captcha avtomatik yechish uchun, vergul bilan ajratilgan)
     GEMINI_API_KEYS: str = ""
 
+    # Muvaffaqiyatli to'lovlarni e'lon qilish kanali (masalan: @mening_tolovlarim yoki -1001234567)
+    PAYOUTS_CHANNEL: str = ""
+
     # FastAPI Server parametrlari
     HOST: str = "0.0.0.0"
     PORT: int = 8000

@@ -483,13 +483,34 @@ async def process_approve_withdraw(callback: CallbackQuery):
     # Foydalanuvchiga xabar yuborish
     user_message = (
         f"✅ <b>Sizning pul yechish so'rovingiz tasdiqlandi!</b>\n\n"
-        f"💰 Summa: <code>{withdrawal.amount}</code> so'm\n"
+        f"💰 Summa: <code>{withdrawal.amount:,}</code> so'm\n"
         f"💳 Karta raqamiga yuborildi. Hisobingizni tekshirishingiz mumkin."
     )
     try:
         await callback.bot.send_message(chat_id=withdrawal.telegram_id, text=user_message, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Tasdiqlanganlik haqida foydalanuvchiga (ID: {withdrawal.telegram_id}) xabar yuborishda xatolik: {e}")
+
+    # To'lovlar kanaliga xabar yuborish (agar sozlangan bo'lsa)
+    payout_channel = getattr(settings, "PAYOUTS_CHANNEL", "")
+    if payout_channel:
+        try:
+            # Mask card number (e.g. 8600 **** **** 1234)
+            card = withdrawal.card_number or "—"
+            masked_card = f"{card[:4]} **** **** {card[-4:]}" if len(card) >= 16 else card
+            
+            pay_text = (
+                f"✅ <b>Muvaffaqiyatli To'lov!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n\n"
+                f"👤 Foydalanuvchi: <a href='tg://user?id={withdrawal.telegram_id}'>{withdrawal.telegram_id}</a>\n"
+                f"💰 Summa: <b>{withdrawal.amount:,} UZS</b>\n"
+                f"💳 Karta: <code>{masked_card}</code>\n\n"
+                f"🤖 Biz bilan ishlaganingiz uchun rahmat! Ovoz berishda davom eting va daromad toping."
+            )
+            await callback.bot.send_message(chat_id=payout_channel, text=pay_text, parse_mode="HTML")
+            logger.info(f"Asosiy botdan to'lov kanaliga ({payout_channel}) xabar yuborildi.")
+        except Exception as e:
+            logger.error(f"Asosiy botda to'lov kanaliga xabar yuborishda xatolik: {e}")
 
 # --- 📋 Hisobot chiqarish handlers ---
 
