@@ -327,6 +327,111 @@ async def get_all_user_ids(db: AsyncSession) -> list[int]:
     result = await db.execute(select(User.telegram_id))
     return [row[0] for row in result.all()]
 
+async def get_user_by_query(db: AsyncSession, query_str: str) -> User | None:
+    """Telegram ID yoki username orqali foydalanuvchini topadi"""
+    cleaned = query_str.strip()
+    if cleaned.isdigit():
+        return await get_user(db, int(cleaned))
+    
+    # Username orqali qidirish
+    username = cleaned.lstrip("@").lower()
+    result = await db.execute(select(User).where(func.lower(User.username) == username))
+    return result.scalar_one_or_none()
+
+async def get_user_detailed_report(db: AsyncSession, telegram_id: int) -> dict | None:
+    """Bitta foydalanuvchi bo'yicha to'liq hisobot ma'lumotlarini to'playdi"""
+    user = await get_user(db, telegram_id)
+    if not user:
+        return None
+        
+    # 1. O'zi bergan muvaffaqiyatli ovozlar
+    votes_res = await db.execute(
+        select(VotesHistory)
+        .where(VotesHistory.telegram_id == telegram_id, VotesHistory.status == VoteStatus.SUCCESS)
+        .order_by(VotesHistory.created_at.desc())
+    )
+    votes = votes_res.scalars().all()
+    
+    # 2. Taklif qilgan referallari soni
+    ref_count = (await db.execute(
+        select(func.count(User.telegram_id)).where(User.invited_by == telegram_id)
+    )).scalar_one() or 0
+    
+    # 3. Referallari bergan muvaffaqiyatli ovozlar soni
+    ref_votes = (await db.execute(
+        select(func.count(VotesHistory.id))
+        .join(User, User.telegram_id == VotesHistory.telegram_id)
+        .where(User.invited_by == telegram_id, VotesHistory.status == VoteStatus.SUCCESS)
+    )).scalar_one() or 0
+    
+    # 4. Yechib olgan jami pullari
+    withdrawals_res = await db.execute(
+        select(Withdrawals)
+        .where(Withdrawals.telegram_id == telegram_id)
+        .order_by(Withdrawals.created_at.desc())
+    )
+    withdrawals = withdrawals_res.scalars().all()
+    
+    total_withdrawn = sum(w.amount for w in withdrawals if w.status == WithdrawalStatus.APPROVED)
+    
+    return {
+        "user": user,
+        "votes": votes,
+        "referrals_count": ref_count,
+        "referral_votes": ref_votes,
+        "withdrawals": withdrawals,
+        "total_withdrawn": int(total_withdrawn)
+    }
+
+async def get_all_users_full_report(db: AsyncSession) -> list[dict]:
+    """Barcha foydalanuvchilarning umumiy to'liq hisobot jadvalini tuzadi"""
+    users_res = await db.execute(select(User).order_by(User.created_at.desc()))
+    users = users_res.scalars().all()
+    
+    report = []
+    for u in users:
+        # O'zi bergan ovozlar
+        v_count = (await db.execute(
+            select(func.count(VotesHistory.id)).where(
+                VotesHistory.telegram_id == u.telegram_id,
+                VotesHistory.status == VoteStatus.SUCCESS
+            )
+        )).scalar_one() or 0
+        
+        # Taklif qilgan referallari
+        ref_count = (await db.execute(
+            select(func.count(User.telegram_id)).where(User.invited_by == u.telegram_id)
+        )).scalar_one() or 0
+        
+        # Referallari orqali tushgan ovozlar
+        ref_votes = (await db.execute(
+            select(func.count(VotesHistory.id))
+            .join(User, User.telegram_id == VotesHistory.telegram_id)
+            .where(User.invited_by == u.telegram_id, VotesHistory.status == VoteStatus.SUCCESS)
+        )).scalar_one() or 0
+        
+        # Jami yechib olgan puli
+        withdrawn = (await db.execute(
+            select(func.coalesce(func.sum(Withdrawals.amount), 0)).where(
+                Withdrawals.telegram_id == u.telegram_id,
+                Withdrawals.status == WithdrawalStatus.APPROVED
+            )
+        )).scalar_one() or 0
+        
+        report.append({
+            "telegram_id": u.telegram_id,
+            "full_name": u.full_name or "—",
+            "username": f"@{u.username}" if u.username else "—",
+            "balance": int(u.balance),
+            "votes_count": v_count,
+            "referrals_count": ref_count,
+            "referral_votes": ref_votes,
+            "total_withdrawn": int(withdrawn),
+            "invited_by": u.invited_by or "—",
+            "created_at": u.created_at.strftime("%Y-%m-%d %H:%M:%S") if u.created_at else "—"
+        })
+    return report
+
 # --- Open Budget Loyihalari bilan ishlash ---
 
 async def get_active_project(db: AsyncSession) -> OpenBudgetProject | None:

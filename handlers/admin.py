@@ -691,22 +691,224 @@ async def process_approve_nocheck(callback: CallbackQuery, state: FSMContext):
 # --- 📋 Hisobot chiqarish handlers ---
 
 @router.message(F.text.contains("Batafsil Hisobot") | F.text.contains("Hisobot"))
-async def admin_report_select(message: Message):
-    """Admin '📋 Hisobot' tugmasini bosganda ovozi bor loyihalar ro'yxatini inline tugma shaklida chiqaradi"""
+async def admin_report_select(message: Message, state: FSMContext):
+    """Admin '📊 Batafsil Hisobot' tugmasini bosganda hisobot menyusini chiqaradi va ID so'raydi"""
+    await state.set_state(AdminStates.WAITING_FOR_USER_REPORT_QUERY)
+    
     async with async_session() as db:
         projects = await crud.get_all_projects_with_votes(db)
-
-    if not projects:
-        await message.answer("❌ Hozircha bot orqali muvaffaqiyatli ovoz berilgan loyihalar mavjud emas.")
-        return
-
-    # Loyihalar ro'yxatini inline klaviatura shaklida chiqaramiz
-    from keyboards import inline
+        
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    buttons = [
+        [InlineKeyboardButton(text="📑 Barcha foydalanuvchilar to'liq hisoboti (Excel/CSV)", callback_data="admin_report_all_users")]
+    ]
+    
+    if projects:
+        for p in projects:
+            buttons.append([InlineKeyboardButton(text=f"🗳️ Loyiha #{p} hisoboti (CSV)", callback_data=f"report_proj_{p}")])
+            
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    
     await message.answer(
-        "📋 <b>Hisobot yuklab olish uchun loyihani tanlang:</b>",
-        reply_markup=inline.get_admin_projects_keyboard(projects),
+        "📊 <b>Batafsil Hisobotlar Bo'limi</b>\n\n"
+        "🔍 <b>Foydalanuvchi hisobotini ko'rish uchun:</b>\n"
+        "Uning <b>Telegram ID</b> raqamini (yoki <code>@username</code>) pastga yozib yuboring.\n\n"
+        "👇 Yoki barcha foydalanuvchilarning umumiy to'liq hisobotini quyidagi tugma orqali yuklab oling:",
+        reply_markup=kb,
         parse_mode="HTML"
     )
+
+@router.message(AdminStates.WAITING_FOR_USER_REPORT_QUERY, F.text)
+async def process_user_report_query(message: Message, state: FSMContext):
+    text = message.text.strip()
+    
+    # Agar admin boshqa menyu tugmasini bosgan bo'lsa
+    if text in ("📊 Statistika", "🔒 Maxfiy kanal", "📢 Reklama yuborish", "🔙 Asosiy menyu", "🔑 API Web App", "📊 Batafsil Hisobot"):
+        await state.clear()
+        if text.startswith("📊 Stat"):
+            return await admin_stats(message)
+        elif "Maxfiy" in text:
+            return await admin_secret_channel(message)
+        elif "Reklama" in text:
+            return await admin_broadcast_prompt(message, state)
+        elif "Asosiy" in text:
+            return await admin_back_to_user(message)
+        return
+        
+    async with async_session() as db:
+        user = await crud.get_user_by_query(db, text)
+        if not user:
+            await message.answer(
+                f"❌ <code>{html.escape(text)}</code> bo'yicha hech qanday foydalanuvchi topilmadi.\n\n"
+                "Iltimos, to'g'ri <b>Telegram ID</b> (masalan: <code>7505685720</code>) yoki <b>@username</b> kiriting:",
+                parse_mode="HTML"
+            )
+            return
+            
+        data = await crud.get_user_detailed_report(db, user.telegram_id)
+        
+    votes = data["votes"]
+    votes_lines = []
+    for idx, v in enumerate(votes[:10], 1):
+        v_date = v.created_at.strftime("%d.%m.%Y %H:%M") if v.created_at else "—"
+        votes_lines.append(f"{idx}. <code>{v.phone_number}</code> — Loyiha: <code>{v.project_id}</code> ({v_date})")
+        
+    votes_text = "\n".join(votes_lines) if votes_lines else "<i>Ovozlar mavjud emas</i>"
+    if len(votes) > 10:
+        votes_text += f"\n<i>...va yana {len(votes) - 10} ta ovoz</i>"
+        
+    u_name = html.escape(user.full_name or "—")
+    u_username = f"@{user.username}" if user.username else "<i>mavjud emas</i>"
+    u_created = user.created_at.strftime("%d.%m.%Y %H:%M") if user.created_at else "—"
+    
+    invited_info = f"<code>ID {user.invited_by}</code>" if user.invited_by else "<i>To'g'ridan-to'g'ri (Referalsiz)</i>"
+    
+    rep_text = (
+        f"👤 <b>Foydalanuvchi Hisoboti:</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🆔 <b>Telegram ID:</b> <code>{user.telegram_id}</code>\n"
+        f"👤 <b>Ism:</b> {u_name}\n"
+        f"🔗 <b>Username:</b> {u_username}\n"
+        f"💰 <b>Joriy Balans:</b> <b>{int(user.balance):,} so'm</b>\n"
+        f"👥 <b>Taklif qilgan a'zolari:</b> <b>{data['referrals_count']} ta</b>\n"
+        f"🗳️ <b>Referallari bergan ovozlar:</b> <b>{data['referral_votes']} ta</b>\n"
+        f"💳 <b>Jami yechib olgan puli:</b> <b>{data['total_withdrawn']:,} so'm</b>\n"
+        f"🤝 <b>Kim taklif qilgan:</b> {invited_info}\n"
+        f"📅 <b>Ro'yxatdan o'tgan:</b> {u_created}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🗳️ <b>O'zi bergan muvaffaqiyatli ovozlar ({len(votes)} ta):</b>\n"
+        f"{votes_text}\n"
+    )
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    user_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Ushbu foydalanuvchi ovozlarini yuklab olish (CSV)", callback_data=f"admin_rep_user_csv_{user.telegram_id}")],
+        [InlineKeyboardButton(text="📑 Barcha foydalanuvchilar to'liq hisoboti (CSV)", callback_data="admin_report_all_users")]
+    ])
+    
+    await message.answer(rep_text, reply_markup=user_kb, parse_mode="HTML")
+
+@router.callback_query(F.data == "admin_report_all_users")
+async def process_admin_report_all_users(callback: CallbackQuery):
+    waiting_msg = await callback.message.answer("🔄 <b>Barcha foydalanuvchilar to'liq hisoboti tayyorlanmoqda, kuting...</b>", parse_mode="HTML")
+    
+    async with async_session() as db:
+        users_report = await crud.get_all_users_full_report(db)
+        
+    if not users_report:
+        await waiting_msg.edit_text("❌ Foydalanuvchilar topilmadi.")
+        return
+        
+    output = io.StringIO()
+    output.write('\ufeff')
+    
+    writer = csv.writer(output, delimiter=',')
+    writer.writerow([
+        "Telegram ID",
+        "Ism Familiya",
+        "Username",
+        "Joriy Balans (UZS)",
+        "O'zi Bergan Ovozlar",
+        "Taklif Qilgan Referallar Soni",
+        "Referallari Bergan Ovozlar",
+        "Jami Yechib Olgan Puli (UZS)",
+        "Kim Taklif Qilgan (ID)",
+        "Ro'yxatdan O'tgan Sana"
+    ])
+    
+    for r in users_report:
+        writer.writerow([
+            r["telegram_id"],
+            r["full_name"],
+            r["username"],
+            r["balance"],
+            r["votes_count"],
+            r["referrals_count"],
+            r["referral_votes"],
+            r["total_withdrawn"],
+            r["invited_by"],
+            r["created_at"]
+        ])
+        
+    csv_bytes = output.getvalue().encode('utf-8')
+    output.close()
+    
+    file_input = BufferedInputFile(
+        file=csv_bytes,
+        filename="barcha_foydalanuvchilar_hisoboti.csv"
+    )
+    
+    try:
+        await waiting_msg.delete()
+    except Exception:
+        pass
+        
+    await callback.message.answer_document(
+        document=file_input,
+        caption=(
+            f"📑 <b>Barcha foydalanuvchilar to'liq hisoboti!</b>\n\n"
+            f"👥 Jami foydalanuvchilar soni: <b>{len(users_report)} ta</b>\n"
+            f"📅 Sana: <i>{datetime.now().strftime('%d.%m.%Y %H:%M')}</i>"
+        ),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("admin_rep_user_csv_"))
+async def process_admin_rep_user_csv(callback: CallbackQuery):
+    uid = int(callback.data.split("_")[-1])
+    
+    async with async_session() as db:
+        user = await crud.get_user(db, uid)
+        data = await crud.get_user_detailed_report(db, uid)
+        
+    if not data or not user:
+        await callback.answer("Foydalanuvchi topilmadi.", show_alert=True)
+        return
+        
+    votes = data["votes"]
+    if not votes:
+        await callback.answer("Ushbu foydalanuvchida hali muvaffaqiyatli ovozlar yo'q.", show_alert=True)
+        return
+        
+    output = io.StringIO()
+    output.write('\ufeff')
+    writer = csv.writer(output, delimiter=',')
+    writer.writerow([
+        "Telegram ID",
+        "Ism Familiya",
+        "Username",
+        "Telefon Raqami",
+        "Loyiha ID",
+        "Holati",
+        "Ovoz Berilgan Sana"
+    ])
+    
+    for v in votes:
+        writer.writerow([
+            user.telegram_id,
+            user.full_name or "—",
+            f"@{user.username}" if user.username else "—",
+            v.phone_number,
+            v.project_id,
+            v.status.value if hasattr(v.status, 'value') else str(v.status),
+            v.created_at.strftime("%Y-%m-%d %H:%M:%S") if v.created_at else "—"
+        ])
+        
+    csv_bytes = output.getvalue().encode('utf-8')
+    output.close()
+    
+    file_input = BufferedInputFile(
+        file=csv_bytes,
+        filename=f"ovozlar_user_{uid}.csv"
+    )
+    
+    await callback.message.answer_document(
+        document=file_input,
+        caption=f"📥 <code>{uid}</code> IDli foydalanuvchining muvaffaqiyatli ovozlari hisoboti ({len(votes)} ta).",
+        parse_mode="HTML"
+    )
+    await callback.answer()
 
 async def send_project_report(message_or_callback, project_id: str, is_delete: bool = False):
     """Loyiha bo'yicha CSV hisobotini yaratib adminga jo'natadi"""
