@@ -649,6 +649,44 @@ async def update_settings_api(
     return {"status": "success", "message": "Tizim sozlamalari muvaffaqiyatli saqlandi!"}
 
 
+@app.get("/redirect-channel", response_class=HTMLResponse)
+async def redirect_channel(channel: str = None, db: AsyncSession = Depends(get_db)):
+    if not channel:
+        settings_db = await crud.get_project_settings(db)
+        channel = settings_db.payouts_channel or getattr(settings, "PAYOUTS_CHANNEL", "")
+        
+    if not channel:
+        return HTMLResponse("❌ Kanal sozlamasi topilmadi.")
+        
+    if channel.startswith("@"):
+        channel_url = f"https://t.me/{channel[1:]}"
+    elif channel.startswith("-100"):
+        channel_url = f"https://t.me/c/{channel[4:]}/1"
+    else:
+        channel_url = f"https://t.me/{channel}"
+        
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+        <script>
+            window.onload = function() {{
+                const tg = window.Telegram.WebApp;
+                tg.ready();
+                tg.openTelegramLink("{channel_url}");
+                tg.close();
+            }};
+        </script>
+    </head>
+    <body>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+
 # FastAPI ilovasini ishga tushirish
 if __name__ == "__main__":
     import uvicorn

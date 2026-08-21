@@ -4,6 +4,11 @@ from utils.security import generate_session_signature
 
 def get_user_menu() -> ReplyKeyboardMarkup:
     """Foydalanuvchilar uchun zamonaviy va rangli asosiy menyu (Reply Keyboard)"""
+    web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
+    if not web_url.startswith("http"):
+        web_url = f"https://{web_url}"
+    payouts_redirect_url = f"{web_url}/redirect-channel"
+
     keyboard = [
         [KeyboardButton(text="⚡ Ovoz berish 🗳️", style="success")],
         [
@@ -12,7 +17,7 @@ def get_user_menu() -> ReplyKeyboardMarkup:
         ],
         [
             KeyboardButton(text="🤝 Hamkorlik & API", style="primary"),
-            KeyboardButton(text="📢 To'lovlar kanali", style="primary")
+            KeyboardButton(text="📢 To'lovlar kanali", web_app=WebAppInfo(url=payouts_redirect_url), style="primary")
         ]
     ]
     return ReplyKeyboardMarkup(
