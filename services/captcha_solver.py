@@ -38,9 +38,32 @@ def _load_keys() -> list[str]:
         return []
 
 # Keylarni global holatda saqlaymiz va round-robin qilamiz
+import time
+
 _keys: list[str] = []
 _keys_verified: bool = False
 _key_index: int = 0
+_blocked_keys: dict[str, float] = {}
+
+def block_key(api_key: str, duration: float = 120.0):
+    """Kalitni ma'lum muddatga bloklaydi (429 xato bo'lsa)"""
+    _blocked_keys[api_key] = time.time() + duration
+    logger.warning(f"Gemini API key blocked for {duration} seconds: {api_key[:10]}...")
+
+def get_available_keys() -> list[str]:
+    """Bloklanmagan faol kalitlar ro'yxatini qaytaradi"""
+    global _keys
+    now = time.time()
+    # Bloklash muddati tugaganlarni tozalaymiz
+    active_blocked = {k: ts for k, ts in _blocked_keys.items() if ts > now}
+    _blocked_keys.clear()
+    _blocked_keys.update(active_blocked)
+    
+    available = [k for k in _keys if k not in _blocked_keys]
+    # Agar hamma kalitlar bloklangan bo'lsa, hammasini qaytaramiz (zaxira sifatida)
+    if not available:
+        return _keys
+    return available
 
 async def verify_all_api_keys():
     """
@@ -66,6 +89,9 @@ async def verify_all_api_keys():
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url, json=payload) as resp:
                     if resp.status == 200:
+                        return key
+                    elif resp.status == 429:
+                        block_key(key, 120.0)
                         return key
                     else:
                         logger.warning(f"Gemini API key check failed ({resp.status}) for key: {key[:10]}...")
@@ -121,11 +147,12 @@ async def solve_captcha_with_gemini(image_base64: str) -> Optional[int]:
 
     # Navbatdagi 3 ta kalitni ketma-ket urinib ko'rish uchun tanlaymiz
     global _key_index
-    n_keys = len(_keys)
+    available_keys = get_available_keys()
+    n_keys = len(available_keys)
     
     # Maksimal 3 ta turli kalit bilan ketma-ket urinib ko'ramiz
     for _ in range(min(3, n_keys)):
-        key = _keys[_key_index % n_keys]
+        key = available_keys[_key_index % n_keys]
         _key_index = (_key_index + 1) % n_keys
         
         try:
@@ -178,6 +205,7 @@ async def _try_solve_with_key(api_key: str, image_bytes: bytes) -> Optional[int]
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(url, json=payload) as resp:
             if resp.status == 429:
+                block_key(api_key, 120.0)
                 return None
             if resp.status != 200:
                 return None
