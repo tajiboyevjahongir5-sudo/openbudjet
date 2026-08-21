@@ -326,7 +326,7 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
         timeout = aiohttp.ClientTimeout(total=15)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             # 1. Task yuboramiz
-            async with session.post(create_url, json=payload) as resp:
+            async with session.post(create_url, data=payload) as resp:
                 if resp.status != 200:
                     logger.warning(f"2Captcha in.php failed status: {resp.status}")
                     return None
