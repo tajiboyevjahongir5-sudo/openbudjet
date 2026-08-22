@@ -242,7 +242,11 @@ async def temp_logs():
                 "status": str(h.status),
                 "created_at": str(h.created_at)
             })
-        return {"votes": votes}
+        project_settings = await crud.get_project_settings(db)
+        return {
+            "configured_project_id": project_settings.project_id if project_settings else None,
+            "votes": votes
+        }
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
 async def robots_txt():
