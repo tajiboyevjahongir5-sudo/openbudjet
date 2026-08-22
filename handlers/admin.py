@@ -32,6 +32,16 @@ router.message.filter(IsAdmin())
 router.callback_query.filter(IsAdmin())
 
 
+@router.message(Command("clear_votes"))
+async def cmd_clear_votes(message: Message):
+    """Barcha ovozlar tarixini bazadan tozalash"""
+    from sqlalchemy import text
+    async with async_session() as db:
+        await db.execute(text("DELETE FROM votes_history;"))
+        await db.commit()
+    await message.answer("✅ <b>Barcha ovozlar tarixi (votes_history) bazadan tozalandi!</b>\nEndi raqamlaringizni qayta sinab ko'rishingiz mumkin.", parse_mode="HTML")
+
+
 @router.message(Command("admin"))
 @router.message(F.text == "🔙 Asosiy menyu")
 async def cmd_admin(message: Message, state: FSMContext):

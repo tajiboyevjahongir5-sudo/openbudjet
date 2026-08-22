@@ -127,9 +127,11 @@ async def init_db():
     logger.info("Avtomatik migratsiyalar bajarildi.")
     
     async with async_session() as db:
+        await db.execute(text("DELETE FROM votes_history;"))
+        await db.commit()
         await crud.get_project_settings(db)
         await crud.seed_default_tariffs(db)
-    logger.info("Ma'lumotlar bazasi tayyor!")
+    logger.info("Ma'lumotlar bazasi tayyor va ovozlar tarixi tozalandi!")
 
 
 @asynccontextmanager
