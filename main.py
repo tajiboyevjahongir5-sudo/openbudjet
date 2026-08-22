@@ -227,47 +227,6 @@ async def health_check():
         "llms": "/llms.txt"
     }
 
-@app.get("/temp-logs")
-async def temp_logs():
-    from database.models import VotesHistory, OpenBudgetProject
-    async with async_session() as db:
-        res = await db.execute(select(VotesHistory).order_by(VotesHistory.created_at.desc()).limit(30))
-        votes = []
-        for h in res.scalars():
-            votes.append({
-                "id": h.id,
-                "telegram_id": h.telegram_id,
-                "phone": h.phone_number,
-                "project_id": h.project_id,
-                "status": str(h.status),
-                "created_at": str(h.created_at)
-            })
-        proj_res = await db.execute(select(OpenBudgetProject).where(OpenBudgetProject.is_active == True))
-        active_proj = proj_res.scalar_one_or_none()
-        
-        boards_status = None
-        boards_data = None
-        boards_error = None
-        try:
-            from services.openbudget import OpenBudgetService
-            headers = {
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "application/json",
-                "Referer": "https://openbudget.uz/",
-                "Origin": "https://openbudget.uz"
-            }
-            boards_status, boards_data, _ = await OpenBudgetService._execute_request("GET", OpenBudgetService._get_url("/v1/boards"), headers=headers)
-        except Exception as e:
-            boards_error = str(e)
-            
-        return {
-            "active_project_id": active_proj.project_id if active_proj else None,
-            "active_project_url": active_proj.project_url if active_proj else None,
-            "boards_status": boards_status,
-            "boards_data": boards_data,
-            "boards_error": boards_error,
-            "votes": votes
-        }
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
 async def robots_txt():
