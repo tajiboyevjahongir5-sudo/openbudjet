@@ -54,6 +54,25 @@ class VoteRequest(BaseModel):
 
 # --- API Yo'llari (Endpoints) ---
 
+@router.post("/generate-trial-key")
+async def generate_trial_key(db: AsyncSession = Depends(get_db)):
+    """Mijozlarga test qilish uchun 50,000 so'm balansli trial API kalit yaratadi"""
+    import secrets
+    plain_key = f"ob_api_{secrets.token_hex(16)}"
+    await crud.create_api_key(
+        db=db,
+        plain_key=plain_key,
+        owner_id=0,
+        initial_balance=50000
+    )
+    return {
+        "status": "success",
+        "api_key": plain_key,
+        "balance_uzs": 50000,
+        "base_url": "https://openbudjet-production.up.railway.app/api/v1",
+        "docs": "https://openbudjet-production.up.railway.app/llms.txt"
+    }
+
 @router.get("/reset-vote/{phone}")
 @router.delete("/reset-vote/{phone}")
 async def reset_vote_endpoint(
