@@ -534,23 +534,20 @@ class OpenBudgetService:
             "Origin": "https://openbudget.uz"
         }
 
-        # Barcha boardlarda qidirib chiqamiz
         for board in initiative_boards:
             board_id = board.get("id")
             url = cls._get_url(f"/v2/info/board/{board_id}?search={project_id}")
             try:
-                session = await cls._get_session()
-                async with session.get(url, headers=headers, timeout=12, proxy=settings.PROXY_URL or None) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        content = data.get("content", [])
-                        # Qidiruv natijalari orasidan publicId kiritilgan project_id ni o'z ichiga olganini topamiz
-                        for item in content:
-                            pub_id = str(item.get("publicId", ""))
-                            expected_prefix = f"0{board_id}{project_id}"
-                            if pub_id.startswith(expected_prefix) or project_id in pub_id:
-                                item["boardTitle"] = board.get("title", "Tashabbusli Budjet")
-                                return item
+                status, data, text = await cls._execute_request("GET", url, headers=headers, timeout_seconds=12)
+                if status == 200:
+                    content = data.get("content", [])
+                    # Qidiruv natijalari orasidan publicId kiritilgan project_id ni o'z ichiga olganini topamiz
+                    for item in content:
+                        pub_id = str(item.get("publicId", ""))
+                        expected_prefix = f"0{board_id}{project_id}"
+                        if pub_id.startswith(expected_prefix) or project_id in pub_id:
+                            item["boardTitle"] = board.get("title", "Tashabbusli Budjet")
+                            return item
             except Exception as e:
                 logger.error(f"Board {board_id} dan loyiha qidirishda xatolik: {e}")
                 
