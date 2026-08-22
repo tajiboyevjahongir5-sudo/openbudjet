@@ -106,7 +106,7 @@ class OpenBudgetService:
         url: str,
         headers: dict,
         json_data: dict | None = None,
-        timeout_seconds: int = 15
+        timeout_seconds: int = 25
     ) -> tuple[int, dict, str]:
         """
         HTTP so'rovini bajaradi.
@@ -124,7 +124,7 @@ class OpenBudgetService:
         req_headers = dict(headers)
         req_headers["ngrok-skip-browser-warning"] = "1"
 
-        kw: dict = {"headers": req_headers, "timeout": aiohttp.ClientTimeout(total=timeout_seconds)}
+        kw: dict = {"headers": req_headers, "timeout": aiohttp.ClientTimeout(total=timeout_seconds, connect=15)}
         if proxy:
             kw["proxy"] = proxy
         if json_data is not None:
@@ -147,7 +147,7 @@ class OpenBudgetService:
     async def get_captcha(cls) -> tuple[bool, str, dict | None]:
         """
         GET /v2/vote/captcha-2
-        Captcha rasmi va kalitini yuklab oladi.
+        Captcha rasmi va kalitini yuklab oladi (proksi bilan 2 marta urinish).
         """
         if settings.MOCK_OPENBUDGET:
             return True, "ok", {"key": "mock_captcha_key", "image_base64": None, "mock": True}
@@ -159,17 +159,22 @@ class OpenBudgetService:
             "Origin": "https://openbudget.uz",
             "Access-Captcha": cls._access_captcha_token(),
         }
-        try:
-            status, data, text = await cls._execute_request("GET", cls.captcha_url(), headers=headers)
-            if status == 200:
-                return True, "ok", {
-                    "key": data.get("captchaKey"),
-                    "image_base64": data.get("image"),
-                }
-            return False, f"Captcha xatoligi: {status}", None
-        except Exception as e:
-            logger.error(f"Captcha yuklashda xatolik: {e}")
-            return False, "Captcha yuklashda tarmoq xatoligi yuz berdi.", None
+        
+        for attempt in range(2):
+            try:
+                status, data, text = await cls._execute_request("GET", cls.captcha_url(), headers=headers, timeout_seconds=20)
+                if status == 200 and data.get("captchaKey"):
+                    return True, "ok", {
+                        "key": data.get("captchaKey"),
+                        "image_base64": data.get("image"),
+                    }
+                logger.warning(f"Captcha yuklash urinishi {attempt+1} xatosi: status={status}")
+            except Exception as e:
+                logger.warning(f"Captcha yuklash urinishi {attempt+1} tarmoq xatosi: {e}")
+                if attempt == 0:
+                    await asyncio.sleep(1)
+        
+        return False, "Captcha yuklashda tarmoq xatoligi yuz berdi.", None
 
     @classmethod
     async def check_and_send_sms(
