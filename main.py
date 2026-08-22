@@ -245,19 +245,27 @@ async def temp_logs():
         proj_res = await db.execute(select(OpenBudgetProject).where(OpenBudgetProject.is_active == True))
         active_proj = proj_res.scalar_one_or_none()
         
-        search_test = None
-        search_error = None
+        boards_status = None
+        boards_data = None
+        boards_error = None
         try:
             from services.openbudget import OpenBudgetService
-            search_test = await OpenBudgetService.find_initiative("055529529012")
+            headers = {
+                "User-Agent": "Mozilla/5.0",
+                "Accept": "application/json",
+                "Referer": "https://openbudget.uz/",
+                "Origin": "https://openbudget.uz"
+            }
+            boards_status, boards_data, _ = await OpenBudgetService._execute_request("GET", OpenBudgetService._get_url("/v1/boards"), headers=headers)
         except Exception as e:
-            search_error = str(e)
+            boards_error = str(e)
             
         return {
             "active_project_id": active_proj.project_id if active_proj else None,
             "active_project_url": active_proj.project_url if active_proj else None,
-            "search_test": search_test,
-            "search_error": search_error,
+            "boards_status": boards_status,
+            "boards_data": boards_data,
+            "boards_error": boards_error,
             "votes": votes
         }
 
