@@ -332,6 +332,28 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
         )
         return
 
+    if mvc_msg == "already_voted":
+        async with async_session() as db:
+            await crud.add_vote_history(
+                db=db,
+                telegram_id=telegram_id,
+                phone_number=clean_phone,
+                project_id=project_id,
+                status=VoteStatus.ALREADY_VOTED
+            )
+        try:
+            await waiting_msg.delete()
+        except Exception:
+            pass
+        await message.answer(
+            f"⚠️ <b>Ushbu (+998{clean_phone}) raqam orqali bu mavsumda allaqachon ovoz berilgan!</b>\n\n"
+            f"Qonun bo'yicha har bir fuqaro faqat <b>1 marta</b> ovoz bera oladi.",
+            reply_markup=reply.get_user_menu(),
+            parse_mode="HTML"
+        )
+        await state.clear()
+        return
+
     # 2. Zaxira rejim (Login OTP)
     success, error_msg, session_data = await OpenBudgetService.check_and_send_sms(
         phone_number=clean_phone,

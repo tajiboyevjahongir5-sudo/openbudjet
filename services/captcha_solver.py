@@ -15,6 +15,7 @@ import logging
 import base64
 import asyncio
 import re
+import json
 import aiohttp
 from io import BytesIO
 from typing import Optional
@@ -384,12 +385,13 @@ async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
         if gemini_keys and gemini_keys[0].strip():
             client = genai.Client(api_key=gemini_keys[0].strip())
             prompt = (
-                "You are a precise vision OCR coordinate locator.\n"
-                "Image 1: Shows 2 uppercase English letter pairs in order from left to right.\n"
-                "Image 2: A 340x220 pixel image with letter pairs scattered around.\n"
-                "Task: Find the center (x, y) coordinates of the matching 2 letter pairs in Image 2.\n"
-                "Return ONLY valid JSON array with 2 objects:\n"
-                '[{"x": 140, "y": 65}, {"x": 280, "y": 150}]'
+                "You are an expert visual coordinate detector.\n"
+                "Image 1 (Instruction): Contains exactly 2 reference characters/letters shown side by side in left-to-right order.\n"
+                "Image 2 (Search Canvas): A 340 pixel wide by 220 pixel high canvas containing various scattered characters.\n\n"
+                "Step 1: Identify the first letter (on the left of Image 1). Find its exact center coordinates (x between 0 and 340, y between 0 and 220) in Image 2.\n"
+                "Step 2: Identify the second letter (on the right of Image 1). Find its exact center coordinates in Image 2.\n\n"
+                "Output strictly valid JSON with the 2 points in order:\n"
+                '[{"x": 120, "y": 80}, {"x": 250, "y": 150}]'
             )
             response = client.models.generate_content(
                 model="gemini-3.6-flash",

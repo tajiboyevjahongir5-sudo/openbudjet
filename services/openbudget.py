@@ -298,59 +298,75 @@ class OpenBudgetService:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Origin": "https://openbudget.uz",
             "Referer": f"https://openbudget.uz/initiative/{project_id}",
         }
         
         jar = aiohttp.CookieJar(unsafe=True)
         proxy = settings.PROXY_URL or None
         
-        try:
-            timeout = aiohttp.ClientTimeout(total=35)
-            async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
-                async with session.get(mvc_url, headers=headers, proxy=proxy) as resp:
-                    if resp.status != 200:
-                        return False, "MVC sahifa ochilmadi", None
-                    html = await resp.text()
+        for attempt in range(2):
+            try:
+                timeout = aiohttp.ClientTimeout(total=25)
+                async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
+                    async with session.get(mvc_url, headers=headers, proxy=proxy) as resp:
+                        if resp.status != 200:
+                            return False, "MVC sahifa ochilmadi", None
+                        html = await resp.text()
+                        
+                    srcs = re.findall(r'<img[^>]+src="(data:image/[^"]+)"', html)
+                    if len(srcs) < 2:
+                        srcs = re.findall(r"src='(data:image/[^']+)'", html)
+                    if len(srcs) < 2:
+                        return False, "Captcha rasmlari topilmadi", None
+                        
+                    img_a_b64 = srcs[0].split(",")[-1]
+                    img_b_b64 = srcs[1].split(",")[-1]
                     
-                imgs = re.findall(r'src="data:image/[^;]+;base64,([^"]+)"', html)
-                if len(imgs) < 2:
-                    return False, "Captcha rasmlari topilmadi", None
+                    points = await solve_mvc_visual_captcha(img_a_b64, img_b_b64)
+                    if not points or len(points) < 2:
+                        continue
+                        
+                    post_url = "https://openbudget.uz/api/v2/vote/mvc/captcha"
+                    post_data = {
+                        "phoneNumber": formatted_phone,
+                        "points": json.dumps(points, separators=(",", ":")),
+                    }
+                    post_headers = dict(headers)
+                    post_headers["Referer"] = mvc_url
+                    post_headers["Content-Type"] = "application/x-www-form-urlencoded"
                     
-                points = await solve_mvc_visual_captcha(imgs[0], imgs[1])
-                if not points or len(points) < 2:
-                    return False, "Captcha yechilmadi", None
-                    
-                post_url = "https://openbudget.uz/api/v2/vote/mvc/captcha"
-                post_data = {
-                    "phoneNumber": formatted_phone,
-                    "points": json.dumps(points)
-                }
-                post_headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Referer": mvc_url,
-                    "Origin": "https://openbudget.uz",
-                }
+                    async with session.post(post_url, data=post_data, headers=post_headers, proxy=proxy, allow_redirects=True) as post_resp:
+                        post_html = await post_resp.text()
+                        
+                        # 1. Allaqachon ovoz berilgan holat
+                        if any(k in post_html.lower() for k in ["аввал берилган овоз", "ovoz qabul qilingan", "allaqachon", "муваффақиятли қабул қилинган"]):
+                            logger.info(f"OpenBudget: Bu raqam orqali allaqachon ovoz berilgan: {clean_phone}")
+                            return False, "already_voted", {"phone": clean_phone, "detail": "Ushbu raqam orqali bu mavsumda allaqachon ovoz berilgan."}
+                            
+                        # 2. Captcha mos kelmadi holati
+                        if any(k in post_html.lower() for k in ["мос келмади", "mos kelmadi"]):
+                            logger.warning(f"MVC captcha mos kelmadi, qayta urinish {attempt+1}")
+                            continue
+                            
+                        # 3. Muvaffaqiyat: OTP forma qaytgan holat
+                        form_m = re.search(r"<form[^>]*action=\"([^\"]+)\"[^>]*>([\s\S]*?)</form>", post_html, re.I)
+                        inputs = re.findall(r'<input[^>]+name=["\']([^"\']+)["\'][^>]*>', post_html, re.I)
+                        
+                        if form_m or any(i.lower() in ["otpcode", "smscode", "code"] for i in inputs) or post_resp.status == 200:
+                            cookies_dict = {c.key: c.value for c in jar}
+                            logger.info(f"Rasmiy MVC Ovoz SMS muvaffaqiyatli yuborildi: {clean_phone} -> {target_uuid}")
+                            return True, "SMS tasdiqlash kodi yuborildi.", {
+                                "flow": "mvc",
+                                "phone": "998" + clean_phone,
+                                "project_id": project_id,
+                                "target_uuid": str(target_uuid),
+                                "cookies": cookies_dict
+                            }
+            except Exception as e:
+                logger.warning(f"MVC Vote SMS xatosi: {e}")
                 
-                async with session.post(post_url, data=post_data, headers=post_headers, proxy=proxy) as post_resp:
-                    post_html = await post_resp.text()
-                    
-                    if post_resp.status == 200:
-                        cookies_dict = {c.key: c.value for c in jar}
-                        logger.info(f"Rasmiy MVC Ovoz SMS muvaffaqiyatli yuborildi: {clean_phone} -> {target_uuid}")
-                        return True, "SMS tasdiqlash kodi yuborildi.", {
-                            "flow": "mvc",
-                            "phone": "998" + clean_phone,
-                            "project_id": project_id,
-                            "target_uuid": str(target_uuid),
-                            "cookies": cookies_dict
-                        }
-                    else:
-                        logger.warning(f"MVC vote post status {post_resp.status}")
-                        return False, "MVC captcha mos kelmadi", None
-        except Exception as e:
-            logger.warning(f"MVC Vote SMS xatosi: {e}")
-            return False, "Tarmoq xatoligi", None
+        return False, "MVC ovoz so'rovida xatolik", None
 
     @classmethod
     async def send_registration_otp(
