@@ -967,22 +967,38 @@ async def admin_menu_handler(msg: Message, state: FSMContext):
         )
 
     elif "Hisobot" in text:
-        conn = await get_db_conn()
-        async with conn.execute("""
-            SELECT u.telegram_id, u.username, u.balance,
-                   (SELECT COUNT(*) FROM votes_history v WHERE v.telegram_id = u.telegram_id AND v.status = 'SUCCESS') as vote_count
-            FROM users u
-        """) as c:
-            users = await c.fetchall()
+        try:
+            conn = await get_db_conn()
+            async with conn.execute("""
+                SELECT u.telegram_id, u.username, u.full_name, u.balance, u.votes_count,
+                       (SELECT COUNT(*) FROM votes_history v WHERE v.telegram_id = u.telegram_id) as hist_count
+                FROM users u
+                ORDER BY u.votes_count DESC
+            """) as c:
+                users = await c.fetchall()
+                
+            report = [
+                "Open Budget Bot — Foydalanuvchilar va Ovozlar Hisoboti",
+                f"Sana: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                "=" * 65,
+                f"{'ID':<12} | {'Username':<18} | {'Balans':<12} | {'Ovozlar':<8}",
+                "-" * 65
+            ]
+            for u in users:
+                tid, uname, fname, bal, vcount, hcount = u
+                username_str = f"@{uname}" if uname else (fname or "—")
+                actual_votes = max(vcount or 0, hcount or 0)
+                report.append(f"{tid:<12} | {username_str[:18]:<18} | {bal:,} UZS | {actual_votes} ta")
+                
+            report.append("=" * 65)
+            report.append(f"Jami foydalanuvchilar: {len(users):,} ta")
             
-        report = ["ID | Username | Balans | Ovozlar soni\n" + "-"*50]
-        for u in users:
-            uname = f"@{u[1]}" if u[1] else "—"
-            report.append(f"{u[0]} | {uname} | {u[2]:,} UZS | {u[3]} ta")
-            
-        txt_data = "\n".join(report).encode("utf-8")
-        file = BufferedInputFile(txt_data, filename="foydalanuvchilar_hisoboti.txt")
-        await msg.answer_document(file, caption="📊 Bot foydalanuvchilari hisoboti")
+            txt_data = "\n".join(report).encode("utf-8")
+            file = BufferedInputFile(txt_data, filename=f"hisobot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+            await msg.answer_document(file, caption="📊 <b>Bot foydalanuvchilari va ovozlar to'liq hisoboti</b>", parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Hisobot yaratishda xato: {e}", exc_info=True)
+            await msg.answer(f"❌ Hisobot tayyorlashda xatolik: {e}")
 
     elif "Broadcast" in text:
         await state.set_state(AdminStates.BROADCAST)
