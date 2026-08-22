@@ -305,9 +305,34 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             )
             return
 
-    waiting_msg = await message.answer("⏳ <b>Bog'lanish:</b> Open Budjetga ulanilmoqda...", parse_mode="HTML")
+    waiting_msg = await message.answer("⏳ <b>Bog'lanish:</b> Loyihaga rasmiy SMS so'ralmoqda...", parse_mode="HTML")
 
-    # Portalga SMS so'rovi (Captcha kodi hali yuborilmagan)
+    # 1. To'g'ridan-to'g'ri Rasmiy MVC Loyiha ovoz berish SMS-ini yuboramiz
+    mvc_success, mvc_msg, mvc_session = await OpenBudgetService.send_mvc_initiative_sms(
+        phone_number=clean_phone,
+        project_id=project_id
+    )
+
+    if mvc_success:
+        await state.update_data(
+            phone_number=clean_phone,
+            project_id=project_id,
+            session_data=mvc_session
+        )
+        await state.set_state(VoteStates.WAITING_FOR_SMS)
+        try:
+            await waiting_msg.delete()
+        except Exception:
+            pass
+        await message.answer(
+            f"📩 <b>Rasmiy SMS yuborildi!</b>\n\n"
+            f"<code>+998{clean_phone}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:",
+            reply_markup=reply.get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
+    # 2. Zaxira rejim (Login OTP)
     success, error_msg, session_data = await OpenBudgetService.check_and_send_sms(
         phone_number=clean_phone,
         project_id=project_id,

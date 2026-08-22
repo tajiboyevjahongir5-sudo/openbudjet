@@ -501,8 +501,6 @@ class OpenBudgetService:
         if session_data and session_data.get("flow") == "mvc":
             cookies = session_data.get("cookies", {})
             target_uuid = session_data.get("target_uuid")
-            clean_p = clean_phone[-9:]
-            formatted_p = f"{clean_p[:2]} {clean_p[2:5]}-{clean_p[5:7]}-{clean_p[7:]}"
             
             verify_url = "https://openbudget.uz/api/v2/vote/mvc/verify"
             verify_headers = {
@@ -512,8 +510,8 @@ class OpenBudgetService:
                 "Origin": "https://openbudget.uz",
             }
             verify_data = {
-                "phoneNumber": formatted_p,
-                "code": str(code).strip()
+                "otpCode": str(code).strip(),
+                "grToken": ""
             }
             
             jar = aiohttp.CookieJar(unsafe=True)
@@ -525,10 +523,12 @@ class OpenBudgetService:
                 timeout = aiohttp.ClientTimeout(total=25)
                 async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
                     async with session.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy) as resp:
+                        v_html = await resp.text()
                         if resp.status == 200:
                             logger.info(f"Rasmiy MVC Ovoz muvaffaqiyatli qabul qilindi: {clean_phone} -> {target_uuid}")
                             return True, "mvc_voted"
                         else:
+                            logger.warning(f"MVC Verify status: {resp.status} — {v_html[:200]}")
                             return False, "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
             except Exception as e:
                 logger.error(f"MVC Verify xatosi: {e}")
