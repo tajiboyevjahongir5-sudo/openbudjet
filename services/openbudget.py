@@ -545,17 +545,21 @@ class OpenBudgetService:
                 "grToken": ""
             }
             
-            jar = aiohttp.CookieJar(unsafe=True)
-            for k, v in cookies.items():
-                jar.update_cookies({k: v}, urllib.parse.urlparse("https://openbudget.uz"))
+            if cookies:
+                verify_headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in cookies.items())
                 
             proxy = settings.PROXY_URL or None
             try:
                 timeout = aiohttp.ClientTimeout(total=25)
-                async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
-                    async with session.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy) as resp:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy, allow_redirects=True) as resp:
                         v_html = await resp.text()
-                        if resp.status == 200:
+                        v_lower = v_html.lower()
+                        success_markers = (
+                            "муваффақият", "muvaffaqiyat", "қабул қилинди", "qabul qilindi",
+                            "успеш", "rahmat", "раҳмат", "ovoz qabul", "tabriklaymiz", "табриклаймиз", "thanks"
+                        )
+                        if (resp.status in (200, 201, 302) and any(m in v_lower for m in success_markers)) or resp.status == 200:
                             logger.info(f"Rasmiy MVC Ovoz muvaffaqiyatli qabul qilindi: {clean_phone} -> {target_uuid}")
                             return True, "mvc_voted"
                         else:
