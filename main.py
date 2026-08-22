@@ -244,9 +244,20 @@ async def temp_logs():
             })
         proj_res = await db.execute(select(OpenBudgetProject).where(OpenBudgetProject.is_active == True))
         active_proj = proj_res.scalar_one_or_none()
+        
+        search_test = None
+        search_error = None
+        try:
+            from services.openbudget import OpenBudgetService
+            search_test = await OpenBudgetService.find_initiative("055529529012")
+        except Exception as e:
+            search_error = str(e)
+            
         return {
             "active_project_id": active_proj.project_id if active_proj else None,
             "active_project_url": active_proj.project_url if active_proj else None,
+            "search_test": search_test,
+            "search_error": search_error,
             "votes": votes
         }
 
