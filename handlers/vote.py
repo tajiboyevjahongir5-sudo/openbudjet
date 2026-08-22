@@ -763,6 +763,31 @@ async def process_sms_code(message: Message, state: FSMContext):
         )
         return
 
+    if result_msg == "mvc_voted":
+        async with async_session() as db:
+            try:
+                await crud.add_vote_history(
+                    db=db,
+                    telegram_id=telegram_id,
+                    phone_number=phone_number,
+                    project_id=project_id,
+                    status=VoteStatus.PENDING_VERIFY,
+                    commit=True
+                )
+                project_settings = await crud.get_project_settings(db)
+                voter_reward = project_settings.voter_reward
+                success_text = (
+                    f"🎉 <b>Tabriklaymiz! Ovoz berish muvaffaqiyatli qabul qilindi!</b>\n\n"
+                    f"⏳ <i>Open Budget portali ovozlarni ro'yxatga olmoqda. Rasmiy sahifada ko'rinishi bilan (1-3 daqiqada), balansingizga avtomatik ravishda <b>+{voter_reward:,.0f} so'm</b> qo'shiladi!</i>\n\n"
+                    f"💡 <i>Holatni «Mening hisobim» bo'limida kuzatishingiz mumkin.</i>"
+                )
+                await message.answer(success_text, reply_markup=reply.get_user_menu(), parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"MVC vote save error: {e}")
+                await message.answer("✅ Ovoz qabul qilindi!", reply_markup=reply.get_user_menu())
+            await state.clear()
+            return
+
     # SMS kod tasdiqlandi, endi final captcha yuklaymiz
     access_token = result_msg  # verify_sms_code muvaffaqiyatli bo'lsa token qaytaradi
     

@@ -211,6 +211,11 @@ class OpenBudgetService:
             }
 
         # --- REAL REJIM ---
+        # 1. Avval rasmiy MVC Loyiha ovoz berish oqimini sinab ko'ramiz
+        mvc_ok, mvc_msg, mvc_session = await cls.send_mvc_initiative_sms(clean_phone, project_id)
+        if mvc_ok:
+            return True, "SMS tasdiqlash kodi yuborildi.", mvc_session
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             "Content-Type": "application/json",
@@ -229,6 +234,7 @@ class OpenBudgetService:
 
             if status == 200:
                 return True, "SMS tasdiqlash kodi yuborildi.", {
+                    "flow": "login",
                     "phone": "998" + clean_phone,
                     "project_id": project_id,
                     "otp_key": data.get("otpKey"),
@@ -261,7 +267,86 @@ class OpenBudgetService:
                 return False, f"Xatolik: {msg}", None
         except Exception as e:
             logger.error(f"Send OTP Error: {e}")
-            return False, "Portalga ulanib bo'lmadi. Keyinroq urinib ko'ring.", None
+    @classmethod
+    async def send_mvc_initiative_sms(
+        cls,
+        phone_number: str,
+        project_id: str
+    ) -> tuple[bool, str, dict | None]:
+        """
+        Open Budget MVC /api/v2/vote/mvc/captcha orqali to'g'ridan-to'g'ri
+        rasmiy LOYIHA OVOZ BERISH SMS-ini yuboradi.
+        """
+        from services.captcha_solver import solve_mvc_visual_captcha
+        clean_phone = "".join(filter(str.isdigit, phone_number))
+        if clean_phone.startswith("998"):
+            clean_phone = clean_phone[3:]
+            
+        target_uuid = project_id
+        if "-" not in str(target_uuid):
+            info = await cls.find_initiative(str(project_id))
+            if info and info.get("id"):
+                target_uuid = info.get("id")
+                
+        formatted_phone = f"{clean_phone[:2]} {clean_phone[2:5]}-{clean_phone[5:7]}-{clean_phone[7:]}"
+        mvc_url = f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}"
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer": f"https://openbudget.uz/initiative/{project_id}",
+        }
+        
+        jar = aiohttp.CookieJar(unsafe=True)
+        proxy = settings.PROXY_URL or None
+        
+        try:
+            timeout = aiohttp.ClientTimeout(total=35)
+            async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
+                async with session.get(mvc_url, headers=headers, proxy=proxy) as resp:
+                    if resp.status != 200:
+                        return False, "MVC sahifa ochilmadi", None
+                    html = await resp.text()
+                    
+                imgs = re.findall(r'src="data:image/[^;]+;base64,([^"]+)"', html)
+                if len(imgs) < 2:
+                    return False, "Captcha rasmlari topilmadi", None
+                    
+                points = await solve_mvc_visual_captcha(imgs[0], imgs[1])
+                if not points or len(points) < 2:
+                    return False, "Captcha yechilmadi", None
+                    
+                post_url = "https://openbudget.uz/api/v2/vote/mvc/captcha"
+                post_data = {
+                    "phoneNumber": formatted_phone,
+                    "points": json.dumps(points)
+                }
+                post_headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Referer": mvc_url,
+                    "Origin": "https://openbudget.uz",
+                }
+                
+                async with session.post(post_url, data=post_data, headers=post_headers, proxy=proxy) as post_resp:
+                    post_html = await post_resp.text()
+                    
+                    if post_resp.status == 200:
+                        cookies_dict = {c.key: c.value for c in jar}
+                        logger.info(f"Rasmiy MVC Ovoz SMS muvaffaqiyatli yuborildi: {clean_phone} -> {target_uuid}")
+                        return True, "SMS tasdiqlash kodi yuborildi.", {
+                            "flow": "mvc",
+                            "phone": "998" + clean_phone,
+                            "project_id": project_id,
+                            "target_uuid": str(target_uuid),
+                            "cookies": cookies_dict
+                        }
+                    else:
+                        logger.warning(f"MVC vote post status {post_resp.status}")
+                        return False, "MVC captcha mos kelmadi", None
+        except Exception as e:
+            logger.warning(f"MVC Vote SMS xatosi: {e}")
+            return False, "Tarmoq xatoligi", None
 
     @classmethod
     async def send_registration_otp(
@@ -408,6 +493,43 @@ class OpenBudgetService:
             return False, "Kiritilgan SMS kod noto'g'ri. Qayta tekshiring."
 
         # --- REAL REJIM ---
+        # 1. Agar MVC rasmiy loyiha oqimi bo'lsa
+        if session_data and session_data.get("flow") == "mvc":
+            cookies = session_data.get("cookies", {})
+            target_uuid = session_data.get("target_uuid")
+            clean_p = clean_phone[-9:]
+            formatted_p = f"{clean_p[:2]} {clean_p[2:5]}-{clean_p[5:7]}-{clean_p[7:]}"
+            
+            verify_url = "https://openbudget.uz/api/v2/vote/mvc/verify"
+            verify_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Referer": f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}",
+                "Origin": "https://openbudget.uz",
+            }
+            verify_data = {
+                "phoneNumber": formatted_p,
+                "code": str(code).strip()
+            }
+            
+            jar = aiohttp.CookieJar(unsafe=True)
+            for k, v in cookies.items():
+                jar.update_cookies({k: v}, urllib.parse.urlparse("https://openbudget.uz"))
+                
+            proxy = settings.PROXY_URL or None
+            try:
+                timeout = aiohttp.ClientTimeout(total=25)
+                async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
+                    async with session.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy) as resp:
+                        if resp.status == 200:
+                            logger.info(f"Rasmiy MVC Ovoz muvaffaqiyatli qabul qilindi: {clean_phone} -> {target_uuid}")
+                            return True, "mvc_voted"
+                        else:
+                            return False, "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
+            except Exception as e:
+                logger.error(f"MVC Verify xatosi: {e}")
+                return False, "SMS tasdiqlashda tarmoq xatoligi yuz berdi."
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             "Content-Type": "application/json",
