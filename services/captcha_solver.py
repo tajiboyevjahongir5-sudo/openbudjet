@@ -173,7 +173,7 @@ async def _try_solve_with_key(api_key: str, image_bytes: bytes) -> Optional[int]
                     return None
                 if resp.status != 200:
                     return None
-                data = await resp.json()
+                data = await resp.json(content_type=None)
     except Exception:
         return None
 
@@ -224,7 +224,7 @@ async def solve_with_capmonster(image_base64: str) -> Optional[int]:
                 if resp.status != 200:
                     logger.warning(f"CapMonster createTask failed status: {resp.status}")
                     return None
-                data = await resp.json()
+                data = await resp.json(content_type=None)
                 if data.get("errorId", 0) != 0:
                     logger.warning(f"CapMonster createTask error: {data.get('errorCode')}")
                     return None
@@ -244,7 +244,7 @@ async def solve_with_capmonster(image_base64: str) -> Optional[int]:
                 async with session.post(result_url, json=result_payload) as resp:
                     if resp.status != 200:
                         continue
-                    res_data = await resp.json()
+                    res_data = await resp.json(content_type=None)
                     if res_data.get("errorId", 0) != 0:
                         logger.warning(f"CapMonster getTaskResult error: {res_data.get('errorCode')}")
                         return None
@@ -303,7 +303,7 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
                 if resp.status != 200:
                     logger.warning(f"2Captcha in.php failed status: {resp.status}")
                     return None
-                data = await resp.json()
+                data = await resp.json(content_type=None)
                 if data.get("status") != 1:
                     logger.warning(f"2Captcha in.php error: {data.get('request')}")
                     return None
@@ -326,7 +326,7 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
                 async with session.get(result_url, params=params) as resp:
                     if resp.status != 200:
                         continue
-                    res_data = await resp.json()
+                    res_data = await resp.json(content_type=None)
                     if res_data.get("status") == 1:
                         solution = res_data.get("request", "")
                         # Faqat raqamlarni ajratamiz (matematik javob)
