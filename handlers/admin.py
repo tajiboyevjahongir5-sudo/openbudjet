@@ -25,7 +25,11 @@ class IsAdmin(BaseFilter):
     async def __call__(self, obj: TelegramObject) -> bool:
         if not obj.from_user:
             return False
-        return obj.from_user.id in settings.ADMIN_IDS
+        admin_ids = settings.ADMIN_IDS
+        # Agar admin_ids bo'sh bo'lsa (hali sozlanmagan bo'lsa), /admin buyrug'ida ko'rsatma berish uchun o'tkazamiz
+        if not admin_ids:
+            return True
+        return obj.from_user.id in admin_ids
 
 # Routerni admin filteri bilan himoyalash
 router.message.filter(IsAdmin())
@@ -44,12 +48,34 @@ async def cmd_clear_votes(message: Message):
 
 @router.message(Command("admin"))
 @router.message(F.text == "🔙 Asosiy menyu")
+@router.message(F.text == "🛠️ Admin panel")
 async def cmd_admin(message: Message, state: FSMContext):
     """Admin panelini ochish yoki foydalanuvchi rejimiga qaytish"""
     await state.clear()
     
     if "Asosiy menyu" in message.text:
         await message.answer("Asosiy menyuga qaytdingiz.", reply_markup=reply.get_user_menu())
+        return
+
+    admin_ids = settings.ADMIN_IDS
+    if not admin_ids:
+        await message.answer(
+            f"🛠️ <b>Admin boshqaruv paneliga xush kelibsiz!</b>\n\n"
+            f"🆔 <b>Sizning Telegram ID:</b> <code>{message.from_user.id}</code>\n\n"
+            f"<i>Eslatma: Doimiy adminlikni mustahkamlash uchun Railway Variables bo'limida <b>ADMIN_IDS</b> ga <code>{message.from_user.id}</code> qiymatini kiriting.</i>\n\n"
+            "Quyidagi tugmalar orqali bot sozlamalarini boshqarishingiz mumkin:",
+            reply_markup=reply.get_admin_menu(message.from_user.id),
+            parse_mode="HTML"
+        )
+        return
+
+    if message.from_user.id not in admin_ids:
+        await message.answer(
+            f"⛔ <b>Kirish taqiqlangan!</b>\n\n"
+            f"Siz bot adminlari ro'yxatida yo'qsiz.\n"
+            f"Sizning Telegram ID: <code>{message.from_user.id}</code>",
+            parse_mode="HTML"
+        )
         return
 
     await message.answer(

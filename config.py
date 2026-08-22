@@ -95,10 +95,11 @@ class Settings(BaseSettings):
 
     @property
     def ADMIN_IDS(self) -> List[int]:
-        if not self.ADMIN_IDS_RAW:
+        raw = self.ADMIN_IDS_RAW or self.ADMIN_IDS_ENV or self.ADMIN_ID or os.getenv("ADMIN_IDS", "") or os.getenv("ADMIN_ID", "") or os.getenv("ADMIN_IDS_RAW", "")
+        if not raw:
             return []
         try:
-            return [int(x.strip()) for x in self.ADMIN_IDS_RAW.split(",") if x.strip()]
+            return [int(x.strip()) for x in str(raw).replace(";", ",").replace(" ", ",").split(",") if x.strip().isdigit()]
         except ValueError:
             return []
 
