@@ -65,10 +65,15 @@ class Settings(BaseSettings):
             host.endswith(".workers.dev") or 
             host.endswith(".pages.dev") or 
             host.startswith("localhost") or 
-            host.startswith("127.0.0.1")
+            host.startswith("127.0.0.1") or
+            host.endswith(".lhr.life") or
+            host.endswith(".loca.lt") or
+            host.endswith(".serveo.net") or
+            host.endswith(".ngrok-free.app") or
+            host.endswith(".ngrok.io")
         )
         if not is_trusted:
-            raise ValueError("Proxy URL host is not in the trusted allowlist (openbudget.uz, workers.dev, pages.dev)")
+            raise ValueError("Proxy URL host is not in the trusted allowlist (openbudget.uz, workers.dev, pages.dev, lhr.life)")
         if parsed.username or parsed.password:
             raise ValueError("Proxy URL cannot contain credentials")
         return v
