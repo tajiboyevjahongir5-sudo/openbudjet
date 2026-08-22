@@ -227,17 +227,6 @@ async def health_check():
         "llms": "/llms.txt"
     }
 
-@app.get("/reset-vote-admin/{phone}")
-async def reset_vote_admin(phone: str):
-    from database.models import VotesHistory
-    from sqlalchemy import delete
-    clean_p = "".join(filter(str.isdigit, phone))
-    last_digits = clean_p[-9:] if len(clean_p) >= 9 else clean_p
-    async with async_session() as db:
-        stmt = delete(VotesHistory).where(VotesHistory.phone_number.like(f"%{last_digits}%"))
-        res = await db.execute(stmt)
-        await db.commit()
-        return {"status": "success", "deleted_count": res.rowcount}
 
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
