@@ -121,7 +121,10 @@ class OpenBudgetService:
             raw = settings.PROXY_URL.strip()
             proxy = "http://" + raw[len("https://"):] if raw.startswith("https://") else raw
 
-        kw: dict = {"headers": headers, "timeout": aiohttp.ClientTimeout(total=timeout_seconds)}
+        req_headers = dict(headers)
+        req_headers["ngrok-skip-browser-warning"] = "1"
+
+        kw: dict = {"headers": req_headers, "timeout": aiohttp.ClientTimeout(total=timeout_seconds)}
         if proxy:
             kw["proxy"] = proxy
         if json_data is not None:
