@@ -569,3 +569,81 @@ class OpenBudgetService:
                 
         return None
 
+    @classmethod
+    async def get_official_votes_list(cls, project_id: str, page: int = 0, size: int = 50) -> list[dict]:
+        """
+        Open Budget portalining rasmiy 'Ovozlar ro'yxati' jadvalidan 
+        berilgan barcha ovozlarni (maskalangan telefon va sana) yuklab oladi.
+        """
+        if settings.MOCK_OPENBUDGET:
+            return []
+
+        # 1. Agar project_id publicId bo'lsa (0555...), UUID ga o'giramiz
+        target_uuid = project_id
+        if len(str(project_id)) == 12 and str(project_id).isdigit():
+            init_info = await cls.find_initiative(str(project_id))
+            if init_info and init_info.get("id"):
+                target_uuid = str(init_info.get("id"))
+
+        # 2. Captcha yuklaymiz va yechamiz
+        success_cap, cap_msg, cap_data = await cls.get_captcha()
+        if not success_cap or not cap_data:
+            return []
+
+        captcha_key = cap_data.get("key")
+        captcha_image = cap_data.get("image_base64")
+        if not captcha_image:
+            return []
+
+        try:
+            from services.captcha_solver import solve_captcha
+            auto_res = await solve_captcha(captcha_image)
+        except Exception:
+            auto_res = None
+
+        if auto_res is None:
+            return []
+
+        # 3. get-initiative-token olamiz
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Referer": "https://openbudget.uz/",
+            "Origin": "https://openbudget.uz"
+        }
+        token_payload = {
+            "initiativeId": target_uuid,
+            "captchaKey": captcha_key,
+            "captchaResult": auto_res
+        }
+
+        try:
+            status, res_data, text = await cls._execute_request(
+                "POST", 
+                cls._get_url("/v2/info/get-initiative-token"), 
+                headers=headers, 
+                json_data=token_payload
+            )
+            if status != 200 or not res_data.get("token"):
+                logger.warning(f"get-initiative-token olinmadi ({status}): {res_data}")
+                return []
+            
+            init_token = res_data.get("token")
+
+            # 4. /v2/info/votes/{init_token} orqali ovozlar ro'yxatini olamiz
+            votes_url = cls._get_url(f"/v2/info/votes/{init_token}?page={page}&size={size}")
+            v_status, v_data, v_text = await cls._execute_request(
+                "GET", 
+                votes_url, 
+                headers=headers
+            )
+            if v_status == 200:
+                content = v_data.get("content", [])
+                logger.info(f"Open Budget 'Ovozlar ro'yxati'dan {len(content)} ta rasmiy ovoz yuklandi.")
+                return content
+        except Exception as e:
+            logger.error(f"Ovozlar ro'yxatini yuklashda xato: {e}")
+        return []
+
+
