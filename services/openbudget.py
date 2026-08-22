@@ -305,20 +305,21 @@ class OpenBudgetService:
         jar = aiohttp.CookieJar(unsafe=True)
         proxy = settings.PROXY_URL or None
         
-        for attempt in range(2):
+        for attempt in range(4):
             try:
+                jar = aiohttp.CookieJar(unsafe=True)
                 timeout = aiohttp.ClientTimeout(total=25)
                 async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
                     async with session.get(mvc_url, headers=headers, proxy=proxy) as resp:
                         if resp.status != 200:
-                            return False, "MVC sahifa ochilmadi", None
+                            continue
                         html = await resp.text()
                         
                     srcs = re.findall(r'<img[^>]+src="(data:image/[^"]+)"', html)
                     if len(srcs) < 2:
                         srcs = re.findall(r"src='(data:image/[^']+)'", html)
                     if len(srcs) < 2:
-                        return False, "Captcha rasmlari topilmadi", None
+                        continue
                         
                     img_a_b64 = srcs[0].split(",")[-1]
                     img_b_b64 = srcs[1].split(",")[-1]
@@ -345,15 +346,15 @@ class OpenBudgetService:
                             return False, "already_voted", {"phone": clean_phone, "detail": "Ushbu raqam orqali bu mavsumda allaqachon ovoz berilgan."}
                             
                         # 2. Captcha mos kelmadi holati
-                        if any(k in post_html.lower() for k in ["мос келмади", "mos kelmadi"]):
-                            logger.warning(f"MVC captcha mos kelmadi, qayta urinish {attempt+1}")
+                        if any(k in post_html.lower() for k in ["мос келмади", "mos kelmadi", "noto'g'ri"]):
+                            logger.warning(f"MVC captcha mos kelmadi, qayta urinish {attempt+1}/4")
                             continue
                             
                         # 3. Muvaffaqiyat: OTP forma qaytgan holat
                         form_m = re.search(r"<form[^>]*action=\"([^\"]+)\"[^>]*>([\s\S]*?)</form>", post_html, re.I)
                         inputs = re.findall(r'<input[^>]+name=["\']([^"\']+)["\'][^>]*>', post_html, re.I)
                         
-                        if form_m or any(i.lower() in ["otpcode", "smscode", "code"] for i in inputs) or post_resp.status == 200:
+                        if form_m or any(i.lower() in ["otpcode", "smscode", "code"] for i in inputs) or post_resp.status in (200, 201, 302):
                             cookies_dict = {c.key: c.value for c in jar}
                             logger.info(f"Rasmiy MVC Ovoz SMS muvaffaqiyatli yuborildi: {clean_phone} -> {target_uuid}")
                             return True, "SMS tasdiqlash kodi yuborildi.", {
@@ -364,9 +365,9 @@ class OpenBudgetService:
                                 "cookies": cookies_dict
                             }
             except Exception as e:
-                logger.warning(f"MVC Vote SMS xatosi: {e}")
+                logger.warning(f"MVC Vote SMS xatosi (urinish {attempt+1}): {e}")
                 
-        return False, "MVC ovoz so'rovida xatolik", None
+        return False, "Ovoz berish xizmati band yoki captcha yechilmadi. Iltimos qaytadan urinib ko'ring.", None
 
     @classmethod
     async def send_registration_otp(
