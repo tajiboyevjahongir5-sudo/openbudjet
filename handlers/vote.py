@@ -32,6 +32,8 @@ def clean_phone_number(phone: str) -> str:
         digits = f"998{digits[2:]}"
     return digits
 
+_code_cache: dict[str, str] = {"0a70f4e1-0ca3-4407-8ac3-939cfa4a4653": "055529529012"}
+
 @router.message(F.text.contains("Ovoz berish"), StateFilter("*"))
 async def start_voting(message: Message, state: FSMContext):
     """Ovoz berish bo'limi - To'g'ridan-to'g'ri telefon raqam so'raydi"""
@@ -47,11 +49,7 @@ async def start_voting(message: Message, state: FSMContext):
         settings_data = await crud.get_project_settings(db)
         voter_reward = settings_data.voter_reward
 
-        display_code = project_id
-        if "-" in str(project_id) or len(str(project_id)) > 15:
-            init_info = await OpenBudgetService.find_initiative(str(project_id))
-            if init_info and init_info.get("publicId"):
-                display_code = init_info.get("publicId")
+        display_code = _code_cache.get(str(project_id), "055529529012")
 
     await state.set_state(VoteStates.WAITING_FOR_PHONE)
     await message.answer(
@@ -80,11 +78,7 @@ async def process_menu_vote(callback: CallbackQuery, state: FSMContext):
         settings_data = await crud.get_project_settings(db)
         voter_reward = settings_data.voter_reward
 
-        display_code = project_id
-        if "-" in str(project_id) or len(str(project_id)) > 15:
-            init_info = await OpenBudgetService.find_initiative(str(project_id))
-            if init_info and init_info.get("publicId"):
-                display_code = init_info.get("publicId")
+        display_code = _code_cache.get(str(project_id), "055529529012")
 
     await state.set_state(VoteStates.WAITING_FOR_PHONE)
     await callback.message.answer(

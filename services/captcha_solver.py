@@ -372,56 +372,12 @@ async def solve_captcha(image_base64: str) -> Optional[int]:
 async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
     """
     Open Budget MVC Initiative rasmiy captchasini yechadi (2 ta harf koordinatasi).
-    1. 2Captcha coordinatescaptcha orqali aniq yechadi
-    2. Gemini Vision AI orqali zaxira yechadi
+    1. Gemini Vision AI — super tezkor (1-2 soniyada yechadi)
+    2. 2Captcha coordinatescaptcha — zaxira sifatida
     """
     from config import settings
-    api_key = getattr(settings, "TWOCAPTCHA_API_KEY", "") or "9b2aa62e71a8d0056aa94e4d6e301f9d"
     
-    # 1. 2Captcha coordinates solver
-    try:
-        payload = {
-            "key": api_key,
-            "method": "base64",
-            "body": imgB_b64,
-            "imginstructions": imgA_b64,
-            "textinstructions": "Click on the two letter pairs from Image A inside the main image in exact order from left to right",
-            "coordinatescaptcha": 1,
-            "json": 1
-        }
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post("https://2captcha.com/in.php", data=payload) as resp:
-                if resp.status == 200:
-                    data = await resp.json(content_type=None)
-                    if data.get("status") == 1:
-                        task_id = data.get("request")
-                        for _ in range(12):
-                            await asyncio.sleep(2.5)
-                            async with session.get("https://2captcha.com/res.php", params={"key": api_key, "action": "get", "id": task_id, "json": 1}) as r:
-                                res_data = await r.json(content_type=None)
-                                if res_data.get("status") == 1:
-                                    raw_req = res_data.get("request", [])
-                                    points = []
-                                    if isinstance(raw_req, list):
-                                        for pt in raw_req:
-                                            x, y = int(pt["x"]), int(pt["y"])
-                                            points.append({"id": f"{x}{y}", "x": x, "y": y})
-                                    elif isinstance(raw_req, str):
-                                        for pair in raw_req.replace("coordinates:", "").split(";"):
-                                            if "x=" in pair and "y=" in pair:
-                                                parts = dict(p.split("=") for p in pair.split(","))
-                                                x, y = int(parts["x"]), int(parts["y"])
-                                                points.append({"id": f"{x}{y}", "x": x, "y": y})
-                                    if len(points) >= 2:
-                                        logger.info(f"2Captcha MVC visual points muvaffaqiyatli topdi: {points}")
-                                        return points
-                                elif res_data.get("request") != "CAPCHA_NOT_READY":
-                                    break
-    except Exception as e:
-        logger.warning(f"2Captcha MVC visual solve xatosi: {e}")
-
-    # 2. Zaxira: Gemini Vision AI
+    # 1. Tezkor Gemini Vision AI
     try:
         from google import genai
         gemini_keys = getattr(settings, "GEMINI_API_KEYS", "").split(",")
@@ -444,11 +400,56 @@ async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
                 ]
             )
             coords = json.loads(re.search(r"\[\s*\{.*?\}\s*\]", response.text, re.DOTALL).group(0))
-            points = [{"id": f"{pt['x']}{pt['y']}", "x": pt["x"], "y": pt["y"]} for pt in coords]
-            logger.info(f"Gemini Vision MVC points topdi: {points}")
-            return points
+            points = [{"id": f"{pt['x']}{pt['y']}", "x": int(pt["x"]), "y": int(pt["y"])} for pt in coords]
+            if len(points) >= 2:
+                logger.info(f"Gemini Vision MVC points tezkor topdi: {points}")
+                return points
     except Exception as e:
         logger.warning(f"Gemini MVC visual solve xatosi: {e}")
+
+    # 2. Zaxira: 2Captcha coordinates solver
+    try:
+        api_key = getattr(settings, "TWOCAPTCHA_API_KEY", "") or "9b2aa62e71a8d0056aa94e4d6e301f9d"
+        payload = {
+            "key": api_key,
+            "method": "base64",
+            "body": imgB_b64,
+            "imginstructions": imgA_b64,
+            "textinstructions": "Click on the two letter pairs from Image A inside the main image in exact order from left to right",
+            "coordinatescaptcha": 1,
+            "json": 1
+        }
+        timeout = aiohttp.ClientTimeout(total=25)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post("https://2captcha.com/in.php", data=payload) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    if data.get("status") == 1:
+                        task_id = data.get("request")
+                        for _ in range(8):
+                            await asyncio.sleep(2.0)
+                            async with session.get("https://2captcha.com/res.php", params={"key": api_key, "action": "get", "id": task_id, "json": 1}) as r:
+                                res_data = await r.json(content_type=None)
+                                if res_data.get("status") == 1:
+                                    raw_req = res_data.get("request", [])
+                                    points = []
+                                    if isinstance(raw_req, list):
+                                        for pt in raw_req:
+                                            x, y = int(pt["x"]), int(pt["y"])
+                                            points.append({"id": f"{x}{y}", "x": x, "y": y})
+                                    elif isinstance(raw_req, str):
+                                        for pair in raw_req.replace("coordinates:", "").split(";"):
+                                            if "x=" in pair and "y=" in pair:
+                                                parts = dict(p.split("=") for p in pair.split(","))
+                                                x, y = int(parts["x"]), int(parts["y"])
+                                                points.append({"id": f"{x}{y}", "x": x, "y": y})
+                                    if len(points) >= 2:
+                                        logger.info(f"2Captcha MVC visual points topdi: {points}")
+                                        return points
+                                elif res_data.get("request") != "CAPCHA_NOT_READY":
+                                    break
+    except Exception as e:
+        logger.warning(f"2Captcha MVC visual solve xatosi: {e}")
 
     return []
 
