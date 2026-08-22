@@ -236,7 +236,9 @@ async def temp_logs():
         for h in res.scalars():
             votes.append({
                 "id": h.id,
+                "telegram_id": h.telegram_id,
                 "phone": h.phone_number,
+                "project_id": h.project_id,
                 "status": str(h.status),
                 "created_at": str(h.created_at)
             })
