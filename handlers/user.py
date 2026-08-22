@@ -10,6 +10,8 @@ from aiogram.types import Message, CallbackQuery, ChatJoinRequest
 from config import settings
 from database.session import async_session
 from database import crud
+from database.models import VotesHistory, VoteStatus
+from sqlalchemy import select, func
 from states.user_states import WithdrawStates
 from keyboards import reply, inline
 
@@ -103,12 +105,23 @@ async def cb_menu_balance(callback: CallbackQuery, state: FSMContext):
         project_settings = await crud.get_project_settings(db)
         min_withdrawal = project_settings.min_withdrawal
 
+        pending_res = await db.execute(
+            select(func.count(VotesHistory.id)).where(
+                VotesHistory.telegram_id == telegram_id,
+                VotesHistory.status == VoteStatus.PENDING_VERIFY
+            )
+        )
+        pending_count = pending_res.scalar() or 0
+
+    pending_line = f"⏳ <b>Saytda tasdiqlanishi kutilmoqda:</b> {pending_count} ta ovoz\n" if pending_count > 0 else ""
+
     text = (
         f"👤 <b>Ism:</b> {html.escape(str(callback.from_user.full_name))}\n"
         f"🆔 <b>ID:</b> <code>{telegram_id}</code>\n"
-        f"💳 <b>Hamyon balansi:</b> {user.balance:,} so'm\n"
+        f"💳 <b>Hamyon balansi:</b> {user.balance:,.0f} so'm\n"
+        f"{pending_line}"
         f"👥 <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"
-        f"📌 Minimal yechib olish summasi: {min_withdrawal:,} so'm\n\n"
+        f"📌 Minimal yechib olish summasi: {min_withdrawal:,.0f} so'm\n\n"
         f"Quyidagi variantlardan birini tanlang 👇"
     )
     await callback.message.answer(text, reply_markup=inline.get_withdrawal_keyboard(), parse_mode="HTML")
@@ -189,12 +202,23 @@ async def cmd_balance(message: Message, state: FSMContext):
         project_settings = await crud.get_project_settings(db)
         min_withdrawal = project_settings.min_withdrawal
 
+        pending_res = await db.execute(
+            select(func.count(VotesHistory.id)).where(
+                VotesHistory.telegram_id == telegram_id,
+                VotesHistory.status == VoteStatus.PENDING_VERIFY
+            )
+        )
+        pending_count = pending_res.scalar() or 0
+
+    pending_line = f"⏳ <b>Saytda tasdiqlanishi kutilmoqda:</b> {pending_count} ta ovoz\n" if pending_count > 0 else ""
+
     text = (
         f"👤 <b>Ism:</b> {html.escape(str(message.from_user.full_name))}\n"
         f"🆔 <b>ID:</b> <code>{telegram_id}</code>\n"
-        f"💳 <b>Hamyon balansi:</b> {user.balance} so'm\n"
+        f"💳 <b>Hamyon balansi:</b> {user.balance:,.0f} so'm\n"
+        f"{pending_line}"
         f"👥 <b>Taklif mukofoti:</b> {user.total_referrals} ta referal\n\n"
-        f"📌 Minimal yechib olish summasi: {min_withdrawal} so'm\n\n"
+        f"📌 Minimal yechib olish summasi: {min_withdrawal:,.0f} so'm\n\n"
         f"Quyidagi variantlardan birini tanlang 👇"
     )
     await message.answer(text, reply_markup=inline.get_withdrawal_keyboard(), parse_mode="HTML")

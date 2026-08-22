@@ -153,23 +153,23 @@ async def add_vote_history(
 
 
 async def check_phone_voted(db: AsyncSession, phone_number: str, project_id: str) -> bool:
-    """Telefon raqam joriy loyihaga muvaffaqiyatli ovoz berganligini tekshiradi"""
+    """Telefon raqam joriy loyihaga muvaffaqiyatli yoki tasdiqlash kutilayotgan ovoz berganligini tekshiradi"""
     result = await db.execute(
         select(VotesHistory).where(
             VotesHistory.phone_number == phone_number,
             VotesHistory.project_id == project_id,
-            VotesHistory.status == VoteStatus.SUCCESS
+            VotesHistory.status.in_([VoteStatus.SUCCESS, VoteStatus.PENDING_VERIFY])
         )
     )
     return result.scalars().first() is not None
 
 async def get_user_successful_vote_phone(db: AsyncSession, telegram_id: int, project_id: str) -> str | None:
-    """Foydalanuvchi ushbu loyihaga qaysi raqam orqali muvaffaqiyatli ovoz berganini topadi"""
+    """Foydalanuvchi ushbu loyihaga qaysi raqam orqali ovoz berganini (SUCCESS yoki PENDING) topadi"""
     result = await db.execute(
         select(VotesHistory.phone_number).where(
             VotesHistory.telegram_id == telegram_id,
             VotesHistory.project_id == project_id,
-            VotesHistory.status == VoteStatus.SUCCESS
+            VotesHistory.status.in_([VoteStatus.SUCCESS, VoteStatus.PENDING_VERIFY])
         ).order_by(VotesHistory.id.desc())
     )
     return result.scalars().first()

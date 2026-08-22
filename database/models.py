@@ -7,6 +7,7 @@ class Base(DeclarativeBase):
     pass
 
 class VoteStatus(str, enum.Enum):
+    PENDING_VERIFY = "PENDING_VERIFY"
     SUCCESS = "SUCCESS"
     ALREADY_VOTED = "ALREADY_VOTED"
     FAILED = "FAILED"

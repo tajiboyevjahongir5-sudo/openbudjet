@@ -655,70 +655,30 @@ async def execute_final_vote_casting(
         if not success:
             return False, result_msg
 
-        # --- OVOZ MUVAFFAQIYATLI QABUL QILINDI ---
+        # --- OVOZ OPEN BUDGETGA YUBORILDI (SAYTDA TASDIQLANISHI KUTILMOQDA) ---
         async with async_session() as db:
             try:
-                # Ovoz tarixini bazaga yozamiz
+                # Ovoz tarixini PENDING_VERIFY holatida bazaga yozamiz
                 await crud.add_vote_history(
                     db=db,
                     telegram_id=telegram_id,
                     phone_number=phone_number,
                     project_id=project_id,
-                    status=VoteStatus.SUCCESS,
-                    commit=False
+                    status=VoteStatus.PENDING_VERIFY,
+                    commit=True
                 )
 
                 project_settings = await crud.get_project_settings(db)
-                referral_price = project_settings.referral_price
                 voter_reward = project_settings.voter_reward
 
-                user = await crud.get_user(db, telegram_id)
-                if user:
-                    # Ovoz bergan odamning o'ziga mukofot (atomik)
-                    if voter_reward > 0:
-                        await db.execute(
-                            update(User)
-                            .where(User.telegram_id == telegram_id)
-                            .values(balance=User.balance + voter_reward)
-                        )
-                    
-                    # Taklif qilgan referalga mukofot (atomik)
-                    if user.invited_by and referral_price > 0:
-                        await db.execute(
-                            update(User)
-                            .where(User.telegram_id == user.invited_by)
-                            .values(
-                                balance=User.balance + referral_price,
-                                total_referrals=User.total_referrals + 1
-                            )
-                        )
-                        referrer = await crud.get_user(db, user.invited_by)
-                        if referrer:
-                            try:
-                                referrer_message_text = (
-                                    f"🎉 <b>Yangi referal mukofoti!</b>\n\n"
-                                    f"Siz taklif qilgan foydalanuvchi ({html.escape(str(user.username or telegram_id))}) muvaffaqiyatli ovoz berdi.\n"
-                                    f"💵 Balansingizga <b>{referral_price} so'm</b> qo'shildi!"
-                                )
-                                await message.bot.send_message(
-                                    chat_id=referrer.telegram_id,
-                                    text=referrer_message_text,
-                                    parse_mode="HTML"
-                                )
-                            except Exception as e:
-                                logger.error(f"Refererga xabar yuborishda xato: {e}")
-
-                await db.commit()
-                
-                await message.answer(
-                    f"✅ <b>TABRIKLAYMIZ! Ovoz muvaffaqiyatli qabul qilindi!</b>\n\n"
-                    f"💰 Balansingizga: <b>+{voter_reward:,} so'm</b> qo'shildi!\n\n"
-                    f"Do'stlaringizni taklif qiling va ko'proq daromad oling! 👥",
-                    reply_markup=reply.get_user_menu(),
-                    parse_mode="HTML"
+                success_text = (
+                    f"✅ <b>Ovoz berish so'rovingiz Open Budget portaliga yuborildi!</b>\n\n"
+                    f"⏳ <i>Open Budget portali ovozlarni navbat asosida rasman hisoblamoqda. Ovoz sahifada ko'ringach (odatda 1-5 daqiqa ichida), balansingizga avtomatik ravishda <b>+{voter_reward:,.0f} so'm</b> qo'shiladi va sizga bu yerda xabarnoma keladi!</i>\n\n"
+                    f"💡 <i>Holatni «Mening hisobim» bo'limida kuzatishingiz mumkin.</i>"
                 )
+                await message.answer(success_text, reply_markup=reply.get_user_menu(), parse_mode="HTML")
                 await state.clear()
-                return True, "success"
+                return True, "pending_verify"
 
             except Exception as e:
                 await db.rollback()

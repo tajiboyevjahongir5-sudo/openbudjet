@@ -100,6 +100,7 @@ async def init_db():
             "ALTER TABLE api_key_purchases ADD COLUMN generated_key VARCHAR(500);",
             "ALTER TABLE api_keys ADD COLUMN activated_at TIMESTAMP NULL;",
             "ALTER TABLE api_keys ADD COLUMN expires_at TIMESTAMP NULL;",
+            "ALTER TYPE votestatus ADD VALUE IF NOT EXISTS 'PENDING_VERIFY';",
         ]:
             try:
                 await conn.execute(text(sql))
@@ -139,6 +140,10 @@ async def lifespan(app: FastAPI):
     # Gemini API keylarni liveness check qilish vazifasini fonda boshlaymiz
     from services.captcha_solver import verify_all_api_keys
     asyncio.create_task(verify_all_api_keys())
+
+    # Open Budget saytidan ovozlarni tekshirib tasdiqlash fon xizmati
+    from services.vote_verifier import start_vote_verifier_background_task
+    app.state.verifier_task = asyncio.create_task(start_vote_verifier_background_task(bot))
     
     if settings.WEBHOOK_URL:
         # Webhook rejimi
