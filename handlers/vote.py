@@ -2,6 +2,7 @@ import re
 import html
 import json
 import logging
+import asyncio
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
@@ -613,6 +614,132 @@ async def process_captcha_result(message: Message, state: FSMContext):
         await message.answer("❌ Captcha ma'lumotlarini qabul qilishda xatolik yuz berdi. Qayta urinib ko'ring.")
 
 
+async def execute_final_vote_casting(
+    message: Message,
+    state: FSMContext,
+    phone_number: str,
+    project_id: str,
+    access_token: str,
+    captcha_key: str,
+    captcha_result: int,
+    waiting_msg: Message = None
+) -> tuple[bool, str]:
+    """
+    Ovoz berish so'rovini portalga yuboradi va mukofotlarni hisoblaydi.
+    Muvaffaqiyatli bo'lsa (True, "success"), xato bo'lsa (False, error_reason) qaytaradi.
+    """
+    if waiting_msg is None:
+        waiting_msg = await message.answer("🔄 Ovoz berish yakunlanmoqda, kuting...")
+    else:
+        try:
+            await waiting_msg.edit_text("🔄 Ovoz berish yakunlanmoqda, kuting...", parse_mode="HTML")
+        except Exception:
+            pass
+
+    telegram_id = message.from_user.id
+
+    try:
+        # Ovoz berish so'rovini yuboramiz
+        success, result_msg = await OpenBudgetService.cast_vote(
+            project_id=project_id,
+            access_token=access_token,
+            captcha_key=captcha_key,
+            captcha_result=captcha_result
+        )
+        
+        try:
+            await waiting_msg.delete()
+        except Exception:
+            pass
+
+        if not success:
+            return False, result_msg
+
+        # --- OVOZ MUVAFFAQIYATLI QABUL QILINDI ---
+        async with async_session() as db:
+            try:
+                # Ovoz tarixini bazaga yozamiz
+                await crud.add_vote_history(
+                    db=db,
+                    telegram_id=telegram_id,
+                    phone_number=phone_number,
+                    project_id=project_id,
+                    status=VoteStatus.SUCCESS,
+                    commit=False
+                )
+
+                project_settings = await crud.get_project_settings(db)
+                referral_price = project_settings.referral_price
+                voter_reward = project_settings.voter_reward
+
+                user = await crud.get_user(db, telegram_id)
+                if user:
+                    # Ovoz bergan odamning o'ziga mukofot (atomik)
+                    if voter_reward > 0:
+                        await db.execute(
+                            update(User)
+                            .where(User.telegram_id == telegram_id)
+                            .values(balance=User.balance + voter_reward)
+                        )
+                    
+                    # Taklif qilgan referalga mukofot (atomik)
+                    if user.invited_by and referral_price > 0:
+                        await db.execute(
+                            update(User)
+                            .where(User.telegram_id == user.invited_by)
+                            .values(
+                                balance=User.balance + referral_price,
+                                total_referrals=User.total_referrals + 1
+                            )
+                        )
+                        referrer = await crud.get_user(db, user.invited_by)
+                        if referrer:
+                            try:
+                                referrer_message_text = (
+                                    f"🎉 <b>Yangi referal mukofoti!</b>\n\n"
+                                    f"Siz taklif qilgan foydalanuvchi ({html.escape(str(user.username or telegram_id))}) muvaffaqiyatli ovoz berdi.\n"
+                                    f"💵 Balansingizga <b>{referral_price} so'm</b> qo'shildi!"
+                                )
+                                await message.bot.send_message(
+                                    chat_id=referrer.telegram_id,
+                                    text=referrer_message_text,
+                                    parse_mode="HTML"
+                                )
+                            except Exception as e:
+                                logger.error(f"Refererga xabar yuborishda xato: {e}")
+
+                await db.commit()
+                
+                await message.answer(
+                    f"✅ <b>TABRIKLAYMIZ! Ovoz muvaffaqiyatli qabul qilindi!</b>\n\n"
+                    f"💰 Balansingizga: <b>+{voter_reward:,} so'm</b> qo'shildi!\n\n"
+                    f"Do'stlaringizni taklif qiling va ko'proq daromad oling! 👥",
+                    reply_markup=reply.get_user_menu(),
+                    parse_mode="HTML"
+                )
+                await state.clear()
+                return True, "success"
+
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Ovoz yozish tranzaksiyasida xatolik: {e}", exc_info=True)
+                await message.answer(
+                    "❌ Ovoz qabul qilindi, lekin ma'lumotlarni saqlashda xatolik yuz berdi.\n"
+                    "Iltimos, adminlar bilan bog'laning.",
+                    reply_markup=reply.get_user_menu()
+                )
+                await state.clear()
+                return False, "db_error"
+
+    except Exception as e:
+        logger.error(f"Ovoz yuborishda umumiy xatolik: {e}", exc_info=True)
+        try:
+            await waiting_msg.delete()
+        except Exception:
+            pass
+        return False, str(e)
+
+
 @router.message(VoteStates.WAITING_FOR_SMS, F.text)
 async def process_sms_code(message: Message, state: FSMContext):
     """SMS kodini tekshirish va muvaffaqiyatli bo'lsa foydalanuvchilarni mukofotlash"""
@@ -664,11 +791,86 @@ async def process_sms_code(message: Message, state: FSMContext):
         await message.answer("❌ Ovoz berish captchasini yuklab bo'lmadi. Iltimos, keyinroq qayta urinib ko'ring.")
         return
 
-    # Foydalanuvchiga final captcha yechishni so'raymiz
+    captcha_key = cap_data.get("key")
+    captcha_image = cap_data.get("image_base64")
+
+    # 🤖 Avtomatik yechishga urinish (2 martagacha)
+    auto_result = None
+    max_auto_attempts = 2
+    for auto_attempt in range(max_auto_attempts):
+        if auto_attempt > 0:
+            # Yangi fresh captcha yuklaymiz
+            cap_waiting = await message.answer(f"🔄 <b>Qayta urinish:</b> Yangi captcha yechilmoqda ({auto_attempt+1}/{max_auto_attempts})...")
+            success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
+            await cap_waiting.delete()
+            if not success_cap or not cap_data:
+                break
+            captcha_key = cap_data.get("key")
+            captcha_image = cap_data.get("image_base64")
+
+        if not captcha_image or cap_data.get("mock"):
+            break
+
+        auto_waiting = await message.answer("🧠 <b>Yechim:</b> Captcha avtomatik yechilmoqda...", parse_mode="HTML")
+        try:
+            from services.captcha_solver import solve_captcha
+            auto_result = await solve_captcha(captcha_image)
+        except Exception as e:
+            logger.warning(f"Captcha solver xatosi: {e}")
+            auto_result = None
+        
+        await auto_waiting.delete()
+
+        if auto_result is None:
+            continue
+
+        logger.info(f"Final Captcha avtomatik yechildi ({auto_attempt+1}-urinish): {auto_result}")
+        
+        # 1.5 soniya sleep, inson kabi ko'rinishi va rate limit oldini olish uchun
+        await asyncio.sleep(1.5)
+        
+        final_waiting = await message.answer("🔄 Ovoz berish yakunlanmoqda, kuting...")
+        success_vote, error_vote = await execute_final_vote_casting(
+            message=message,
+            state=state,
+            phone_number=phone_number,
+            project_id=project_id,
+            access_token=access_token,
+            captcha_key=captcha_key,
+            captcha_result=auto_result,
+            waiting_msg=final_waiting
+        )
+        
+        if success_vote:
+            return
+
+        # Agar allaqachon ovoz berilgan bo'lsa yoki jiddiy xato bo'lsa, to'xtatamiz
+        if error_vote == "already_voted":
+            async with async_session() as db:
+                await crud.add_vote_history(
+                    db=db,
+                    telegram_id=telegram_id,
+                    phone_number=phone_number,
+                    project_id=project_id,
+                    status=VoteStatus.ALREADY_VOTED
+                )
+            await message.answer(
+                "❌ Ovoz berish rad etildi:\n<b>Bu raqam orqali ushbu loyihaga allaqachon ovoz berilgan.</b>",
+                reply_markup=reply.get_user_menu(),
+                parse_mode="HTML"
+            )
+            await state.clear()
+            return
+            
+        logger.warning(f"Avtomatik final captcha xatosi ({error_vote}), qayta uriniladi...")
+
+    # 🧑 Agar avtomatik yechish o'xshasa, qo'lda yechishga o'tamiz
     await state.update_data(
         access_token=access_token,
-        captcha_key=cap_data.get("key"),
-        captcha_image=cap_data.get("image_base64"),
+        captcha_key=captcha_key,
+        captcha_image=captcha_image,
+        phone_number=phone_number,
+        project_id=project_id,
     )
     await state.set_state(VoteStates.WAITING_FOR_FINAL_CAPTCHA)
 
@@ -676,12 +878,13 @@ async def process_sms_code(message: Message, state: FSMContext):
     session_id = str(telegram_id)
     
     await message.answer(
-        "🔒 <b>SMS kod tasdiqlandi!</b>\n\n"
-        "Ovoz berishni yakunlash uchun pastdagi tugmani bosing va 2-captchani yeching 👇",
+        "⚠️ <b>Avtomatik yechish o'xshamadi!</b>\n\n"
+        "Ovoz berishni yakunlash uchun pastdagi tugmani bosing va 2-captchani o'zingiz yeching 👇",
         reply_markup=reply.get_captcha_reply_keyboard(session_id, web_url),
         parse_mode="HTML"
     )
-    return
+
+
 @router.message(VoteStates.WAITING_FOR_FINAL_CAPTCHA, F.web_app_data)
 async def process_final_captcha_result(message: Message, state: FSMContext):
     """Foydalanuvchi final captchani yechganida ishlaydi (ovoz berishni yakunlash)"""
@@ -709,19 +912,19 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
 
         waiting_msg = await message.answer("🔄 Ovoz berish yakunlanmoqda, kuting...")
 
-        # Ovoz berish so'rovini yuboramiz
-        success, result_msg = await OpenBudgetService.cast_vote(
+        success_vote, error_vote = await execute_final_vote_casting(
+            message=message,
+            state=state,
+            phone_number=phone_number,
             project_id=project_id,
             access_token=access_token,
             captcha_key=captcha_key,
-            captcha_result=captcha_result
+            captcha_result=captcha_result,
+            waiting_msg=waiting_msg
         )
-        
-        await waiting_msg.delete()
 
-        if not success:
-            if result_msg == "invalid_captcha":
-                # Captcha noto'g'ri bo'lsa, qaytadan captcha ko'rsatamiz
+        if not success_vote:
+            if error_vote == "invalid_captcha":
                 await message.answer("❌ Captcha noto'g'ri yechildi. Iltimos, yangisini yechib ko'ring:")
                 
                 cap_waiting = await message.answer("🔄 Yangi captcha yuklanmoqda...")
@@ -746,7 +949,7 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
                 )
                 return
             
-            elif result_msg == "already_voted":
+            elif error_vote == "already_voted":
                 async with async_session() as db:
                     await crud.add_vote_history(
                         db=db,
@@ -764,10 +967,10 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
                 return
 
             else:
-                # Muvaqqat portal yoki server xatoligi yuz berganda (masalan, 502/504)
-                if any(x in result_msg.lower() for x in ["server", "portal", "ulanish", "timeout", "status: 5"]):
+                # Muvaqqat portal yoki server xatoligi yuz berganda
+                if any(x in error_vote.lower() for x in ["server", "portal", "ulanish", "timeout", "status: 5"]):
                     await message.answer(
-                        f"⚠️ <b>Portalda vaqtincha xatolik yuz berdi:</b>\n{html.escape(result_msg)}\n\n"
+                        f"⚠️ <b>Portalda vaqtincha xatolik yuz berdi:</b>\n{html.escape(error_vote)}\n\n"
                         f"Qaytadan urinib ko'rishingiz mumkin. Yangi captcha yuklanmoqda...",
                         parse_mode="HTML"
                     )
@@ -791,7 +994,7 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
                         )
                         return
 
-                # Boshqa jiddiy/doimiy rad etish holatlari
+                # Boshqa doimiy rad etish holatlari
                 async with async_session() as db:
                     await crud.add_vote_history(
                         db=db,
@@ -801,87 +1004,12 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
                         status=VoteStatus.FAILED
                     )
                 await message.answer(
-                    f"❌ Ovoz berish yakunlanmadi:\n<b>{html.escape(result_msg)}</b>",
+                    f"❌ Ovoz berish yakunlanmadi:\n<b>{html.escape(error_vote)}</b>",
                     reply_markup=reply.get_user_menu(),
                     parse_mode="HTML"
                 )
                 await state.clear()
                 return
-
-        # --- OVOZ MUVAFFAQIYATLI QABUL QILINDI ---
-        async with async_session() as db:
-            try:
-                # Ovoz tarixini bazaga yozamiz (commit qilmasdan, tranzaksiyada saqlaymiz)
-                await crud.add_vote_history(
-                    db=db,
-                    telegram_id=telegram_id,
-                    phone_number=phone_number,
-                    project_id=project_id,
-                    status=VoteStatus.SUCCESS,
-                    commit=False
-                )
-
-                project_settings = await crud.get_project_settings(db)
-                referral_price = project_settings.referral_price
-                voter_reward = project_settings.voter_reward
-
-                user = await crud.get_user(db, telegram_id)
-                if user:
-                    # Ovoz bergan odamning o'ziga mukofot (atomik)
-                    if voter_reward > 0:
-                        await db.execute(
-                            update(User)
-                            .where(User.telegram_id == telegram_id)
-                            .values(balance=User.balance + voter_reward)
-                        )
-                    
-                    # Taklif qilgan referalga mukofot (atomik)
-                    if user.invited_by and referral_price > 0:
-                        await db.execute(
-                            update(User)
-                            .where(User.telegram_id == user.invited_by)
-                            .values(
-                                balance=User.balance + referral_price,
-                                total_referrals=User.total_referrals + 1
-                            )
-                        )
-                        referrer = await crud.get_user(db, user.invited_by)
-                        if referrer:
-                            try:
-                                referrer_message_text = (
-                                    f"🎉 <b>Yangi referal mukofoti!</b>\n\n"
-                                    f"Siz taklif qilgan foydalanuvchi ({html.escape(str(user.username or telegram_id))}) muvaffaqiyatli ovoz berdi.\n"
-                                    f"💵 Balansingizga <b>{referral_price} so'm</b> qo'shildi!"
-                                )
-                                await message.bot.send_message(
-                                    chat_id=referrer.telegram_id,
-                                    text=referrer_message_text,
-                                    parse_mode="HTML"
-                                )
-                            except Exception as e:
-                                logger.error(f"Refererga xabar yuborishda xato: {e}")
-
-                # Barcha o'zgarishlarni bitta tranzaksiyada tasdiqlaymiz (Atomicity)
-                await db.commit()
-                
-                await message.answer(
-                    f"✅ <b>TABRIKLAYMIZ! Ovoz muvaffaqiyatli qabul qilindi!</b>\n\n"
-                    f"💰 Balansingizga: <b>+{voter_reward:,} so'm</b> qo'shildi!\n\n"
-                    f"Do'stlaringizni taklif qiling va ko'proq daromad oling! 👥",
-                    reply_markup=reply.get_user_menu(),
-                    parse_mode="HTML"
-                )
-                await state.clear()
-
-            except Exception as e:
-                await db.rollback()
-                logger.error(f"Ovoz yozish tranzaksiyasida xatolik: {e}", exc_info=True)
-                await message.answer(
-                    "❌ Ovoz qabul qilindi, lekin ma'lumotlarni saqlashda xatolik yuz berdi.\n"
-                    "Iltimos, adminlar bilan bog'laning.",
-                    reply_markup=reply.get_user_menu()
-                )
-                await state.clear()
 
     except Exception as e:
         logger.error(f"Final Captcha WebApp natijasini o'qishda xato: {e}", exc_info=True)
