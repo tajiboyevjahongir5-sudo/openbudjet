@@ -135,6 +135,9 @@ async def solve_captcha_with_gemini(image_base64: str) -> Optional[int]:
         logger.warning("Gemini API keylari yo'q — captcha qo'lda yechiladi")
         return None
 
+    if not image_base64:
+        return None
+
     if "," in image_base64:
         image_base64 = image_base64.split(",")[-1]
 
@@ -229,6 +232,9 @@ async def solve_with_capmonster(image_base64: str) -> Optional[int]:
     if not api_key:
         return None
 
+    if not image_base64:
+        return None
+
     # Base64 prefiksni tozalaymiz
     if "," in image_base64:
         image_base64 = image_base64.split(",")[-1]
@@ -301,6 +307,9 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
     api_key = settings.TWOCAPTCHA_API_KEY.strip()
     if not api_key:
         logger.warning("TWOCAPTCHA_API_KEY sozlanmagan — 2Captcha o'tkazib yuborildi")
+        return None
+
+    if not image_base64:
         return None
 
     # Base64 prefiksni tozalaymiz
@@ -377,6 +386,9 @@ async def solve_captcha(image_base64: str) -> Optional[int]:
     1. 2Captcha (insonlar tomonidan 100% aniq yechiladi)
     2. Gemini Vision Flash (zaxira sifatida bepul AI bilan yechiladi)
     """
+    if not image_base64:
+        return None
+
     # 1. Avval 2Captcha bilan yechishga urinish
     res = await solve_with_2captcha(image_base64)
     if res is not None:
