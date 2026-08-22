@@ -102,27 +102,30 @@ class OpenBudgetService:
         timeout_seconds: int = 12
     ) -> tuple[int, dict, str]:
         """
-        HTTP so'rovini bajaradi. Tartib:
-        1. PROXY_URL bor → IPRoyal proksi orqali openbudget.uz ga to'g'ridan-to'g'ri
-        2. Proksi xato bersa → Cloudflare Worker orqali (proksisiz)
-        3. PROXY_URL yo'q → Cloudflare Worker orqali (proksisiz)
+        HTTP so'rovini bajaradi. 3-bosqichli fallback:
+        1. PROXY_URL bor → IPRoyal proksi orqali openbudget.uz ga
+        2. Proksi xato → Cloudflare Worker orqali
+        3. Cloudflare ham xato → To'g'ridan-to'g'ri openbudget.uz ga
         """
         session = await cls._get_session()
 
-        # Proxy URLni http:// ga normalizatsiya qilamiz (https:// TLS-in-TLS xatosini chiqaradi)
+        # Proxy URLni http:// ga normalizatsiya qilamiz
         proxy_url: str | None = None
         if settings.PROXY_URL:
             raw = settings.PROXY_URL.strip()
-            if raw.startswith("https://"):
-                proxy_url = "http://" + raw[8:]
-            else:
-                proxy_url = raw
+            proxy_url = "http://" + raw[len("https://"):] if raw.startswith("https://") else raw
 
-        async def _do_request(req_url: str, use_proxy: bool) -> tuple[int, dict, str]:
-            kw: dict = {
-                "headers": headers,
-                "timeout": aiohttp.ClientTimeout(total=timeout_seconds),
-            }
+        # URL dan path ni ajratib olamiz
+        def _extract_path(u: str) -> str:
+            if settings.CLOUDFLARE_PROXY_URL and u.startswith(settings.CLOUDFLARE_PROXY_URL.rstrip('/')):
+                return u[len(settings.CLOUDFLARE_PROXY_URL.rstrip('/')):]
+            parts = u.split("/")
+            return "/" + "/".join(parts[3:]) if len(parts) > 3 else u
+
+        direct_openbudget_url = f"https://openbudget.uz/api{_extract_path(url)}"
+
+        async def _do_request(req_url: str, use_proxy: bool, t: int = timeout_seconds) -> tuple[int, dict, str]:
+            kw: dict = {"headers": headers, "timeout": aiohttp.ClientTimeout(total=t)}
             if use_proxy and proxy_url:
                 kw["proxy"] = proxy_url
             if json_data is not None:
@@ -136,23 +139,28 @@ class OpenBudgetService:
                     data = {}
                 return status, data, ""
 
-        # 1. IPRoyal proksi bilan urinish (to'g'ridan-to'g'ri openbudget.uz ga)
+        # 1. IPRoyal proksi
         if proxy_url:
-            path = url[len(settings.CLOUDFLARE_PROXY_URL.rstrip('/')):] if (
-                settings.CLOUDFLARE_PROXY_URL and url.startswith(settings.CLOUDFLARE_PROXY_URL)
-            ) else ("/" + "/".join(url.split("/")[3:]) if url.count("/") >= 3 else url)
-            direct_url = f"https://openbudget.uz/api{path}" if not path.startswith("http") else url
             try:
-                logger.info(f"IPRoyal proksi orqali: {direct_url[:70]}...")
-                return await _do_request(direct_url, use_proxy=True)
-            except Exception as pe:
-                logger.warning(f"IPRoyal ({pe.__class__.__name__}). Cloudflare Worker orqali urinilmoqda...")
+                logger.info(f"[1] IPRoyal: {direct_openbudget_url[:60]}")
+                return await _do_request(direct_openbudget_url, use_proxy=True)
+            except Exception as e:
+                logger.warning(f"[1] IPRoyal xato ({e.__class__.__name__}). CF Worker...")
 
-        # 2. Cloudflare Worker orqali (proksisiz)
+        # 2. Cloudflare Worker
+        if settings.CLOUDFLARE_PROXY_URL:
+            try:
+                logger.info(f"[2] Cloudflare Worker: {url[:60]}")
+                return await _do_request(url, use_proxy=False, t=10)
+            except Exception as e:
+                logger.warning(f"[2] Cloudflare Worker xato ({e.__class__.__name__}). Direct...")
+
+        # 3. To'g'ridan-to'g'ri openbudget.uz
         try:
-            return await _do_request(url, use_proxy=False)
-        except Exception as de:
-            logger.error(f"Cloudflare Worker ham muvaffaqiyatsiz: {de.__class__.__name__}: {de}")
+            logger.info(f"[3] Direct: {direct_openbudget_url[:60]}")
+            return await _do_request(direct_openbudget_url, use_proxy=False, t=15)
+        except Exception as e:
+            logger.error(f"[3] Direct ham muvaffaqiyatsiz: {e.__class__.__name__}: {e}")
             raise
 
     @classmethod
