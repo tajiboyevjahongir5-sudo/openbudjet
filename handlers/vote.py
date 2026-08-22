@@ -333,6 +333,7 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
         return
 
     if mvc_msg == "already_voted":
+        detail = (mvc_session or {}).get("detail") or f"Ushbu (+998{clean_phone}) raqam orqali bu mavsumda allaqachon ovoz berilgan!"
         async with async_session() as db:
             await crud.add_vote_history(
                 db=db,
@@ -346,12 +347,14 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
         except Exception:
             pass
         await message.answer(
-            f"⚠️ <b>Ushbu (+998{clean_phone}) raqam orqali bu mavsumda allaqachon ovoz berilgan!</b>\n\n"
+            f"⚠️ <b>{html.escape(detail)}</b>\n\n"
             f"Qonun bo'yicha har bir fuqaro faqat <b>1 marta</b> ovoz bera oladi.",
             reply_markup=reply.get_user_menu(),
             parse_mode="HTML"
         )
         await state.clear()
+        return
+
     # 2. Agar MVC so'rovi muvaffaqiyatsiz bo'lsa
     try:
         await waiting_msg.delete()

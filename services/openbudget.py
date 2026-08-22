@@ -341,9 +341,23 @@ class OpenBudgetService:
                         post_html = await post_resp.text()
                         
                         # 1. Allaqachon ovoz berilgan holat
-                        if any(k in post_html.lower() for k in ["аввал берилган овоз", "ovoz qabul qilingan", "allaqachon", "муваффақиятли қабул қилинган"]):
-                            logger.info(f"OpenBudget: Bu raqam orqali allaqachon ovoz berilgan: {clean_phone}")
-                            return False, "already_voted", {"phone": clean_phone, "detail": "Ushbu raqam orqali bu mavsumda allaqachon ovoz berilgan."}
+                        h2_match = re.search(r'<h2>(.*?)</h2>', post_html, re.DOTALL | re.I)
+                        p_match = re.search(r'<p>(.*?)</p>', post_html, re.DOTALL | re.I)
+                        raw_msg = ""
+                        if h2_match:
+                            raw_msg = re.sub(r'<[^>]+>', '', h2_match.group(1)).strip()
+                        elif p_match:
+                            raw_msg = re.sub(r'<[^>]+>', '', p_match.group(1)).strip()
+                            
+                        already_voted_terms = [
+                            "аввал овоз берилган", "аввал берилган овоз", "номингизга расмийлаштирилган",
+                            "ovoz qabul qilingan", "allaqachon", "муваффақиятли қабул қилинган",
+                            "аввал берилган", "овоз берилган", "аввал овоз"
+                        ]
+                        if any(k in post_html.lower() for k in already_voted_terms):
+                            detail_msg = raw_msg or "Ushbu fuqaro / raqam orqali bu mavsumda allaqachon ovoz berilgan."
+                            logger.info(f"OpenBudget already_voted: {clean_phone} -> {detail_msg}")
+                            return False, "already_voted", {"phone": clean_phone, "detail": detail_msg}
                             
                         # 2. Captcha mos kelmadi holati
                         if any(k in post_html.lower() for k in ["мос келмади", "mos kelmadi", "noto'g'ri"]):
