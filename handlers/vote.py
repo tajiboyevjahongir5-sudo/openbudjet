@@ -34,7 +34,7 @@ def clean_phone_number(phone: str) -> str:
 
 @router.message(F.text.contains("Ovoz berish"), StateFilter("*"))
 async def start_voting(message: Message, state: FSMContext):
-    """Ovoz berish FSM oqimini boshlash"""
+    """Ovoz berish bo'limi - Foydalanuvchiga WebApp va bot orqali ovoz berish imkonini beradi"""
     await state.clear()
     
     async with async_session() as db:
@@ -42,19 +42,25 @@ async def start_voting(message: Message, state: FSMContext):
         if not active_project:
             await message.answer("❌ Hozircha botga faol Open Budget loyihasi ulanmagan. Iltimos, keyinroq qayta urinib ko'ring.")
             return
+        
+        project_id = active_project.project_id
+        settings_data = await crud.get_project_settings(db)
+        voter_reward = settings_data.voter_reward
 
-    await state.set_state(VoteStates.WAITING_FOR_PHONE)
     await message.answer(
-        "🗳️ <b>Ovoz berish bo'limi</b>\n\n"
-        "Iltimos, pastdagi tugma orqali kontaktingizni yuboring yoki telefon raqamingizni kiriting:\n"
-        "(Masalan: +998901234567)",
-        reply_markup=reply.get_phone_keyboard(),
+        f"🗳️ <b>Open Budget loyihasiga ovoz berish</b>\n\n"
+        f"📌 <b>Loyiha kodi:</b> <code>{project_id}</code>\n"
+        f"💰 <b>Ovoz uchun mukofot:</b> <b>+{voter_reward:,.0f} so'm</b>\n\n"
+        f"Quyidagi qulay usullardan birini tanlang:\n\n"
+        f"1️⃣ <b>Rasmiy sayt (WebApp):</b> Telegram ichida to'g'ridan-to'g'ri loyiha sahifasi ochiladi. Ovoz berasiz va vazirlikdan <b>rasmiy tasdiq SMS</b> olasiz.\n"
+        f"2️⃣ <b>Bot orqali:</b> Telefon raqamingizni yuborasiz va bot avtomatik ovoz beradi.",
+        reply_markup=inline.get_voting_methods_keyboard(project_id),
         parse_mode="HTML"
     )
 
 @router.callback_query(F.data == "menu_vote")
 async def process_menu_vote(callback: CallbackQuery, state: FSMContext):
-    """Inline menyudan ovoz berish FSM oqimini boshlash"""
+    """Inline menyudan ovoz berish bo'limini ko'rsatish"""
     await state.clear()
     
     async with async_session() as db:
@@ -63,10 +69,30 @@ async def process_menu_vote(callback: CallbackQuery, state: FSMContext):
             await callback.message.answer("❌ Hozircha botga faol Open Budget loyihasi ulanmagan. Iltimos, keyinroq qayta urinib ko'ring.")
             await callback.answer()
             return
+        
+        project_id = active_project.project_id
+        settings_data = await crud.get_project_settings(db)
+        voter_reward = settings_data.voter_reward
 
+    await callback.message.answer(
+        f"🗳️ <b>Open Budget loyihasiga ovoz berish</b>\n\n"
+        f"📌 <b>Loyiha kodi:</b> <code>{project_id}</code>\n"
+        f"💰 <b>Ovoz uchun mukofot:</b> <b>+{voter_reward:,.0f} so'm</b>\n\n"
+        f"Quyidagi qulay usullardan birini tanlang:\n\n"
+        f"1️⃣ <b>Rasmiy sayt (WebApp):</b> Telegram ichida to'g'ridan-to'g'ri loyiha sahifasi ochiladi. Ovoz berasiz va vazirlikdan <b>rasmiy tasdiq SMS</b> olasiz.\n"
+        f"2️⃣ <b>Bot orqali:</b> Telefon raqamingizni yuborasiz va bot avtomatik ovoz beradi.",
+        reply_markup=inline.get_voting_methods_keyboard(project_id),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "vote_via_bot")
+async def process_vote_via_bot(callback: CallbackQuery, state: FSMContext):
+    """Bot orqali ovoz berish tanlanganda telefon raqamini so'rash"""
+    await state.clear()
     await state.set_state(VoteStates.WAITING_FOR_PHONE)
     await callback.message.answer(
-        "🗳️ <b>Ovoz berish bo'limi</b>\n\n"
+        "📱 <b>Bot orqali ovoz berish</b>\n\n"
         "Iltimos, pastdagi tugma orqali kontaktingizni yuboring yoki telefon raqamingizni kiriting:\n"
         "(Masalan: +998901234567)",
         reply_markup=reply.get_phone_keyboard(),

@@ -31,6 +31,28 @@ def get_withdrawal_keyboard() -> InlineKeyboardMarkup:
         ]
     )
 
+def get_voting_methods_keyboard(project_id: str) -> InlineKeyboardMarkup:
+    """Rasmiy WebApp va bot orqali ovoz berish usullari"""
+    official_url = f"https://openbudget.uz/initiative/{project_id}"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🌐 Rasmiy saytda ovoz berish (WebApp)", 
+                    web_app=WebAppInfo(url=official_url), 
+                    style="success"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📱 Bot orqali avtomatik ovoz berish", 
+                    callback_data="vote_via_bot", 
+                    style="primary"
+                )
+            ]
+        ]
+    )
+
 def get_withdraw_action_keyboard(withdraw_id: int) -> InlineKeyboardMarkup:
     """Adminlar guruhiga pul yechish so'rovi borganda chiqadigan tugmalar"""
     return InlineKeyboardMarkup(

@@ -463,8 +463,19 @@ class OpenBudgetService:
             "Authorization": access_token
         }
         
+        # Agar project_id public_id bo'lsa (masalan 055529529012), uni haqiqiy UUID ga o'giramiz
+        target_uuid = project_id
+        if len(str(project_id)) == 12 and str(project_id).isdigit():
+            try:
+                init_info = await cls.find_initiative(str(project_id))
+                if init_info and init_info.get("id"):
+                    target_uuid = str(init_info.get("id"))
+                    logger.info(f"Public ID {project_id} -> UUID {target_uuid} ga o'girildi")
+            except Exception as e:
+                logger.warning(f"Initiative UUID topishda xato: {e}")
+
         vote_payload = {
-            "initiativeId": int(project_id) if project_id.isdigit() else project_id,
+            "initiativeId": target_uuid,
             "captchaKey": captcha_key,
             "captchaResult": captcha_result
         }
