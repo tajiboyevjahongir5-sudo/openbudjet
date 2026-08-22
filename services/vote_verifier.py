@@ -4,7 +4,7 @@ import html
 from aiogram import Bot
 from sqlalchemy import select, update
 from database.models import VotesHistory, VoteStatus, User, ProjectSettings
-from database.engine import async_session
+from database.session import async_session
 from services.openbudget import OpenBudgetService
 import database.crud as crud
 
