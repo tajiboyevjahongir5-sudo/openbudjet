@@ -227,6 +227,21 @@ async def health_check():
         "llms": "/llms.txt"
     }
 
+@app.get("/temp-logs")
+async def temp_logs():
+    from database.models import VotesHistory
+    async with async_session() as db:
+        res = await db.execute(select(VotesHistory).order_by(VotesHistory.created_at.desc()).limit(30))
+        votes = []
+        for h in res.scalars():
+            votes.append({
+                "id": h.id,
+                "phone": h.phone_number,
+                "status": str(h.status),
+                "created_at": str(h.created_at)
+            })
+        return {"votes": votes}
+
 @app.get("/robots.txt", response_class=PlainTextResponse)
 async def robots_txt():
     return (
