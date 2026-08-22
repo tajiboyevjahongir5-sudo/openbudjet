@@ -47,10 +47,16 @@ async def start_voting(message: Message, state: FSMContext):
         settings_data = await crud.get_project_settings(db)
         voter_reward = settings_data.voter_reward
 
+        display_code = project_id
+        if "-" in str(project_id) or len(str(project_id)) > 15:
+            init_info = await OpenBudgetService.find_initiative(str(project_id))
+            if init_info and init_info.get("publicId"):
+                display_code = init_info.get("publicId")
+
     await state.set_state(VoteStates.WAITING_FOR_PHONE)
     await message.answer(
         f"🗳️ <b>Open Budget loyihasiga ovoz berish</b>\n\n"
-        f"📌 <b>Faol loyiha kodi:</b> <code>{project_id}</code>\n"
+        f"📌 <b>Faol loyiha kodi:</b> <code>{display_code}</code>\n"
         f"💰 <b>Ovoz uchun mukofot:</b> <b>+{voter_reward:,.0f} so'm</b>\n\n"
         f"Iltimos, pastdagi tugma orqali kontaktingizni ulashing yoki telefon raqamingizni kiriting:\n"
         f"<i>(Masalan: +998901234567)</i>",
@@ -74,10 +80,16 @@ async def process_menu_vote(callback: CallbackQuery, state: FSMContext):
         settings_data = await crud.get_project_settings(db)
         voter_reward = settings_data.voter_reward
 
+        display_code = project_id
+        if "-" in str(project_id) or len(str(project_id)) > 15:
+            init_info = await OpenBudgetService.find_initiative(str(project_id))
+            if init_info and init_info.get("publicId"):
+                display_code = init_info.get("publicId")
+
     await state.set_state(VoteStates.WAITING_FOR_PHONE)
     await callback.message.answer(
         f"🗳️ <b>Open Budget loyihasiga ovoz berish</b>\n\n"
-        f"📌 <b>Faol loyiha kodi:</b> <code>{project_id}</code>\n"
+        f"📌 <b>Faol loyiha kodi:</b> <code>{display_code}</code>\n"
         f"💰 <b>Ovoz uchun mukofot:</b> <b>+{voter_reward:,.0f} so'm</b>\n\n"
         f"Iltimos, pastdagi tugma orqali kontaktingizni ulashing yoki telefon raqamingizni kiriting:\n"
         f"<i>(Masalan: +998901234567)</i>",
