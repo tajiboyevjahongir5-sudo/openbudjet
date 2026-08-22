@@ -324,9 +324,12 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             await waiting_msg.delete()
         except Exception:
             pass
+
+        p_clean = clean_phone[3:] if clean_phone.startswith("998") else clean_phone
+        phone_display = f"+998 ({p_clean[:2]}) {p_clean[2:5]}-{p_clean[5:7]}-{p_clean[7:]}"
         await message.answer(
             f"📩 <b>Rasmiy SMS yuborildi!</b>\n\n"
-            f"<code>+998{clean_phone}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:",
+            f"<code>{phone_display}</code> raqamiga yuborilgan 6 xonali SMS kodni kiriting:",
             reply_markup=reply.get_cancel_keyboard(),
             parse_mode="HTML"
         )
