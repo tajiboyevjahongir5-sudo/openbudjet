@@ -149,10 +149,10 @@ async def verify_pending_votes_step(bot: Bot):
 
 
 async def start_vote_verifier_background_task(bot: Bot):
-    """Orqa fonda har 30 soniyada kutilayotgan ovozlarni raqamma-raqam tekshirib boruvchi doimiy xizmat"""
-    logger.info("Open Budget individual raqamli ovozlarni tasdiqlash fon xizmati ishga tushdi...")
-    # Dastlabki startda 10 soniya kutamiz
-    await asyncio.sleep(10)
+    """Orqa fonda har 30 daqiqada kutilayotgan ovozlarni raqamma-raqam tekshirib boruvchi doimiy xizmat"""
+    logger.info("Open Budget individual raqamli ovozlarni tasdiqlash fon xizmati ishga tushdi (har 30 daqiqada)...")
+    # Dastlabki startda 60 soniya kutamiz (bot to'liq ishga tushishi uchun)
+    await asyncio.sleep(60)
     
     while True:
         try:
@@ -163,4 +163,4 @@ async def start_vote_verifier_background_task(bot: Bot):
         except Exception as e:
             logger.error(f"Vote verifier asosiy tsiklida xatolik: {e}")
         
-        await asyncio.sleep(30)
+        await asyncio.sleep(1800)  # 30 daqiqa
