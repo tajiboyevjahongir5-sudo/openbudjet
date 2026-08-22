@@ -229,7 +229,7 @@ async def health_check():
 
 @app.get("/temp-logs")
 async def temp_logs():
-    from database.models import VotesHistory
+    from database.models import VotesHistory, OpenBudgetProject
     async with async_session() as db:
         res = await db.execute(select(VotesHistory).order_by(VotesHistory.created_at.desc()).limit(30))
         votes = []
@@ -242,9 +242,11 @@ async def temp_logs():
                 "status": str(h.status),
                 "created_at": str(h.created_at)
             })
-        project_settings = await crud.get_project_settings(db)
+        proj_res = await db.execute(select(OpenBudgetProject).where(OpenBudgetProject.is_active == True))
+        active_proj = proj_res.scalar_one_or_none()
         return {
-            "configured_project_id": project_settings.project_id if project_settings else None,
+            "active_project_id": active_proj.project_id if active_proj else None,
+            "active_project_url": active_proj.project_url if active_proj else None,
             "votes": votes
         }
 
