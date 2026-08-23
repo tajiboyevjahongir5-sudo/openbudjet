@@ -463,3 +463,69 @@ async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
 
     return []
 
+
+async def solve_recaptcha_v3(sitekey: str, pageurl: str, action: str = "submit") -> Optional[str]:
+    """
+    Solves Google reCAPTCHA v3 using 2Captcha API.
+    """
+    try:
+        from config import settings
+        api_key = getattr(settings, "TWOCAPTCHA_API_KEY", "") or "9b2aa62e71a8d0056aa94e4d6e301f9d"
+        if not api_key:
+            logger.warning("TWOCAPTCHA_API_KEY is empty, cannot solve reCAPTCHA v3")
+            return None
+            
+        in_url = "https://2captcha.com/in.php"
+        res_url = "https://2captcha.com/res.php"
+        
+        payload = {
+            "key": api_key,
+            "method": "userrecaptcha",
+            "version": "v3",
+            "action": action,
+            "min_score": "0.3",
+            "googlekey": sitekey,
+            "pageurl": pageurl,
+            "json": 1
+        }
+        
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(in_url, data=payload) as resp:
+                if resp.status != 200:
+                    logger.warning(f"2Captcha in.php status code {resp.status}")
+                    return None
+                data = await resp.json(content_type=None)
+                if data.get("status") != 1:
+                    logger.warning(f"2Captcha in.php error: {data.get('request')}")
+                    return None
+                task_id = data.get("request")
+                
+            logger.info(f"reCAPTCHA v3 task created: {task_id}, polling for solution...")
+            
+            for attempt in range(12):
+                await asyncio.sleep(2)
+                params = {
+                    "key": api_key,
+                    "action": "get",
+                    "id": task_id,
+                    "json": 1
+                }
+                async with session.get(res_url, params=params) as resp:
+                    if resp.status != 200:
+                        continue
+                    res_data = await resp.json(content_type=None)
+                    if res_data.get("status") == 1:
+                        token = res_data.get("request")
+                        logger.info("reCAPTCHA v3 solved successfully!")
+                        return token
+                    elif res_data.get("request") != "CAPCHA_NOT_READY":
+                        logger.warning(f"2Captcha res.php error: {res_data.get('request')}")
+                        return None
+                        
+            logger.warning("2Captcha reCAPTCHA v3 polling timeout")
+    except Exception as e:
+        logger.error(f"Error solving reCAPTCHA v3: {e}")
+    return None
+
+

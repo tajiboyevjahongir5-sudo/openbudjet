@@ -534,6 +534,15 @@ class OpenBudgetService:
             cookies = session_data.get("cookies", {})
             target_uuid = session_data.get("target_uuid")
             
+            from services.captcha_solver import solve_recaptcha_v3
+            logger.info("Solvin recaptcha v3 for MVC verify...")
+            recaptcha_token = await solve_recaptcha_v3(
+                sitekey="6Ld3Cq8pAAAAAMdF062c3e5G05mB9jN7J3v5-b-H",
+                pageurl="https://openbudget.uz/api/v2/vote/mvc/captcha",
+                action="submit"
+            ) or ""
+            logger.info(f"recaptcha v3 solved token: {recaptcha_token[:20]}...")
+            
             verify_url = "https://openbudget.uz/api/v2/vote/mvc/verify"
             verify_headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -544,7 +553,7 @@ class OpenBudgetService:
             }
             verify_data = {
                 "otpCode": str(code).strip(),
-                "grToken": ""
+                "grToken": recaptcha_token
             }
             
             # Cookie headerini har doim qo'shamiz
