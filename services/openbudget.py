@@ -287,7 +287,7 @@ class OpenBudgetService:
         
         proxy = settings.PROXY_URL or None
         
-        for attempt in range(4):
+        for attempt in range(2):
             try:
                 jar = aiohttp.CookieJar(unsafe=True)
                 timeout = aiohttp.ClientTimeout(total=30)

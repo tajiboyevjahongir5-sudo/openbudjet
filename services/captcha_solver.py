@@ -422,20 +422,19 @@ async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
             _keys = gemini_keys
 
         available_keys = get_available_keys()
-        if available_keys:
-            tasks = [
-                asyncio.to_thread(_solve_mvc_sync, key, prompt, part_a, part_b)
-                for key in available_keys[:5]
-            ]
+        for key in available_keys[:5]:
             try:
-                results = await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=4.0)
-            except asyncio.TimeoutError:
-                logger.warning("Gemini parallel solving timed out after 4 seconds")
-                results = []
-            for res in results:
-                if isinstance(res, list) and len(res) >= 2:
-                    logger.info("Gemini Vision MVC points parallel tarzda tezkor topdi!")
+                res = await asyncio.wait_for(
+                    asyncio.to_thread(_solve_mvc_sync, key, prompt, part_a, part_b),
+                    timeout=2.5
+                )
+                if res and len(res) >= 2:
+                    logger.info(f"Gemini Vision MVC points topdi (key: {key[:8]}...)")
                     return res
+            except asyncio.TimeoutError:
+                logger.warning(f"Gemini key {key[:8]}... timed out after 2.5s")
+            except Exception as e:
+                logger.warning(f"Gemini key {key[:8]}... failed: {e}")
     except Exception as e:
         logger.warning(f"Gemini MVC visual solve umumiy xatosi: {e}")
 
