@@ -63,7 +63,7 @@ _http_session: aiohttp.ClientSession | None = None
 async def get_http_session() -> aiohttp.ClientSession:
     global _http_session
     if _http_session is None or _http_session.closed:
-        timeout = aiohttp.ClientTimeout(total=30)
+        timeout = aiohttp.ClientTimeout(total=100)
         _http_session = aiohttp.ClientSession(timeout=timeout)
     return _http_session
 
