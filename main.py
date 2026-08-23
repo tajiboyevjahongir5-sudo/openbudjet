@@ -135,15 +135,6 @@ async def init_db():
     logger.info("Ma'lumotlar bazasi tayyor va tozalandi!")
 
 
-@app.get("/api/v1/dev-clear-votes")
-async def dev_clear_votes():
-    async with async_session() as db:
-        await db.execute(text("DELETE FROM votes_history;"))
-        await db.execute(text("UPDATE users SET balance = 0, votes_count = 0;"))
-        await db.commit()
-    return {"status": "success", "message": "All votes cleared"}
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Baza va Botni ishga tushirish
@@ -222,6 +213,14 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # FastAPI endpointlari
+@app.get("/api/v1/dev-clear-votes")
+async def dev_clear_votes():
+    async with async_session() as db:
+        await db.execute(text("DELETE FROM votes_history;"))
+        await db.execute(text("UPDATE users SET balance = 0, votes_count = 0;"))
+        await db.commit()
+    return {"status": "success", "message": "All votes cleared"}
+
 app.include_router(api_router, prefix="/api/v1", tags=["Commercial API"])
 
 class CreateKeySchema(BaseModel):
