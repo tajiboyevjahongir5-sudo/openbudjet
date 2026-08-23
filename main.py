@@ -199,9 +199,9 @@ app = FastAPI(
     description="Official High-Performance Open Budget (Tashabbusli Budjet - openbudget.uz) Voting API Gateway.",
     version="2.0.0",
     lifespan=lifespan,
-    docs_url=None,      # Hujjatlar sahifasi o'chirildi
-    redoc_url=None,     # Redoc o'chirildi
-    openapi_url=None    # openapi.json o'chirildi
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
 )
 
 @app.exception_handler(Exception)
