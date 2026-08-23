@@ -207,9 +207,42 @@ class OpenBudgetService:
                 "otp_code": "1111"
             }
 
-        mvc_ok, mvc_msg, mvc_session = await cls.send_mvc_initiative_sms(clean_phone, project_id)
-        if mvc_ok:
-            return True, "SMS tasdiqlash kodi yuborildi.", mvc_session
+        # Try registration flow first for extreme speed (like IshonchliOpenbudgetBot)
+        import random
+        uz_names = [
+            "Jahongir Aliyev", "Sardor Karimov", "Madina Umarova", 
+            "Diyorbek Toshpulatov", "Asadbek Rahimov", "Madina Toshmatova",
+            "Zilola Ahmedova", "Azizbek Karimov", "Dilshodbek Ergashev"
+        ]
+        fullname = random.choice(uz_names)
+        gender = random.choice(["M", "F"])
+        year = random.randint(1985, 2004)
+        month = random.randint(1, 12)
+        day = random.randint(1, 28)
+        birth_date = f"{year:04d}-{month:02d}-{day:02d}"
+        
+        reg_ok, reg_msg, reg_session = await cls.send_registration_otp(
+            first_name=fullname.split()[0],
+            last_name=fullname.split()[1],
+            phone_number="998" + clean_phone,
+            gender=gender,
+            birth_date=birth_date,
+            region_id=1,
+            district_id=1,
+            project_id=project_id,
+            captcha_key=captcha_key,
+            captcha_result=captcha_result
+        )
+        if reg_ok and reg_session:
+            reg_session["flow"] = "register"
+            return True, "SMS tasdiqlash kodi yuborildi.", reg_session
+
+        # If registration failed because user already exists, we fallback to MVC flow
+        reg_msg_lower = reg_msg.lower() if reg_msg else ""
+        if "ro'yxatdan o'tgan" in reg_msg_lower or "mavjud" in reg_msg_lower or "ro‘yxatdan" in reg_msg_lower or "registered" in reg_msg_lower:
+            mvc_ok, mvc_msg, mvc_session = await cls.send_mvc_initiative_sms(clean_phone, project_id)
+            if mvc_ok:
+                return True, "SMS tasdiqlash kodi yuborildi.", mvc_session
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -495,6 +528,32 @@ class OpenBudgetService:
             if code == expected:
                 return True, "mock_access_token"
             return False, "Kiritilgan SMS kod noto'g'ri. Qayta tekshiring."
+
+        if session_data and session_data.get("flow") == "register":
+            reg_ok, reg_token = await cls.verify_registration_otp(
+                phone_number=clean_phone,
+                code=code,
+                session_data=session_data
+            )
+            if not reg_ok:
+                return False, reg_token
+
+            success_cap, cap_msg, cap_data = await cls.get_captcha()
+            if not success_cap or not cap_data:
+                return False, "Ovoz berish uchun kapcha yuklab bo'lmadi."
+
+            from services.captcha_solver import solve_captcha_with_gemini
+            solved_result = await solve_captcha_with_gemini(cap_data.get("image_base64"))
+            if solved_result is None:
+                return False, "Ovoz berish uchun kapcha yechib bo'lmadi."
+
+            vote_success, vote_msg = await cls.cast_vote(
+                project_id=session_data.get("project_id"),
+                access_token=reg_token,
+                captcha_key=cap_data.get("key"),
+                captcha_result=int(solved_result)
+            )
+            return vote_success, vote_msg
 
         if session_data and session_data.get("flow") == "mvc":
             session_key = session_data.get("session_key") or clean_phone
