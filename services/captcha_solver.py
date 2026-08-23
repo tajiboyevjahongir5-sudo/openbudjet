@@ -278,15 +278,16 @@ async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
             "coordinatescaptcha": 1,
             "json": 1
         }
-        timeout = aiohttp.ClientTimeout(total=12)
+        timeout = aiohttp.ClientTimeout(total=45)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post("https://2captcha.com/in.php", data=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
                     if data.get("status") == 1:
                         task_id = data.get("request")
-                        for _ in range(5):
-                            await asyncio.sleep(1.5)
+                        await asyncio.sleep(5)
+                        for _ in range(12):
+                            await asyncio.sleep(2.0)
                             async with session.get("https://2captcha.com/res.php", params={"key": api_key, "action": "get", "id": task_id, "json": 1}) as r:
                                 res_data = await r.json(content_type=None)
                                 if res_data.get("status") == 1:
