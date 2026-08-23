@@ -566,12 +566,7 @@ class OpenBudgetService:
             referer_url = f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}"
             page_url = "https://openbudget.uz/"
 
-            from services.captcha_solver import solve_recaptcha_v3
-            recaptcha_token = await solve_recaptcha_v3(
-                sitekey="6Ld3Cq8pAAAAAMdF062c3e5G05mB9jN7J3v5-b-H",
-                pageurl=page_url,
-                action="submit"
-            ) or ""
+            recaptcha_token = ""
 
             verify_url = "https://openbudget.uz/api/v2/vote/mvc/verify"
             verify_data = {
