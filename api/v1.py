@@ -330,12 +330,13 @@ async def verify_otp(
         s_key = s_key or req.session_data.get("session_key")
         s_flow = s_flow or req.session_data.get("flow")
 
-    session_data = {
-        "otp_key": req.otp_key,
-        "phone": req.phone_number,
-        "session_key": s_key,
-        "flow": s_flow or "mvc"
-    }
+    # Botdan kelgan to'liq session_data ni olamiz, kerakli maydonlarni ustiga yozamiz
+    session_data = dict(req.session_data) if req.session_data else {}
+    session_data["otp_key"] = req.otp_key
+    session_data["phone"] = req.phone_number
+    session_data["session_key"] = s_key
+    session_data["flow"] = s_flow or session_data.get("flow") or "mvc"
+    logger.info(f"verify-otp session_data: {session_data}")
     
     success, result_msg = await OpenBudgetService.verify_sms_code(
         phone_number=req.phone_number,
