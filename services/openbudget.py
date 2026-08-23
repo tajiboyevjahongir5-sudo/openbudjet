@@ -34,6 +34,7 @@ class OpenBudgetService:
     openbudget.uz saytining rasmiy JS kodlaridan aniqlangan real ovoz berish API xizmati.
     """
     _session: aiohttp.ClientSession | None = None
+    _mvc_sessions: dict[str, aiohttp.ClientSession] = {}
 
     @classmethod
     async def _get_session(cls) -> aiohttp.ClientSession:
@@ -46,6 +47,10 @@ class OpenBudgetService:
     async def close_session(cls):
         if cls._session and not cls._session.closed:
             await cls._session.close()
+        for s in cls._mvc_sessions.values():
+            if not s.closed:
+                await s.close()
+        cls._mvc_sessions.clear()
 
     @classmethod
     def _get_url(cls, path: str) -> str:
@@ -272,73 +277,78 @@ class OpenBudgetService:
         for attempt in range(4):
             try:
                 jar = aiohttp.CookieJar(unsafe=True)
-                timeout = aiohttp.ClientTimeout(total=25)
-                async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
-                    async with session.get(mvc_url, headers=headers, proxy=proxy) as resp:
-                        if resp.status != 200:
-                            continue
-                        html = await resp.text()
+                timeout = aiohttp.ClientTimeout(total=30)
+                session = aiohttp.ClientSession(cookie_jar=jar, timeout=timeout)
+                
+                async with session.get(mvc_url, headers=headers, proxy=proxy) as resp:
+                    if resp.status != 200:
+                        await session.close()
+                        continue
+                    html = await resp.text()
+                    
+                srcs = re.findall(r'<img[^>]+src="(data:image/[^"]+)"', html)
+                if len(srcs) < 2:
+                    srcs = re.findall(r"src='(data:image/[^']+)'", html)
+                if len(srcs) < 2:
+                    await session.close()
+                    continue
+                    
+                img_a_b64 = srcs[0].split(",")[-1]
+                img_b_b64 = srcs[1].split(",")[-1]
+                
+                points = await solve_mvc_visual_captcha(img_a_b64, img_b_b64)
+                if not points or len(points) < 2:
+                    await session.close()
+                    continue
+                    
+                post_url = "https://openbudget.uz/api/v2/vote/mvc/captcha"
+                post_data = {
+                    "phoneNumber": formatted_phone,
+                    "points": json.dumps(points, separators=(",", ":")),
+                }
+                post_headers = dict(headers)
+                post_headers["Referer"] = mvc_url
+                post_headers["Content-Type"] = "application/x-www-form-urlencoded"
+                
+                async with session.post(post_url, data=post_data, headers=post_headers, proxy=proxy, allow_redirects=True) as post_resp:
+                    post_html = await post_resp.text()
+                    
+                    h2_match = re.search(r'<h2>(.*?)</h2>', post_html, re.DOTALL | re.I)
+                    p_match = re.search(r'<p>(.*?)</p>', post_html, re.DOTALL | re.I)
+                    raw_msg = ""
+                    if h2_match:
+                        raw_msg = re.sub(r'<[^>]+>', '', h2_match.group(1)).strip()
+                    elif p_match:
+                        raw_msg = re.sub(r'<[^>]+>', '', p_match.group(1)).strip()
+
+                    already_voted_terms = ["аввал овоз берилган", "ovoz qabul qilingan", "allaqachon", "аввал берилган", "овоз берилган"]
+                    if any(k in post_html.lower() for k in already_voted_terms):
+                        await session.close()
+                        detail_msg = raw_msg or "Ushbu fuqaro / raqam orqali bu mavsumda allaqachon ovoz berilgan."
+                        return False, "already_voted", {"phone": clean_phone, "detail": detail_msg}
                         
-                    srcs = re.findall(r'<img[^>]+src="(data:image/[^"]+)"', html)
-                    if len(srcs) < 2:
-                        srcs = re.findall(r"src='(data:image/[^']+)'", html)
-                    if len(srcs) < 2:
+                    if any(k in post_html.lower() for k in ["мос келмади", "mos kelmadi", "noto'g'ri"]):
+                        await session.close()
                         continue
                         
-                    img_a_b64 = srcs[0].split(",")[-1]
-                    img_b_b64 = srcs[1].split(",")[-1]
+                    form_m = re.search(r"<form[^>]*action=\"([^\"]+)\"[^>]*>([\s\S]*?)</form>", post_html, re.I)
+                    inputs = re.findall(r'<input[^>]+name=["\']([^"\']+)["\'][^>]*>', post_html, re.I)
                     
-                    points = await solve_mvc_visual_captcha(img_a_b64, img_b_b64)
-                    if not points or len(points) < 2:
-                        continue
-                        
-                    post_url = "https://openbudget.uz/api/v2/vote/mvc/captcha"
-                    post_data = {
-                        "phoneNumber": formatted_phone,
-                        "points": json.dumps(points, separators=(",", ":")),
-                    }
-                    post_headers = dict(headers)
-                    post_headers["Referer"] = mvc_url
-                    post_headers["Content-Type"] = "application/x-www-form-urlencoded"
-                    
-                    async with session.post(post_url, data=post_data, headers=post_headers, proxy=proxy, allow_redirects=True) as post_resp:
-                        post_html = await post_resp.text()
-                        
-                        h2_match = re.search(r'<h2>(.*?)</h2>', post_html, re.DOTALL | re.I)
-                        p_match = re.search(r'<p>(.*?)</p>', post_html, re.DOTALL | re.I)
-                        raw_msg = ""
-                        if h2_match:
-                            raw_msg = re.sub(r'<[^>]+>', '', h2_match.group(1)).strip()
-                        elif p_match:
-                            raw_msg = re.sub(r'<[^>]+>', '', p_match.group(1)).strip()
-                            
-                        already_voted_terms = [
-                            "аввал овоз берилган", "аввал берилган овоз", "номингизга расмийлаштирилган",
-                            "ovoz qabul qilingan", "allaqachon", "муваффақиятли қабул қилинган",
-                            "аввал берилган", "овоз берилган", "аввал овоз"
-                        ]
-                        if any(k in post_html.lower() for k in already_voted_terms):
-                            detail_msg = raw_msg or "Ushbu fuqaro / raqam orqali bu mavsumda allaqachon ovoz berilgan."
-                            logger.info(f"OpenBudget already_voted: {clean_phone} -> {detail_msg}")
-                            return False, "already_voted", {"phone": clean_phone, "detail": detail_msg}
-                            
-                        if any(k in post_html.lower() for k in ["мос келмади", "mos kelmadi", "noto'g'ri"]):
-                            logger.warning(f"MVC captcha mos kelmadi, qayta urinish {attempt+1}/4")
-                            continue
-                            
-                        form_m = re.search(r"<form[^>]*action=\"([^\"]+)\"[^>]*>([\s\S]*?)</form>", post_html, re.I)
-                        inputs = re.findall(r'<input[^>]+name=["\']([^"\']+)["\'][^>]*>', post_html, re.I)
-                        
-                        if form_m or any(i.lower() in ["otpcode", "smscode", "code"] for i in inputs) or post_resp.status in (200, 201, 302):
-                            cookies_dict = {c.key: c.value for c in jar}
-                            logger.info(f"Rasmiy MVC Ovoz SMS muvaffaqiyatli yuborildi: {clean_phone} -> {target_uuid}")
-                            return True, "SMS tasdiqlash kodi yuborildi.", {
-                                "flow": "mvc",
-                                "phone": "998" + clean_phone,
-                                "project_id": project_id,
-                                "target_uuid": str(target_uuid),
-                                "cookies": cookies_dict
-                            }
+                    if form_m or any(i.lower() in ["otpcode", "smscode", "code"] for i in inputs) or post_resp.status in (200, 201, 302):
+                        session_key = f"998{clean_phone}"
+                        if session_key in cls._mvc_sessions and not cls._mvc_sessions[session_key].closed:
+                            await cls._mvc_sessions[session_key].close()
+                        cls._mvc_sessions[session_key] = session
+
+                        return True, "SMS tasdiqlash kodi yuborildi.", {
+                            "flow": "mvc",
+                            "phone": "998" + clean_phone,
+                            "project_id": project_id,
+                            "target_uuid": str(target_uuid),
+                            "session_key": session_key
+                        }
+                    else:
+                        await session.close()
             except Exception as e:
                 logger.warning(f"MVC Vote SMS xatosi (urinish {attempt+1}): {e}")
                 
@@ -463,9 +473,6 @@ class OpenBudgetService:
         code: str,
         session_data: dict
     ) -> tuple[bool, str]:
-        """
-        SMS kodni portal orqali tasdiqlaydi. (RECAPTCHA V3 VA COOKIE HEADER TUZATILDI)
-        """
         clean_phone = "".join(filter(str.isdigit, phone_number))
         if not clean_phone.startswith("998"):
             clean_phone = "998" + clean_phone
@@ -477,11 +484,13 @@ class OpenBudgetService:
             return False, "Kiritilgan SMS kod noto'g'ri. Qayta tekshiring."
 
         if session_data and session_data.get("flow") == "mvc":
-            cookies = session_data.get("cookies", {})
-            target_uuid = session_data.get("target_uuid")
-            
+            session_key = session_data.get("session_key") or clean_phone
+            session = cls._mvc_sessions.get(session_key)
+
+            if not session or session.closed:
+                return False, "Seans eskirgan. Iltimos jarayonni bekor qilib, qaytadan SMS so'rang."
+
             from services.captcha_solver import solve_recaptcha_v3
-            logger.info("Solving recaptcha v3 for MVC verify...")
             recaptcha_token = await solve_recaptcha_v3(
                 sitekey="6Ld3Cq8pAAAAAMdF062c3e5G05mB9jN7J3v5-b-H",
                 pageurl="https://openbudget.uz/api/v2/vote/mvc/captcha",
@@ -489,14 +498,10 @@ class OpenBudgetService:
             ) or ""
 
             verify_url = "https://openbudget.uz/api/v2/vote/mvc/verify"
-            
             verify_data = {
                 "otpCode": str(code).strip(),
                 "grToken": recaptcha_token
             }
-
-            cookie_header_str = "; ".join(f"{k}={v}" for k, v in cookies.items()) if cookies else ""
-            
             verify_headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
                 "Content-Type": "application/x-www-form-urlencoded",
@@ -504,40 +509,32 @@ class OpenBudgetService:
                 "Origin": "https://openbudget.uz",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             }
-            if cookie_header_str:
-                verify_headers["Cookie"] = cookie_header_str
             
             proxy_url = settings.PROXY_URL or None
             
             try:
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=25)) as sess:
-                    logger.info(f"MVC Verify so'rovi yuborilmoqda: otpCode={code}, token_len={len(recaptcha_token)}")
+                async with session.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy_url, allow_redirects=True) as resp:
+                    v_html = await resp.text()
+                    v_lower = v_html.lower()
                     
-                    async with sess.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy_url, allow_redirects=True) as resp:
-                        v_html = await resp.text()
-                        v_lower = v_html.lower()
-                        
-                        logger.info(f"MVC Verify javobi: status={resp.status}, len={len(v_html)}")
-                        
-                        success_words = ["табриклаймиз", "муваффақият", "қабул қилинди", "раҳмат", "muvaffaqiyat", "qabul qilindi"]
-                        has_success = any(w in v_lower for w in success_words)
-                        
-                        has_otp_form = bool("<form" in v_lower and ("otpcode" in v_lower or "verify" in v_lower))
-                        has_danger = bool(re.search(r'class="[^"]*text-danger[^"]*"', v_html, re.I)) or "код хато" in v_lower or "xato" in v_lower
-                        
-                        if has_success and not has_otp_form and not has_danger:
-                            logger.info(f"✅ MVC Ovoz RASMAN qabul qilindi: {clean_phone} -> {target_uuid}")
-                            return True, "mvc_voted"
-                        else:
-                            err_text = "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
-                            err_match = re.search(r'<p[^>]*class="[^"]*text-danger[^"]*"[^>]*>(.*?)</p>', v_html, re.I)
-                            if err_match:
-                                err_text = re.sub(r'<[^>]+>', '', err_match.group(1)).strip()
-                            logger.warning(f"❌ MVC Verify RAD ETILDI: {err_text}")
-                            return False, err_text
+                    success_words = ["табриклаймиз", "муваффақият", "қабул қилинди", "раҳмат", "muvaffaqiyat", "qabul qilindi"]
+                    has_success = any(w in v_lower for w in success_words)
+                    has_otp_form = bool("<form" in v_lower and ("otpcode" in v_lower or "verify" in v_lower))
+                    has_danger = bool(re.search(r'class="[^"]*text-danger[^"]*"', v_html, re.I)) or "код хато" in v_lower or "xato" in v_lower
+                    
+                    if has_success and not has_otp_form and not has_danger:
+                        await session.close()
+                        cls._mvc_sessions.pop(session_key, None)
+                        return True, "mvc_voted"
+                    else:
+                        err_text = "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
+                        err_match = re.search(r'<p[^>]*class="[^"]*text-danger[^"]*"[^>]*>(.*?)</p>', v_html, re.I)
+                        if err_match:
+                            err_text = re.sub(r'<[^>]+>', '', err_match.group(1)).strip()
+                        return False, err_text
             except Exception as e:
                 logger.error(f"MVC Verify xatosi: {e}")
-                return False, "SMS tasdiqlashda tarmoq xatoligi yuz berdi. Iltimos qaytadan urinib ko'ring."
+                return False, "SMS tasdiqlashda tarmoq xatoligi yuz berdi."
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
