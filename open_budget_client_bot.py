@@ -2522,7 +2522,10 @@ async def vote_phone(msg: Message, state: FSMContext):
             await sending.delete()
             return await msg.answer(f"❌ {err or 'Xatolik yuz berdi.'}", reply_markup=kb_main())
 
-        await state.update_data(otp_key=res_otp.get("otp_key"))
+        await state.update_data(
+            otp_key=res_otp.get("otp_key"),
+            session_data=res_otp.get("session_data")
+        )
         await sending.edit_text(
             f"📩 <b>SMS kod yuborildi!</b>\n\n"
             f"<code>{phone}</code> raqamiga yuborilgan <b>6 xonali kodni</b> kiriting:",
@@ -2579,7 +2582,10 @@ async def vote_captcha1(msg: Message, state: FSMContext):
         await sending.delete()
         return await msg.answer(f"❌ {err or 'Xatolik yuz berdi.'}", reply_markup=kb_main())
 
-    await state.update_data(otp_key=res.get("otp_key"))
+    await state.update_data(
+        otp_key=res.get("otp_key"),
+        session_data=res.get("session_data")
+    )
     await sending.edit_text(
         "📩 <b>SMS kod yuborildi!</b>\n\n"
         "Telefoningizga kelgan <b>6 xonali kodni</b> kiriting:",
@@ -2824,6 +2830,7 @@ async def vote_sms(msg: Message, state: FSMContext):
         "phone_number": data["phone"],
         "otp_code":     text,
         "otp_key":      data["otp_key"],
+        "session_data": data.get("session_data"),
     })
 
     if status != 200:

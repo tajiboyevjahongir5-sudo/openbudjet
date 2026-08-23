@@ -27,6 +27,7 @@ class VerifyRequest(BaseModel):
     otp_key: str = Field(..., description="SMS yuborishda qaytarilgan otp_key")
     session_key: str | None = Field(None, description="Sessiya kaliti")
     flow: str | None = Field(None, description="Oqim turi (masalan, mvc)")
+    session_data: dict | None = Field(None, description="Sessiya ma'lumotlari")
 
 class RegisterOTPRequest(BaseModel):
     first_name: str = Field(..., description="Ism")
@@ -195,7 +196,8 @@ async def send_otp(
         "message": "SMS kod muvaffaqiyatli yuborildi.",
         "otp_key": session_data.get("otp_key") if session_data else None,
         "session_key": session_data.get("session_key") if session_data else None,
-        "flow": session_data.get("flow") if session_data else None
+        "flow": session_data.get("flow") if session_data else None,
+        "session_data": session_data
     }
 
 
@@ -302,11 +304,17 @@ async def verify_otp(
     Kiritilgan SMS kodni tekshiradi va muvaffaqiyatli bo'lsa login tokenini qaytaradi.
     Narxi: Bepul
     """
+    s_key = req.session_key
+    s_flow = req.flow
+    if req.session_data and isinstance(req.session_data, dict):
+        s_key = s_key or req.session_data.get("session_key")
+        s_flow = s_flow or req.session_data.get("flow")
+
     session_data = {
         "otp_key": req.otp_key,
         "phone": req.phone_number,
-        "session_key": req.session_key,
-        "flow": req.flow or "mvc"
+        "session_key": s_key,
+        "flow": s_flow or "mvc"
     }
     
     success, result_msg = await OpenBudgetService.verify_sms_code(
