@@ -20,7 +20,6 @@ from services.openbudget import OpenBudgetService
 router = Router()
 logger = logging.getLogger(__name__)
 
-# Telefon raqamlarini formatlash uchun regex
 PHONE_REGEX = re.compile(r"^\+?(998)?\s?\(?\d{2}\)?\s?\d{3}\s?\d{2}\s?\d{2}$")
 
 def clean_phone_number(phone: str) -> str:
@@ -95,7 +94,6 @@ async def process_menu_vote(callback: CallbackQuery, state: FSMContext):
 @router.message(VoteStates.WAITING_FOR_PHONE, F.contact)
 async def process_phone_contact(message: Message, state: FSMContext):
     phone = message.contact.phone_number
-    # Kontakt raqamini ham tekshiramiz
     cleaned = "".join(filter(str.isdigit, phone))
     if not (cleaned.startswith("998") and len(cleaned) == 12) and len(cleaned) != 9:
         await message.answer(
@@ -134,7 +132,6 @@ async def start_in_bot_registration(message: Message, state: FSMContext, phone: 
     """Foydalanuvchi Open Budget'da ro'yxatdan o'tmagan bo'lsa, bot o'zi avtomatik ro'yxatdan o'tkazadi"""
     import random
 
-    # 1. Ma'lumotlarni tasodifiy generatsiya qilamiz (client bot kabi)
     uz_names = [
         "Jahongir Aliyev", "Sardor Karimov", "Madina Umarova",
         "Zulfiya Rashidova", "Bobur Yusupov", "Malika Nazarova",
@@ -154,11 +151,9 @@ async def start_in_bot_registration(message: Message, state: FSMContext, phone: 
     day = random.randint(1, 28)
     birth_date = f"{year}-{month:02d}-{day:02d}"
 
-    # 2. Loyiha region/district ID — Open Budget haqiqiy ID lari:
-    region_id = 1     # Toshkent shahri
-    district_id = 1   # Bektemir tumani
+    region_id = 1
+    district_id = 1
 
-    # 3. Foydalanuvchiga jarayon boshlanganini ko'rsatamiz
     auto_reg_msg = await message.answer(
         "🤖 <b>Tizimda ro'yxatdan o'tmagansiz.</b>\n\n"
         "⏳ Bot sizni <b>avtomatik ravishda</b> ro'yxatdan o'tkazmoqda...\n"
@@ -166,7 +161,6 @@ async def start_in_bot_registration(message: Message, state: FSMContext, phone: 
         parse_mode="HTML"
     )
 
-    # 4. Ro'yxatdan o'tish uchun Captcha va OTP so'rovi (2 martagacha)
     reg_success = False
     reg_result_msg = ""
     reg_session_data = None
@@ -258,7 +252,6 @@ async def start_in_bot_registration(message: Message, state: FSMContext, phone: 
         await state.clear()
         return
 
-    # 5. SMS muvaffaqiyatli ketdi — SMS kodni kiritishni so'raymiz
     await state.update_data(session_data=reg_session_data, phone_number=phone, project_id=project_id)
     await state.set_state(VoteStates.REG_WAITING_SMS)
     await message.answer(
@@ -270,9 +263,8 @@ async def start_in_bot_registration(message: Message, state: FSMContext, phone: 
         parse_mode="HTML"
     )
 
-
 async def handle_phone_submission(message: Message, state: FSMContext, phone: str):
-    """Telefon raqamini tekshirish va SMS yoki Captcha so'rovini yuborish"""
+    """Telefon raqamini tekshirish va SMS so'rovini yuborish"""
     clean_phone = clean_phone_number(phone)
     telegram_id = message.from_user.id
 
@@ -283,7 +275,6 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             return
         project_id = active_project.project_id
 
-        # 1. Ushbu raqam orqali ovoz berilganligini tekshirish
         already_voted = await crud.check_phone_voted(db, clean_phone, project_id)
         if already_voted:
             await message.answer(
@@ -293,7 +284,6 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
             )
             return
 
-        # 2. Ushbu foydalanuvchi boshqa raqam orqali allaqachon ovoz berganligini tekshirish
         prev_phone = await crud.get_user_successful_vote_phone(db, telegram_id, project_id)
         if prev_phone and clean_phone != clean_phone_number(prev_phone):
             masked = mask_phone_display(prev_phone)
@@ -307,7 +297,6 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
 
     waiting_msg = await message.answer("⏳ <b>Bog'lanish:</b> Loyihaga rasmiy SMS so'ralmoqda...", parse_mode="HTML")
 
-    # 1. To'g'ridan-to'g'ri Rasmiy MVC Loyiha ovoz berish SMS-ini yuboramiz
     mvc_success, mvc_msg, mvc_session = await OpenBudgetService.send_mvc_initiative_sms(
         phone_number=clean_phone,
         project_id=project_id
@@ -358,7 +347,6 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
         await state.clear()
         return
 
-    # 2. Agar MVC so'rovi muvaffaqiyatsiz bo'lsa
     try:
         await waiting_msg.delete()
     except Exception:
@@ -398,7 +386,6 @@ async def process_captcha_result(message: Message, state: FSMContext):
 
         waiting_msg = await message.answer("⏳ <b>Tasdiqlash:</b> SMS kod so'ralmoqda...", parse_mode="HTML")
 
-        # Captcha kodi bilan portalga SMS so'rovi yuboramiz
         success, error_msg, session_data = await OpenBudgetService.check_and_send_sms(
             phone_number=phone_number,
             project_id=project_id,
@@ -439,7 +426,6 @@ async def process_captcha_result(message: Message, state: FSMContext):
                 )
             return
 
-        # SMS kod muvaffaqiyatli ketdi
         await state.update_data(session_data=session_data)
         await state.set_state(VoteStates.WAITING_FOR_SMS)
         
@@ -473,10 +459,7 @@ async def execute_final_vote_casting(
     captcha_result: int,
     waiting_msg: Message = None
 ) -> tuple[bool, str]:
-    """
-    Ovoz berish so'rovini portalga yuboradi va mukofotlarni hisoblaydi.
-    Muvaffaqiyatli bo'lsa (True, "success"), xato bo'lsa (False, error_reason) qaytaradi.
-    """
+    """Ovoz berish so'rovini portalga yuboradi va mukofotlarni hisoblaydi."""
     if waiting_msg is None:
         waiting_msg = await message.answer("🔄 Ovoz berish yakunlanmoqda, kuting...")
     else:
@@ -488,7 +471,6 @@ async def execute_final_vote_casting(
     telegram_id = message.from_user.id
 
     try:
-        # Ovoz berish so'rovini yuboramiz
         success, result_msg = await OpenBudgetService.cast_vote(
             project_id=project_id,
             access_token=access_token,
@@ -504,10 +486,8 @@ async def execute_final_vote_casting(
         if not success:
             return False, result_msg
 
-        # --- OVOZ OPEN BUDGETGA YUBORILDI (SAYTDA TASDIQLANISHI KUTILMOQDA) ---
         async with async_session() as db:
             try:
-                # Ovoz tarixini PENDING_VERIFY holatida bazaga yozamiz
                 await crud.add_vote_history(
                     db=db,
                     telegram_id=telegram_id,
@@ -530,7 +510,6 @@ async def execute_final_vote_casting(
                 )
                 await message.answer(success_text, reply_markup=reply.get_user_menu(), parse_mode="HTML")
 
-                # Fon xizmatini darhol tekshirishga uyg'otamiz
                 try:
                     from services.vote_verifier import verify_pending_votes_step
                     asyncio.create_task(verify_pending_votes_step(message.bot))
@@ -539,17 +518,6 @@ async def execute_final_vote_casting(
 
                 await state.clear()
                 return True, "pending_verify"
-
-            except Exception as e:
-                await db.rollback()
-                logger.error(f"Ovoz yozish tranzaksiyasida xatolik: {e}", exc_info=True)
-                await message.answer(
-                    "❌ Ovoz qabul qilindi, lekin ma'lumotlarni saqlashda xatolik yuz berdi.\n"
-                    "Iltimos, adminlar bilan bog'laning.",
-                    reply_markup=reply.get_user_menu()
-                )
-                await state.clear()
-                return False, "db_error"
 
             except Exception as e:
                 await db.rollback()
@@ -617,7 +585,6 @@ async def process_sms_code(message: Message, state: FSMContext):
     if result_msg == "mvc_voted":
         async with async_session() as db:
             try:
-                # 1. Ovoz tarixini PENDING_VERIFY holatida bazaga yozamiz
                 await crud.add_vote_history(
                     db=db,
                     telegram_id=telegram_id,
@@ -643,7 +610,6 @@ async def process_sms_code(message: Message, state: FSMContext):
                 logger.error(f"MVC vote save error: {e}", exc_info=True)
                 await message.answer("✅ Ovoz qabul qilindi!", reply_markup=reply.get_user_menu())
 
-        # Fon xizmatini darhol tekshirishga uyg'otamiz
         try:
             from services.vote_verifier import verify_pending_votes_step
             asyncio.create_task(verify_pending_votes_step(message.bot))
@@ -653,10 +619,8 @@ async def process_sms_code(message: Message, state: FSMContext):
         await state.clear()
         return
 
-    # SMS kod tasdiqlandi, endi final captcha yuklaymiz
-    access_token = result_msg  # verify_sms_code muvaffaqiyatli bo'lsa token qaytaradi
+    access_token = result_msg
     
-    # 2-captcha yuklash
     cap_waiting = await message.answer("🔄 Yakuniy xavfsizlik tekshiruvi (Captcha) yuklanmoqda...")
     success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
     await cap_waiting.delete()
@@ -668,12 +632,10 @@ async def process_sms_code(message: Message, state: FSMContext):
     captcha_key = cap_data.get("key")
     captcha_image = cap_data.get("image_base64")
 
-    # 🤖 Avtomatik yechishga urinish (2 martagacha)
     auto_result = None
     max_auto_attempts = 2
     for auto_attempt in range(max_auto_attempts):
         if auto_attempt > 0:
-            # Yangi fresh captcha yuklaymiz
             cap_waiting = await message.answer(f"🔄 <b>Qayta urinish:</b> Yangi captcha yechilmoqda ({auto_attempt+1}/{max_auto_attempts})...")
             success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
             await cap_waiting.delete()
@@ -699,8 +661,6 @@ async def process_sms_code(message: Message, state: FSMContext):
             continue
 
         logger.info(f"Final Captcha avtomatik yechildi ({auto_attempt+1}-urinish): {auto_result}")
-        
-        # 1.5 soniya sleep, inson kabi ko'rinishi va rate limit oldini olish uchun
         await asyncio.sleep(1.5)
         
         final_waiting = await message.answer("🔄 Ovoz berish yakunlanmoqda, kuting...")
@@ -718,7 +678,6 @@ async def process_sms_code(message: Message, state: FSMContext):
         if success_vote:
             return
 
-        # Agar allaqachon ovoz berilgan bo'lsa yoki jiddiy xato bo'lsa, to'xtatamiz
         if error_vote == "already_voted":
             async with async_session() as db:
                 await crud.add_vote_history(
@@ -738,7 +697,6 @@ async def process_sms_code(message: Message, state: FSMContext):
             
         logger.warning(f"Avtomatik final captcha xatosi ({error_vote}), qayta uriniladi...")
 
-    # 🧑 Agar avtomatik yechish o'xshasa, qo'lda yechishga o'tamiz
     await state.update_data(
         access_token=access_token,
         captcha_key=captcha_key,
@@ -841,7 +799,6 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
                 return
 
             else:
-                # Muvaqqat portal yoki server xatoligi yuz berganda
                 if any(x in error_vote.lower() for x in ["server", "portal", "ulanish", "timeout", "status: 5"]):
                     await message.answer(
                         f"⚠️ <b>Portalda vaqtincha xatolik yuz berdi:</b>\n{html.escape(error_vote)}\n\n"
@@ -868,7 +825,6 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
                         )
                         return
 
-                # Boshqa doimiy rad etish holatlari
                 async with async_session() as db:
                     await crud.add_vote_history(
                         db=db,
@@ -889,9 +845,7 @@ async def process_final_captcha_result(message: Message, state: FSMContext):
         logger.error(f"Final Captcha WebApp natijasini o'qishda xato: {e}", exc_info=True)
         await message.answer("❌ Captcha ma'lumotlarini qabul qilishda xatolik yuz berdi. Qayta urinib ko'ring.")
 
-# ==========================================
-# RO'YXATDAN O'TISH (IN-BOT REGISTRATION) HANDLERLARI
-# ==========================================
+# RO'YXATDAN O'TISH HANDLERLARI
 
 @router.callback_query(F.data == "reg_cancel")
 async def process_reg_cancel(callback: CallbackQuery, state: FSMContext):
@@ -901,7 +855,6 @@ async def process_reg_cancel(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "reg_use_tg_name", VoteStates.REG_WAITING_NAME)
 async def process_reg_use_tg_name(callback: CallbackQuery, state: FSMContext):
-    """Telegram profilidagi ism-familiyani tasdiqlash"""
     from_user = callback.from_user
     first_name = from_user.first_name or "Fuqaro"
     last_name = from_user.last_name or ""
@@ -921,7 +874,6 @@ async def process_reg_use_tg_name(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "reg_custom_name", VoteStates.REG_WAITING_NAME)
 async def process_reg_custom_name_btn(callback: CallbackQuery, state: FSMContext):
-    """Boshqa ism yozishni tanlaganda"""
     await callback.message.answer(
         "✏️ Iltimos, Ism va Familiyangizni yozing:\n"
         "(Masalan: <i>Jahongir Tojiboyev</i>)",
@@ -932,7 +884,6 @@ async def process_reg_custom_name_btn(callback: CallbackQuery, state: FSMContext
 
 @router.message(VoteStates.REG_WAITING_NAME, F.text)
 async def process_reg_custom_name_text(message: Message, state: FSMContext):
-    """Foydalanuvchi ism-familiyani matn sifatida yuborganda"""
     text = message.text.strip()
     if text == "❌ Jarayonni bekor qilish":
         await state.clear()
@@ -957,29 +908,25 @@ async def process_reg_custom_name_text(message: Message, state: FSMContext):
 
 @router.message(VoteStates.REG_WAITING_BIRTHDAY, F.text)
 async def process_reg_birthday(message: Message, state: FSMContext):
-    """Tug'ilgan sanani qabul qilish va formatlash"""
     text = message.text.strip()
     if text == "❌ Jarayonni bekor qilish":
         await state.clear()
         await message.answer("Jarayon bekor qilindi.", reply_markup=reply.get_user_menu())
         return
 
-    # Sana formatlash (YYYY-MM-DD)
     clean_date = "1998-01-01"
     digits = re.findall(r'\d+', text)
     
     if len(digits) == 1 and len(digits[0]) == 4:
-        # Faqat yil kiritilgan (masalan: 1998)
         year = int(digits[0])
         if 1940 <= year <= 2010:
             clean_date = f"{year}-01-01"
         else:
             clean_date = "1998-01-01"
     elif len(digits) >= 3:
-        # DD.MM.YYYY yoki YYYY-MM-DD
-        if len(digits[0]) == 4: # YYYY-MM-DD
+        if len(digits[0]) == 4:
             clean_date = f"{digits[0]}-{digits[1].zfill(2)}-{digits[2].zfill(2)}"
-        else: # DD-MM-YYYY
+        else:
             clean_date = f"{digits[2]}-{digits[1].zfill(2)}-{digits[0].zfill(2)}"
 
     await state.update_data(reg_birth_date=clean_date)
@@ -993,7 +940,6 @@ async def process_reg_birthday(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("reg_gender_"), VoteStates.REG_WAITING_GENDER)
 async def process_reg_gender(callback: CallbackQuery, state: FSMContext):
-    """Jinsni tanlash"""
     gender = callback.data.replace("reg_gender_", "")
     await state.update_data(reg_gender=gender)
     await state.set_state(VoteStates.REG_WAITING_REGION)
@@ -1009,7 +955,6 @@ async def process_reg_gender(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "reg_back_regions", VoteStates.REG_WAITING_DISTRICT)
 async def process_reg_back_regions(callback: CallbackQuery, state: FSMContext):
-    """Viloyatni qaytadan tanlash"""
     await state.set_state(VoteStates.REG_WAITING_REGION)
     await callback.message.answer(
         "📍 <b>Viloyatingizni tanlang:</b>",
@@ -1020,7 +965,6 @@ async def process_reg_back_regions(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("reg_reg_"), VoteStates.REG_WAITING_REGION)
 async def process_reg_region(callback: CallbackQuery, state: FSMContext):
-    """Viloyat tanlanganda uning tumanlarini chiqarish"""
     from utils.regions import get_region_name
     region_id = int(callback.data.replace("reg_reg_", ""))
     await state.update_data(reg_region_id=region_id)
@@ -1037,7 +981,6 @@ async def process_reg_region(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("reg_dist_"), VoteStates.REG_WAITING_DISTRICT)
 async def process_reg_district(callback: CallbackQuery, state: FSMContext):
-    """Tuman tanlangach, ro'yxatdan o'tish captchasini ko'rsatish"""
     parts = callback.data.split("_")
     region_id = int(parts[2])
     district_id = int(parts[3])
@@ -1048,7 +991,6 @@ async def process_reg_district(callback: CallbackQuery, state: FSMContext):
     waiting_msg = await callback.message.answer("🔄 <b>Ro'yxatdan o'tish uchun Captcha yuklanmoqda...</b>", parse_mode="HTML")
     await callback.answer()
 
-    # 1. Captcha olish
     success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
     await waiting_msg.delete()
 
@@ -1074,7 +1016,6 @@ async def process_reg_district(callback: CallbackQuery, state: FSMContext):
 
 @router.message(VoteStates.REG_WAITING_CAPTCHA, F.web_app_data)
 async def process_reg_captcha_result(message: Message, state: FSMContext):
-    """Ro'yxatdan o'tish captchasi yechilganda portalga OTP so'rovi yuborish"""
     try:
         raw_data = message.web_app_data.data
         data = json.loads(raw_data)
@@ -1103,7 +1044,6 @@ async def process_reg_captcha_result(message: Message, state: FSMContext):
 
         waiting_msg = await message.answer("🔄 <b>Ro'yxatdan o'tish SMS kodi so'ralmoqda...</b>", parse_mode="HTML")
 
-        # Ro'yxatdan o'tish OTP so'rovi
         success, result_msg, session_data = await OpenBudgetService.send_registration_otp(
             first_name=first_name,
             last_name=last_name,
@@ -1130,7 +1070,6 @@ async def process_reg_captcha_result(message: Message, state: FSMContext):
             await state.clear()
             return
 
-        # SMS muvaffaqiyatli ketdi
         await state.update_data(session_data=session_data)
         await state.set_state(VoteStates.REG_WAITING_SMS)
 
@@ -1148,7 +1087,6 @@ async def process_reg_captcha_result(message: Message, state: FSMContext):
 
 @router.message(VoteStates.REG_WAITING_SMS, F.text)
 async def process_reg_sms_code(message: Message, state: FSMContext):
-    """Ro'yxatdan o'tish SMS kodini tekshirish va darhol ovoz berish jarayoniga o'tish"""
     code = message.text.strip()
     if code == "❌ Jarayonni bekor qilish":
         await state.clear()
@@ -1186,7 +1124,6 @@ async def process_reg_sms_code(message: Message, state: FSMContext):
 
     access_token = result_msg
 
-    # Muvaffaqiyatli ro'yxatdan o'tildi! Endi ovoz berish uchun final captcha olamiz va avtomatik yechamiz!
     cap_waiting = await message.answer("✅ <b>Ro'yxatdan o'tish tasdiqlandi!</b>\n⚡ Ovozingiz rasmiylashtirilmoqda...", parse_mode="HTML")
     success_cap, cap_msg, cap_data = await OpenBudgetService.get_captcha()
 
@@ -1201,7 +1138,6 @@ async def process_reg_sms_code(message: Message, state: FSMContext):
     captcha_key = cap_data.get("key")
     captcha_image = cap_data.get("image_base64")
 
-    # Avtomatik yechish
     auto_final_result = None
     if captcha_image and not cap_data.get("mock"):
         try:
@@ -1211,7 +1147,6 @@ async def process_reg_sms_code(message: Message, state: FSMContext):
             logger.warning(f"Final captcha solver xatosi: {e}")
 
     if auto_final_result is not None:
-        # Avtomatik ovoz beramiz!
         vote_success, vote_result = await OpenBudgetService.cast_vote(
             project_id=project_id,
             access_token=access_token,
@@ -1223,7 +1158,6 @@ async def process_reg_sms_code(message: Message, state: FSMContext):
         except Exception:
             pass
         if vote_success:
-            # Ovoz muvaffaqiyatli qabul qilindi!
             async with async_session() as db:
                 await crud.add_vote_history(
                     db=db,
@@ -1252,7 +1186,6 @@ async def process_reg_sms_code(message: Message, state: FSMContext):
     except Exception:
         pass
 
-    # Agar avtomatik yechilmasa, qo'lda yechishni ko'rsatamiz
     await state.update_data(
         access_token=access_token,
         captcha_key=captcha_key,
@@ -1269,6 +1202,3 @@ async def process_reg_sms_code(message: Message, state: FSMContext):
         reply_markup=reply.get_captcha_reply_keyboard(session_id, web_url),
         parse_mode="HTML"
     )
-
-
-
