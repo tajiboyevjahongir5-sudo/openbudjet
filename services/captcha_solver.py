@@ -378,38 +378,46 @@ async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
     """
     from config import settings
     
-    # 1. Tezkor Gemini Vision AI
+    # 1. Tezkor Gemini Vision AI (Barcha 9 ta kalit bo'yicha navbati bilan tekshiriladi)
     try:
         from google import genai
-        gemini_keys = getattr(settings, "GEMINI_API_KEYS", "").split(",")
-        if gemini_keys and gemini_keys[0].strip():
-            client = genai.Client(api_key=gemini_keys[0].strip())
-            prompt = (
-                "You are an expert visual coordinate detector.\n"
-                "Image 1 (Instruction): Contains exactly 2 reference characters/letters shown side by side in left-to-right order.\n"
-                "Image 2 (Search Canvas): A 340 pixel wide by 220 pixel high canvas containing various scattered characters.\n\n"
-                "Step 1: Identify the first letter (on the left of Image 1). Find its exact center coordinates (x between 0 and 340, y between 0 and 220) in Image 2.\n"
-                "Step 2: Identify the second letter (on the right of Image 1). Find its exact center coordinates in Image 2.\n\n"
-                "Output strictly valid JSON with the 2 points in order:\n"
-                '[{"x": 120, "y": 80}, {"x": 250, "y": 150}]'
-            )
-            response = client.models.generate_content(
-                model="gemini-3.6-flash",
-                contents=[
-                    prompt,
-                    genai.types.Part.from_bytes(data=base64.b64decode(imgA_b64), mime_type="image/png"),
-                    genai.types.Part.from_bytes(data=base64.b64decode(imgB_b64), mime_type="image/png"),
-                ]
-            )
-            coords = json.loads(re.search(r"\[\s*\{.*?\}\s*\]", response.text, re.DOTALL).group(0))
-            points = [{"id": f"{pt['x']}{pt['y']}", "x": int(pt["x"]), "y": int(pt["y"])} for pt in coords]
-            if len(points) >= 2:
-                logger.info(f"Gemini Vision MVC points tezkor topdi: {points}")
-                return points
-    except Exception as e:
-        logger.warning(f"Gemini MVC visual solve xatosi: {e}")
+        raw_keys = getattr(settings, "GEMINI_API_KEYS", "") or ""
+        gemini_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+        
+        prompt = (
+            "You are an expert visual coordinate detector.\n"
+            "Image 1 (Instruction): Contains exactly 2 reference characters/letters shown side by side in left-to-right order.\n"
+            "Image 2 (Search Canvas): A 340 pixel wide by 220 pixel high canvas containing various scattered characters.\n\n"
+            "Step 1: Identify the first letter (on the left of Image 1). Find its exact center coordinates (x between 0 and 340, y between 0 and 220) in Image 2.\n"
+            "Step 2: Identify the second letter (on the right of Image 1). Find its exact center coordinates in Image 2.\n\n"
+            "Output strictly valid JSON with the 2 points in order:\n"
+            '[{"x": 120, "y": 80}, {"x": 250, "y": 150}]'
+        )
+        part_a = genai.types.Part.from_bytes(data=base64.b64decode(imgA_b64), mime_type="image/png")
+        part_b = genai.types.Part.from_bytes(data=base64.b64decode(imgB_b64), mime_type="image/png")
 
-    # 2. Zaxira: 2Captcha coordinates solver
+        for key in gemini_keys:
+            try:
+                client = genai.Client(api_key=key)
+                response = client.models.generate_content(
+                    model="gemini-3.6-flash",
+                    contents=[prompt, part_a, part_b]
+                )
+                if response and response.text:
+                    match = re.search(r"\[\s*\{.*?\}\s*\]", response.text, re.DOTALL)
+                    if match:
+                        coords = json.loads(match.group(0))
+                        points = [{"id": f"{int(pt['x'])}{int(pt['y'])}", "x": int(pt["x"]), "y": int(pt["y"])} for pt in coords]
+                        if len(points) >= 2:
+                            logger.info(f"Gemini Vision MVC points tezkor topdi ({key[:8]}...): {points}")
+                            return points
+            except Exception as e:
+                logger.warning(f"Gemini kalit {key[:8]}... xatosi: {e}")
+                continue
+    except Exception as e:
+        logger.warning(f"Gemini MVC visual solve umumiy xatosi: {e}")
+
+    # 2. Zaxira: 2Captcha coordinates solver (Tezkor 12s timeout)
     try:
         api_key = getattr(settings, "TWOCAPTCHA_API_KEY", "") or "9b2aa62e71a8d0056aa94e4d6e301f9d"
         payload = {
@@ -421,15 +429,15 @@ async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
             "coordinatescaptcha": 1,
             "json": 1
         }
-        timeout = aiohttp.ClientTimeout(total=25)
+        timeout = aiohttp.ClientTimeout(total=12)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post("https://2captcha.com/in.php", data=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
                     if data.get("status") == 1:
                         task_id = data.get("request")
-                        for _ in range(8):
-                            await asyncio.sleep(2.0)
+                        for _ in range(5):
+                            await asyncio.sleep(1.5)
                             async with session.get("https://2captcha.com/res.php", params={"key": api_key, "action": "get", "id": task_id, "json": 1}) as r:
                                 res_data = await r.json(content_type=None)
                                 if res_data.get("status") == 1:
