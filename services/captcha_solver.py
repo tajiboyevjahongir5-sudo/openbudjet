@@ -503,8 +503,8 @@ async def solve_recaptcha_v3(sitekey: str, pageurl: str, action: str = "submit")
                 
             logger.info(f"reCAPTCHA v3 task created: {task_id}, polling for solution...")
             
-            for attempt in range(12):
-                await asyncio.sleep(2)
+            for attempt in range(30):
+                await asyncio.sleep(3)
                 params = {
                     "key": api_key,
                     "action": "get",
