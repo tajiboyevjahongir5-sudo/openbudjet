@@ -530,6 +530,7 @@ class OpenBudgetService:
         # --- REAL REJIM ---
         # 1. Agar MVC rasmiy loyiha oqimi bo'lsa
         if session_data and session_data.get("flow") == "mvc":
+            from yarl import URL
             cookies = session_data.get("cookies", {})
             target_uuid = session_data.get("target_uuid")
             
@@ -545,29 +546,46 @@ class OpenBudgetService:
                 "grToken": ""
             }
             
+            jar = aiohttp.CookieJar(unsafe=True)
             if cookies:
+                jar.update_cookies(cookies, response_url=URL("https://openbudget.uz"))
                 verify_headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in cookies.items())
                 
             proxy = settings.PROXY_URL or None
             try:
                 timeout = aiohttp.ClientTimeout(total=25)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
                     async with session.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy, allow_redirects=True) as resp:
                         v_html = await resp.text()
                         v_lower = v_html.lower()
+                        
+                        error_markers = [
+                            "хато", "нотўғри", "топилмади", "тугаган", "муддати", "яроқсиз",
+                            "xato", "noto'g'ri", "muddati", "error", "not found", "invalid"
+                        ]
                         success_markers = (
                             "муваффақият", "muvaffaqiyat", "қабул қилинди", "qabul qilindi",
                             "успеш", "rahmat", "раҳмат", "ovoz qabul", "tabriklaymiz", "табриклаймиз", "thanks"
                         )
-                        if (resp.status in (200, 201, 302) and any(m in v_lower for m in success_markers)) or resp.status == 200:
+                        
+                        is_success = any(m in v_lower for m in success_markers)
+                        is_error = any(e in v_lower for e in error_markers)
+                        
+                        if is_success and not is_error:
                             logger.info(f"Rasmiy MVC Ovoz muvaffaqiyatli qabul qilindi: {clean_phone} -> {target_uuid}")
                             return True, "mvc_voted"
+                        elif resp.status == 200 and not is_error and not ("<form" in v_html and "otpcode" in v_lower):
+                            logger.info(f"Rasmiy MVC Ovoz status 200: {clean_phone} -> {target_uuid}")
+                            return True, "mvc_voted"
                         else:
-                            logger.warning(f"MVC Verify status: {resp.status} — {v_html[:200]}")
+                            logger.warning(f"MVC Verify rad etildi: status={resp.status}, HTML={v_html[:250]}")
+                            err_match = re.search(r'<(?:p|div|span|h2)[^>]*class="[^"]*error[^"]*"[^>]*>(.*?)</', v_html, re.I)
+                            if err_match:
+                                return False, re.sub(r'<[^>]+>', '', err_match.group(1)).strip()
                             return False, "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
             except Exception as e:
                 logger.error(f"MVC Verify xatosi: {e}")
-                return False, "SMS tasdiqlashda tarmoq xatoligi yuz berdi."
+                return False, "SMS tasdiqlashda tarmoq xatoligi yuz berdi. Iltimos qaytadan urinib ko'ring."
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",

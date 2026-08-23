@@ -581,8 +581,12 @@ async def process_sms_code(message: Message, state: FSMContext):
         await message.answer("Jarayon bekor qilindi.", reply_markup=reply.get_user_menu())
         return
 
-    if not code.isdigit():
-        await message.answer("❌ SMS kod faqat raqamlardan iborat bo'lishi kerak. Iltimos to'g'ri kodni kiriting:")
+    if not code.isdigit() or len(code) != 6:
+        await message.answer(
+            "❌ SMS kod <b>6 xonali raqam</b> bo'lishi kerak (Masalan: <code>159795</code>).\n"
+            "Iltimos, telefoningizga kelgan 6 xonali SMS kodni kiriting:",
+            parse_mode="HTML"
+        )
         return
 
     data = await state.get_data()
