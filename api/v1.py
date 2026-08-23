@@ -109,6 +109,7 @@ async def get_boards(
 
 
 @router.get("/initiative/{project_id}")
+@router.get("/project/{project_id}")
 async def get_initiative_info(
     project_id: str
 ):
