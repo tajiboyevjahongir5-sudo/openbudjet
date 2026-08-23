@@ -317,19 +317,43 @@ async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
 async def solve_recaptcha_v3_capsolver(client_key: str, sitekey: str, pageurl: str, action: str = "submit") -> Optional[str]:
     """
     Solves Google reCAPTCHA v3 using CapSolver API (AI-based, extremely fast).
+    Supports passing proxy from settings to ensure high success/score.
     """
     create_url = "https://api.capsolver.com/createTask"
     result_url = "https://api.capsolver.com/getTaskResult"
     
+    from urllib.parse import urlparse
+    from config import settings
+    proxy_url = getattr(settings, "PROXY_URL", "").strip()
+    
+    task_payload = {
+        "websiteURL": pageurl,
+        "websiteKey": sitekey,
+        "pageAction": action,
+        "minScore": 0.3
+    }
+    
+    if proxy_url:
+        try:
+            parsed = urlparse(proxy_url)
+            task_payload["type"] = "ReCaptchaV3Task"
+            task_payload["proxyType"] = parsed.scheme or "http"
+            task_payload["proxyAddress"] = parsed.hostname
+            task_payload["proxyPort"] = parsed.port or (80 if parsed.scheme == "http" else 443)
+            if parsed.username:
+                task_payload["proxyLogin"] = parsed.username
+            if parsed.password:
+                task_payload["proxyPassword"] = parsed.password
+            logger.info("CapSolver reCAPTCHA v3 will use proxy to ensure high validation score")
+        except Exception as e:
+            logger.warning(f"Error parsing PROXY_URL for CapSolver: {e}. Falling back to ProxyLess.")
+            task_payload["type"] = "ReCaptchaV3TaskProxyLess"
+    else:
+        task_payload["type"] = "ReCaptchaV3TaskProxyLess"
+
     payload = {
         "clientKey": client_key,
-        "task": {
-            "type": "ReCaptchaV3TaskProxyLess",
-            "websiteURL": pageurl,
-            "websiteKey": sitekey,
-            "pageAction": action,
-            "minScore": 0.3
-        }
+        "task": task_payload
     }
     
     try:
