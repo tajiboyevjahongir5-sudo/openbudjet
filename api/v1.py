@@ -25,6 +25,8 @@ class VerifyRequest(BaseModel):
     phone_number: str = Field(..., description="Telefon raqami (masalan: 998901234567)")
     otp_code: str = Field(..., description="Telefonga kelgan 6 xonali SMS kod")
     otp_key: str = Field(..., description="SMS yuborishda qaytarilgan otp_key")
+    session_key: str | None = Field(None, description="Sessiya kaliti")
+    flow: str | None = Field(None, description="Oqim turi (masalan, mvc)")
 
 class RegisterOTPRequest(BaseModel):
     first_name: str = Field(..., description="Ism")
@@ -114,7 +116,7 @@ async def get_initiative_info(
     project_id: str
 ):
     """
-    Kiritilgan ID (raqamli ID yoki UUID) bo'yicha loyiha ma'lumotlarini qidirib topadi.
+    Kiritilgan ID (raqamli ID bo'yicha loyiha ma'lumotlarini qidirib topadi.
     Narxi: Bepul
     """
     initiative = await OpenBudgetService.find_initiative(project_id)
@@ -191,7 +193,9 @@ async def send_otp(
     return {
         "status": "success",
         "message": "SMS kod muvaffaqiyatli yuborildi.",
-        "otp_key": session_data.get("otp_key") if session_data else None
+        "otp_key": session_data.get("otp_key") if session_data else None,
+        "session_key": session_data.get("session_key") if session_data else None,
+        "flow": session_data.get("flow") if session_data else None
     }
 
 
@@ -300,7 +304,9 @@ async def verify_otp(
     """
     session_data = {
         "otp_key": req.otp_key,
-        "phone": req.phone_number
+        "phone": req.phone_number,
+        "session_key": req.session_key,
+        "flow": req.flow or "mvc"
     }
     
     success, result_msg = await OpenBudgetService.verify_sms_code(
