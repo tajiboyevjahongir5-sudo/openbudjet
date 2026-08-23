@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # 2Captcha.com / RuCaptcha.com API kaliti (muqobil to'lov qulay bo'lgan pullik captcha yechish)
     TWOCAPTCHA_API_KEY: str = ""
 
+    # CapSolver.com API kaliti (tezkor sun'iy intellektli captcha yechish)
+    CAPSOLVER_API_KEY: str = ""
+
     # Muvaffaqiyatli to'lovlarni e'lon qilish kanali (masalan: @mening_tolovlarim yoki -1001234567)
     PAYOUTS_CHANNEL: str = ""
 

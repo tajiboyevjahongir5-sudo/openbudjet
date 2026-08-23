@@ -485,12 +485,84 @@ async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
     return []
 
 
+async def solve_recaptcha_v3_capsolver(client_key: str, sitekey: str, pageurl: str, action: str = "submit") -> Optional[str]:
+    """
+    Solves Google reCAPTCHA v3 using CapSolver API (AI-based, extremely fast).
+    """
+    create_url = "https://api.capsolver.com/createTask"
+    result_url = "https://api.capsolver.com/getTaskResult"
+    
+    payload = {
+        "clientKey": client_key,
+        "task": {
+            "type": "ReCaptchaV3TaskProxyLess",
+            "websiteURL": pageurl,
+            "websiteKey": sitekey,
+            "pageAction": action,
+            "minScore": 0.3
+        }
+    }
+    
+    try:
+        timeout = aiohttp.ClientTimeout(total=20)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(create_url, json=payload) as resp:
+                if resp.status != 200:
+                    logger.warning(f"CapSolver createTask status code: {resp.status}")
+                    return None
+                data = await resp.json()
+                if data.get("errorId", 0) != 0:
+                    logger.warning(f"CapSolver createTask error: {data.get('errorDescription')}")
+                    return None
+                
+                task_id = data.get("taskId")
+                if data.get("status") == "ready":
+                    token = data.get("solution", {}).get("gRecaptchaResponse")
+                    logger.info("CapSolver reCAPTCHA v3 solved instantly on task creation!")
+                    return token
+                    
+            logger.info(f"CapSolver reCAPTCHA v3 task created: {task_id}, polling...")
+            for attempt in range(15):
+                await asyncio.sleep(1.0)
+                res_payload = {
+                    "clientKey": client_key,
+                    "taskId": task_id
+                }
+                async with session.post(result_url, json=res_payload) as resp:
+                    if resp.status != 200:
+                        continue
+                    res_data = await resp.json()
+                    if res_data.get("errorId", 0) != 0:
+                        logger.warning(f"CapSolver getTaskResult error: {res_data.get('errorDescription')}")
+                        return None
+                    if res_data.get("status") == "ready":
+                        token = res_data.get("solution", {}).get("gRecaptchaResponse")
+                        logger.info("CapSolver reCAPTCHA v3 solved successfully!")
+                        return token
+                        
+            logger.warning("CapSolver reCAPTCHA v3 polling timeout")
+    except Exception as e:
+        logger.error(f"CapSolver reCAPTCHA v3 exception: {e}")
+    return None
+
+
 async def solve_recaptcha_v3(sitekey: str, pageurl: str, action: str = "submit") -> Optional[str]:
     """
-    Solves Google reCAPTCHA v3 using 2Captcha API with automatic retry on failure.
+    Solves Google reCAPTCHA v3 using CapSolver as primary, falling back to 2Captcha on failure.
     """
     try:
         from config import settings
+        
+        # 1. Try CapSolver first if configured
+        capsolver_key = getattr(settings, "CAPSOLVER_API_KEY", "").strip()
+        if capsolver_key:
+            logger.info("Using CapSolver for reCAPTCHA v3...")
+            token = await solve_recaptcha_v3_capsolver(capsolver_key, sitekey, pageurl, action)
+            if token:
+                return token
+            logger.warning("CapSolver failed to solve reCAPTCHA v3, falling back to 2Captcha...")
+
+        # 2. Fallback to 2Captcha
         api_key = getattr(settings, "TWOCAPTCHA_API_KEY", "") or "9b2aa62e71a8d0056aa94e4d6e301f9d"
         if not api_key:
             logger.warning("TWOCAPTCHA_API_KEY is empty, cannot solve reCAPTCHA v3")
@@ -540,7 +612,7 @@ async def solve_recaptcha_v3(sitekey: str, pageurl: str, action: str = "submit")
                             res_data = await resp.json(content_type=None)
                             if res_data.get("status") == 1:
                                 token = res_data.get("request")
-                                logger.info("reCAPTCHA v3 solved successfully!")
+                                logger.info("reCAPTCHA v3 solved successfully via 2Captcha!")
                                 return token
                             elif res_data.get("request") != "CAPCHA_NOT_READY":
                                 logger.warning(f"2Captcha res.php error: {res_data.get('request')} (attempt {try_count})")
@@ -548,7 +620,7 @@ async def solve_recaptcha_v3(sitekey: str, pageurl: str, action: str = "submit")
                                 
                     logger.warning(f"2Captcha reCAPTCHA v3 polling timeout/unsolvable on attempt {try_count}")
             except Exception as e:
-                logger.error(f"Error solving reCAPTCHA v3 on attempt {try_count}: {e}")
+                logger.error(f"Error solving reCAPTCHA v3 via 2Captcha on attempt {try_count}: {e}")
     except Exception as ge:
         logger.error(f"Global error solving reCAPTCHA v3: {ge}")
     return None
