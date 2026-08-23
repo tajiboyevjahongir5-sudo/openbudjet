@@ -49,12 +49,6 @@ class OpenBudgetService:
 
     @classmethod
     def _get_url(cls, path: str) -> str:
-        """
-        So'rov URL ni aniqlaydi:
-        - PROXY_URL sozlangan → openbudget.uz to'g'ridan (proksi aiohttp param sifatida)
-        - CLOUDFLARE_PROXY_URL sozlangan → Cloudflare Worker orqali
-        - Hech biri yo'q → openbudget.uz to'g'ridan
-        """
         if settings.PROXY_URL:
             base = "https://openbudget.uz/api"
         elif settings.CLOUDFLARE_PROXY_URL:
@@ -65,42 +59,34 @@ class OpenBudgetService:
 
     @classmethod
     def _get_direct_url(cls, path: str) -> str:
-        """To'g'ridan-to'g'ri openbudget.uz URL"""
         return f"https://openbudget.uz/api{path}"
 
-    # 1. Captcha olish manzili (GET)
     @classmethod
     def captcha_url(cls) -> str:
         return cls._get_url("/v2/vote/captcha-2")
 
-    # 2. Login va OTP yuborish (POST)
     @classmethod
     def send_otp_url(cls) -> str:
         return cls._get_url("/v1/login/send-otp")
 
-    # 3. OTP tasdiqlash va token olish (POST)
     @classmethod
     def verify_otp_url(cls) -> str:
         return cls._get_url("/v1/login/verify-otp")
 
-    # 4. Ro'yxatdan o'tish OTP yuborish (POST)
     @classmethod
     def register_send_otp_url(cls) -> str:
         return cls._get_url("/v1/register/send-otp")
 
-    # 5. Ro'yxatdan o'tish OTP tasdiqlash (POST)
     @classmethod
     def register_verify_otp_url(cls) -> str:
         return cls._get_url("/v1/register/verify-otp")
 
-    # 6. Ovozni tasdiqlab yakunlash (POST)
     @classmethod
     def cast_vote_url(cls) -> str:
         return cls._get_url("/v2/info/get-initiative-token")
 
     @staticmethod
     def _access_captcha_token() -> str:
-        """Access-Captcha headerini generatsiya qilish"""
         ts = str(int(time.time() * 1000))
         raw = f"openbudget-captcha-{ts}"
         return base64.b64encode(raw.encode()).decode()
@@ -114,7 +100,6 @@ class OpenBudgetService:
         json_data: dict | None = None,
         timeout_seconds: int = 25
     ) -> tuple[int, dict, str]:
-        """HTTP so'rovini bajaradi."""
         session = await cls._get_session()
 
         proxy: str | None = None
@@ -146,7 +131,6 @@ class OpenBudgetService:
 
     @classmethod
     async def get_captcha(cls) -> tuple[bool, str, dict | None]:
-        """GET /v2/vote/captcha-2"""
         if settings.MOCK_OPENBUDGET:
             return True, "ok", {"key": "mock_captcha_key", "image_base64": None, "mock": True}
 
@@ -182,7 +166,6 @@ class OpenBudgetService:
         captcha_key: str | None = None,
         captcha_result: int | None = None
     ) -> tuple[bool, str, dict | None]:
-        """POST /v1/login/send-otp"""
         clean_phone = "".join(filter(str.isdigit, phone_number))
         if clean_phone.startswith("998"):
             clean_phone = clean_phone[3:]
@@ -263,7 +246,6 @@ class OpenBudgetService:
         phone_number: str,
         project_id: str
     ) -> tuple[bool, str, dict | None]:
-        """Open Budget MVC captcha orqali rasmiy loyiha SMS-ini yuboradi."""
         from services.captcha_solver import solve_mvc_visual_captcha
         clean_phone = "".join(filter(str.isdigit, phone_number))
         if clean_phone.startswith("998"):
@@ -377,7 +359,6 @@ class OpenBudgetService:
         captcha_result: int | None = None,
         profession: str = "Xodim"
     ) -> tuple[bool, str, dict | None]:
-        """POST /v1/register/send-otp"""
         clean_phone = "".join(filter(str.isdigit, phone_number))
         if clean_phone.startswith("998"):
             clean_phone = clean_phone[3:]
@@ -436,7 +417,6 @@ class OpenBudgetService:
         code: str,
         session_data: dict
     ) -> tuple[bool, str]:
-        """POST /v1/register/verify-otp"""
         clean_phone = "".join(filter(str.isdigit, phone_number))
         if not clean_phone.startswith("998"):
             clean_phone = "998" + clean_phone
@@ -484,28 +464,39 @@ class OpenBudgetService:
         session_data: dict
     ) -> tuple[bool, str]:
         """
-        SMS kodni portal orqali tasdiqlaydi. (TUZATILGAN QISM)
+        SMS kodni portal orqali tasdiqlaydi. (RECAPTCHA V3 VA COOKIE HEADER TUZATILDI)
         """
         clean_phone = "".join(filter(str.isdigit, phone_number))
         if not clean_phone.startswith("998"):
             clean_phone = "998" + clean_phone
 
-        # --- MOCK REJIM ---
         if settings.MOCK_OPENBUDGET:
             expected = session_data.get("otp_code", "1111")
             if code == expected:
                 return True, "mock_access_token"
             return False, "Kiritilgan SMS kod noto'g'ri. Qayta tekshiring."
 
-        # --- REAL REJIM ---
-        # 1. Agar MVC rasmiy loyiha oqimi bo'lsa
         if session_data and session_data.get("flow") == "mvc":
             cookies = session_data.get("cookies", {})
             target_uuid = session_data.get("target_uuid")
             
+            from services.captcha_solver import solve_recaptcha_v3
+            logger.info("Solving recaptcha v3 for MVC verify...")
+            recaptcha_token = await solve_recaptcha_v3(
+                sitekey="6Ld3Cq8pAAAAAMdF062c3e5G05mB9jN7J3v5-b-H",
+                pageurl="https://openbudget.uz/api/v2/vote/mvc/captcha",
+                action="submit"
+            ) or ""
+
             verify_url = "https://openbudget.uz/api/v2/vote/mvc/verify"
             
-            # Qo'lda Cookie header qo'shilmaydi — aiohttp CookieJar zanjir orqali boshqaradi
+            verify_data = {
+                "otpCode": str(code).strip(),
+                "grToken": recaptcha_token
+            }
+
+            cookie_header_str = "; ".join(f"{k}={v}" for k, v in cookies.items()) if cookies else ""
+            
             verify_headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
                 "Content-Type": "application/x-www-form-urlencoded",
@@ -513,23 +504,14 @@ class OpenBudgetService:
                 "Origin": "https://openbudget.uz",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             }
-            
-            verify_data = {
-                "otpCode": str(code).strip(),
-            }
+            if cookie_header_str:
+                verify_headers["Cookie"] = cookie_header_str
             
             proxy_url = settings.PROXY_URL or None
             
-            # Jar'ni to'g'ri xotiradan tiklaymiz
-            jar = aiohttp.CookieJar(unsafe=True)
-            if cookies:
-                jar.update_cookies(cookies, response_url=URL("https://openbudget.uz/"))
-
-            timeout = aiohttp.ClientTimeout(total=20)
-            
             try:
-                async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as sess:
-                    logger.info(f"MVC Verify so'rovi yuborilmoqda: proxy={'yes' if proxy_url else 'no'}, cookies_count={len(cookies)}")
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=25)) as sess:
+                    logger.info(f"MVC Verify so'rovi yuborilmoqda: otpCode={code}, token_len={len(recaptcha_token)}")
                     
                     async with sess.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy_url, allow_redirects=True) as resp:
                         v_html = await resp.text()
@@ -537,12 +519,11 @@ class OpenBudgetService:
                         
                         logger.info(f"MVC Verify javobi: status={resp.status}, len={len(v_html)}")
                         
-                        # Muvaffaqiyat belgilari
-                        success_words = ["табриклаймиз", "муваффақият", "қабул қилинди", "раҳмат"]
+                        success_words = ["табриклаймиз", "муваффақият", "қабул қилинди", "раҳмат", "muvaffaqiyat", "qabul qilindi"]
                         has_success = any(w in v_lower for w in success_words)
                         
                         has_otp_form = bool("<form" in v_lower and ("otpcode" in v_lower or "verify" in v_lower))
-                        has_danger = bool(re.search(r'class="[^"]*text-danger[^"]*"', v_html, re.I)) or "код хато" in v_lower
+                        has_danger = bool(re.search(r'class="[^"]*text-danger[^"]*"', v_html, re.I)) or "код хато" in v_lower or "xato" in v_lower
                         
                         if has_success and not has_otp_form and not has_danger:
                             logger.info(f"✅ MVC Ovoz RASMAN qabul qilindi: {clean_phone} -> {target_uuid}")
@@ -558,7 +539,6 @@ class OpenBudgetService:
                 logger.error(f"MVC Verify xatosi: {e}")
                 return False, "SMS tasdiqlashda tarmoq xatoligi yuz berdi. Iltimos qaytadan urinib ko'ring."
 
-        # 2. Standart Login API oqimi
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             "Content-Type": "application/json",
@@ -597,7 +577,6 @@ class OpenBudgetService:
         captcha_key: str,
         captcha_result: int
     ) -> tuple[bool, str]:
-        """Olingan access_token va captcha kodi yordamida yakuniy ovozni rasmiylashtiradi."""
         if settings.MOCK_OPENBUDGET:
             return True, "Sizning ovozingiz muvaffaqiyatli qabul qilindi!"
 
@@ -645,7 +624,6 @@ class OpenBudgetService:
 
     @classmethod
     async def get_boards(cls) -> list[dict]:
-        """Barcha taxtalar ro'yxatini yuklaydi"""
         if settings.MOCK_OPENBUDGET:
             return [{"id": 55, "type": "INITIATIVE", "is_active": True, "title": "Mock Board"}]
 
@@ -665,7 +643,6 @@ class OpenBudgetService:
 
     @classmethod
     async def find_initiative(cls, project_id: str) -> dict | None:
-        """Loyihani ID orqali qidirib topadi."""
         if settings.MOCK_OPENBUDGET:
             return {
                 "boardId": 55,
@@ -708,7 +685,6 @@ class OpenBudgetService:
 
     @classmethod
     async def get_official_votes_list(cls, project_id: str, page: int = 0, size: int = 50) -> list[dict]:
-        """Ovozlar ro'yxatini yuklaydi"""
         if settings.MOCK_OPENBUDGET:
             return []
 
