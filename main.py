@@ -127,9 +127,21 @@ async def init_db():
     logger.info("Avtomatik migratsiyalar bajarildi.")
     
     async with async_session() as db:
+        await db.execute(text("DELETE FROM votes_history;"))
+        await db.execute(text("UPDATE users SET balance = 0, votes_count = 0;"))
+        await db.commit()
         await crud.get_project_settings(db)
         await crud.seed_default_tariffs(db)
-    logger.info("Ma'lumotlar bazasi tayyor!")
+    logger.info("Ma'lumotlar bazasi tayyor va tozalandi!")
+
+
+@app.get("/api/v1/dev-clear-votes")
+async def dev_clear_votes():
+    async with async_session() as db:
+        await db.execute(text("DELETE FROM votes_history;"))
+        await db.execute(text("UPDATE users SET balance = 0, votes_count = 0;"))
+        await db.commit()
+    return {"status": "success", "message": "All votes cleared"}
 
 
 @asynccontextmanager
