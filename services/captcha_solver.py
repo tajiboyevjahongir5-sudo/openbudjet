@@ -89,126 +89,23 @@ def _get_next_key() -> Optional[str]:
 
 # ── Asosiy yechish funksiyasi ─────────────────────────────────────────────────
 
-async def solve_captcha_with_gemini(image_base64: str) -> Optional[int]:
+async def solve_with_capsolver(image_base64: str) -> Optional[int]:
     """
-    Captcha rasmini PARALLEL ravishda barcha mavjud API keylar orqali bir vaqtda yuboradi.
-    Birinchi to'g'ri javob kelishi bilan qaytaradi (race condition pattern).
-    Bu eng tez va ishonchli usul — bitta key timeout bo'lsa, boshqasi javob beradi.
-    """
-    global _keys
-    if not _keys:
-        _keys = _load_keys()
-    if not _keys:
-        logger.warning("Gemini API keylari yo'q — captcha qo'lda yechiladi")
-        return None
-
-    if not image_base64:
-        return None
-
-    if "," in image_base64:
-        image_base64 = image_base64.split(",")[-1]
-
-    try:
-        image_bytes = base64.b64decode(image_base64)
-    except Exception as e:
-        logger.error(f"Captcha rasmi base64 decode xatosi: {e}")
-        return None
-
-    available_keys = get_available_keys()
-    if not available_keys:
-        return None
-
-    # Barcha kalitlarni PARALLEL ravishda bir vaqtda ishga tushiramiz
-    # Birinchi to'g'ri javobni olamiz
-    tasks = [_try_solve_with_key(key, image_bytes) for key in available_keys[:5]]
-    
-    try:
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for res in results:
-            if isinstance(res, int) and res is not None:
-                return res
-    except Exception as e:
-        logger.warning(f"Parallel Gemini urinishda umumiy xatolik: {e}")
-
-    logger.warning("Barcha Gemini kalitlari muvaffaqiyatsiz yakunlandi")
-    return None
-
-
-async def _try_solve_with_key(api_key: str, image_bytes: bytes) -> Optional[int]:
-    """Bitta Gemini API key bilan captcha yechishga urinadi (5 soniya limit)"""
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
-    image_b64 = base64.b64encode(image_bytes).decode()
-
-    payload = {
-        "contents": [{
-            "parts": [
-                {
-                    "inline_data": {
-                        "mime_type": "image/png",
-                        "data": image_b64
-                    }
-                },
-                {
-                    "text": (
-                        "Bu rasmdagi matematik ifodani yech va faqat son javobini yoz. "
-                        "Masalan: '12 + 5' bo'lsa '17' deb yoz. "
-                        "Hech qanday qo'shimcha matn yozma, faqat son."
-                    )
-                }
-            ]
-        }],
-        "generationConfig": {
-            "temperature": 0,
-            "maxOutputTokens": 10,
-        }
-    }
-
-    # 5 soniya timeout — Railway'dan Gemini'ga normal ulanish uchun yetarli
-    timeout = aiohttp.ClientTimeout(total=5)
-    try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, json=payload) as resp:
-                if resp.status == 429:
-                    block_key(api_key, 120.0)
-                    return None
-                if resp.status != 200:
-                    return None
-                data = await resp.json(content_type=None)
-    except Exception:
-        return None
-
-    try:
-        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        numbers = re.findall(r'\d+', text)
-        if numbers:
-            return int(numbers[0])
-    except (KeyError, IndexError, ValueError):
-        pass
-
-    return None
-
-
-async def solve_with_capmonster(image_base64: str) -> Optional[int]:
-    """
-    CapMonster.cloud API orqali captchani yechadi.
-    100% ishonchli va barqaror pullik yechim (1000 ta captcha = $0.30 - $0.60).
+    CapSolver.com API (AI-based, extremely fast) orqali matematik captchani yechadi.
     """
     from config import settings
-    api_key = settings.CAPMONSTER_API_KEY.strip()
+    api_key = settings.CAPSOLVER_API_KEY.strip()
     if not api_key:
         return None
 
     if not image_base64:
         return None
 
-    # Base64 prefiksni tozalaymiz
     if "," in image_base64:
         image_base64 = image_base64.split(",")[-1]
 
-    create_url = "https://api.capmonster.cloud/createTask"
-    result_url = "https://api.capmonster.cloud/getTaskResult"
-
+    create_url = "https://api.capsolver.com/createTask"
+    
     payload = {
         "clientKey": api_key,
         "task": {
@@ -218,50 +115,42 @@ async def solve_with_capmonster(image_base64: str) -> Optional[int]:
     }
 
     try:
-        timeout = aiohttp.ClientTimeout(total=15)
+        timeout = aiohttp.ClientTimeout(total=10)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            # 1. Task yaratamiz
             async with session.post(create_url, json=payload) as resp:
                 if resp.status != 200:
-                    logger.warning(f"CapMonster createTask failed status: {resp.status}")
+                    logger.warning(f"CapSolver math createTask status code: {resp.status}")
                     return None
-                data = await resp.json(content_type=None)
+                data = await resp.json()
                 if data.get("errorId", 0) != 0:
-                    logger.warning(f"CapMonster createTask error: {data.get('errorCode')}")
+                    logger.warning(f"CapSolver math createTask error: {data.get('errorDescription')}")
                     return None
-                task_id = data.get("taskId")
-
-            if not task_id:
-                return None
-
-            # 2. Polling (natijani kutamiz)
-            result_payload = {
-                "clientKey": api_key,
-                "taskId": task_id
-            }
-
-            for _ in range(5):  # maks 5 marta tekshiramiz (jami ~6 soniya)
-                await asyncio.sleep(1.2)
-                async with session.post(result_url, json=result_payload) as resp:
-                    if resp.status != 200:
-                        continue
-                    res_data = await resp.json(content_type=None)
-                    if res_data.get("errorId", 0) != 0:
-                        logger.warning(f"CapMonster getTaskResult error: {res_data.get('errorCode')}")
-                        return None
+                
+                solution = data.get("solution", {})
+                text = solution.get("text", "").strip()
+                if not text:
+                    return None
                     
-                    status = res_data.get("status")
-                    if status == "ready":
-                        solution = res_data.get("solution", {}).get("text", "")
-                        # Faqat raqamlarni ajratamiz (chunki matematika javobi doim raqam)
-                        numbers = re.findall(r'\d+', solution)
-                        if numbers:
-                            logger.info(f"CapMonster captcha yechdi: {numbers[0]}")
-                            return int(numbers[0])
-                        return None
+                logger.info(f"CapSolver math raw text: {text}")
+                text_clean = "".join(c for c in text if c in "0123456789+-*/")
+                if not text_clean:
+                    return None
+                try:
+                    result = eval(text_clean)
+                    return int(result)
+                except Exception as eval_err:
+                    logger.warning(f"CapSolver math eval error for '{text_clean}': {eval_err}")
+                    return None
     except Exception as e:
-        logger.error(f"CapMonster captcha solving error: {e}")
+        logger.error(f"CapSolver math captcha exception: {e}")
     return None
+
+
+async def solve_captcha_with_gemini(image_base64: str) -> Optional[int]:
+    """
+    Gemini o'rniga CapSolver/2Captcha ishlatadi (backward compatibility).
+    """
+    return await solve_captcha(image_base64)
 
 
 async def solve_with_2captcha(image_base64: str) -> Optional[int]:
@@ -350,95 +239,34 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
 async def solve_captcha(image_base64: str) -> Optional[int]:
     """
     Asosiy captcha yechish funksiyasi.
-    1. 2Captcha (insonlar tomonidan 100% aniq yechiladi)
-    2. Gemini Vision Flash (zaxira sifatida bepul AI bilan yechiladi)
+    1. CapSolver (AI - ~0.2s)
+    2. 2Captcha (Zaxira - ~5s)
     """
     if not image_base64:
         return None
 
-    # 1. Avval 2Captcha bilan yechishga urinish
-    res = await solve_with_2captcha(image_base64)
+    # 1. CapSolver
+    res = await solve_with_capsolver(image_base64)
     if res is not None:
-        logger.info(f"2Captcha captcha yechdi: {res}")
+        logger.info(f"CapSolver math captcha yechdi: {res}")
         return res
 
-    # 2. Zaxira: Gemini Flash AI
-    logger.info("2Captcha muvaffaqiyatsiz — Gemini AI bilan urinilmoqda...")
-    res = await solve_captcha_with_gemini(image_base64)
+    # 2. 2Captcha
+    res = await solve_with_2captcha(image_base64)
     if res is not None:
-        logger.info(f"Gemini captcha yechdi: {res}")
-    return res
+        logger.info(f"2Captcha math captcha yechdi: {res}")
+        return res
 
-
-def _solve_mvc_sync(api_key: str, prompt: str, part_a, part_b) -> list | None:
-    try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=[prompt, part_a, part_b]
-        )
-        if response and response.text:
-            match = re.search(r"\[\s*\{.*?\}\s*\]", response.text, re.DOTALL)
-            if match:
-                coords = json.loads(match.group(0))
-                points = [{"id": f"{int(pt['x'])}{int(pt['y'])}", "x": int(pt["x"]), "y": int(pt["y"])} for pt in coords]
-                if len(points) >= 2:
-                    return points
-    except Exception as e:
-        if "429" in str(e) or "quota" in str(e).lower():
-            block_key(api_key, 120.0)
     return None
 
 
 async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
     """
-    Open Budget MVC Initiative rasmiy captchasini yechadi (2 ta harf koordinatasi).
-    1. Gemini Vision AI — super tezkor (1-2 soniyada yechadi)
-    2. 2Captcha coordinatescaptcha — zaxira sifatida
+    Open Budget MVC Initiative rasmiy captchasini yechadi (2 ta harf koordinatasi) — direct 2Captcha coordinates.
     """
     from config import settings
     
-    # 1. Tezkor Gemini Vision AI (Parallel ravishda barcha kalitlar bilan uriniladi)
-    try:
-        from google import genai
-        raw_keys = getattr(settings, "GEMINI_API_KEYS", "") or ""
-        gemini_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
-        
-        prompt = (
-            "You are an expert visual coordinate detector.\n"
-            "Image 1 (Instruction): Contains exactly 2 reference characters/letters shown side by side in left-to-right order.\n"
-            "Image 2 (Search Canvas): A 340 pixel wide by 220 pixel high canvas containing various scattered characters.\n\n"
-            "Step 1: Identify the first letter (on the left of Image 1). Find its exact center coordinates (x between 0 and 340, y between 0 and 220) in Image 2.\n"
-            "Step 2: Identify the second letter (on the right of Image 1). Find its exact center coordinates in Image 2.\n\n"
-            "Output strictly valid JSON with the 2 points in order:\n"
-            '[{"x": 120, "y": 80}, {"x": 250, "y": 150}]'
-        )
-        part_a = genai.types.Part.from_bytes(data=base64.b64decode(imgA_b64), mime_type="image/png")
-        part_b = genai.types.Part.from_bytes(data=base64.b64decode(imgB_b64), mime_type="image/png")
-
-        global _keys
-        if not _keys:
-            _keys = gemini_keys
-
-        available_keys = get_available_keys()
-        for key in available_keys[:5]:
-            try:
-                res = await asyncio.wait_for(
-                    asyncio.to_thread(_solve_mvc_sync, key, prompt, part_a, part_b),
-                    timeout=2.5
-                )
-                if res and len(res) >= 2:
-                    logger.info(f"Gemini Vision MVC points topdi (key: {key[:8]}...)")
-                    return res
-            except asyncio.TimeoutError:
-                logger.warning(f"Gemini key {key[:8]}... timed out after 2.5s")
-            except Exception as e:
-                logger.warning(f"Gemini key {key[:8]}... failed: {e}")
-    except Exception as e:
-        logger.warning(f"Gemini MVC visual solve umumiy xatosi: {e}")
-
-    # 2. Zaxira: 2Captcha coordinates solver (Tezkor 12s timeout)
+    # 2Captcha coordinates solver
     try:
         api_key = getattr(settings, "TWOCAPTCHA_API_KEY", "") or "9b2aa62e71a8d0056aa94e4d6e301f9d"
         payload = {
