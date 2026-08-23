@@ -132,11 +132,17 @@ async def solve_with_capsolver(image_base64: str) -> Optional[int]:
                     return None
                     
                 logger.info(f"CapSolver math raw text: {text}")
+                # Agar natijada harf bo'lsa (masalan 'o', 'e', 'q'), OCR xato - None qaytaramiz
+                if any(c.isalpha() for c in text):
+                    logger.warning(f"CapSolver math OCR failed (letters in result): '{text}', skipping")
+                    return None
                 text_clean = "".join(c for c in text if c in "0123456789+-*/")
                 if not text_clean:
                     return None
+                # leading zeros muammosini hal qilamiz
                 try:
-                    result = eval(text_clean)
+                    import ast
+                    result = ast.literal_eval(text_clean) if text_clean.isdigit() else eval(text_clean)
                     return int(result)
                 except Exception as eval_err:
                     logger.warning(f"CapSolver math eval error for '{text_clean}': {eval_err}")
