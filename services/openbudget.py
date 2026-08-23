@@ -586,6 +586,7 @@ class OpenBudgetService:
             try:
                 async with session.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy_url, allow_redirects=True) as resp:
                     v_html = await resp.text()
+                    logger.info(f"MVC Verify response status: {resp.status}, body: {v_html}")
                     v_lower = v_html.lower()
                     
                     success_words = ["табриклаймиз", "муваффақият", "қабул қилинди", "раҳмат", "muvaffaqiyat", "qabul qilindi"]
