@@ -504,77 +504,52 @@ async def execute_final_vote_casting(
         if not success:
             return False, result_msg
 
-        # --- OVOZ OPEN BUDGETGA YUBORILDI VA TASDIQLANDI ---
+        # --- OVOZ OPEN BUDGETGA YUBORILDI (SAYTDA TASDIQLANISHI KUTILMOQDA) ---
         async with async_session() as db:
             try:
-                # Ovoz tarixini SUCCESS holatida bazaga yozamiz
+                # Ovoz tarixini PENDING_VERIFY holatida bazaga yozamiz
                 await crud.add_vote_history(
                     db=db,
                     telegram_id=telegram_id,
                     phone_number=phone_number,
                     project_id=project_id,
-                    status=VoteStatus.SUCCESS,
-                    commit=False
+                    status=VoteStatus.PENDING_VERIFY,
+                    commit=True
                 )
 
                 project_settings = await crud.get_project_settings(db)
                 voter_reward = project_settings.voter_reward
-                referral_price = project_settings.referral_price
-
-                # 1. Ovoz beruvchining balansi va ovozlar sonini atomik yangilaymiz
-                if voter_reward > 0:
-                    await db.execute(
-                        update(User)
-                        .where(User.telegram_id == telegram_id)
-                        .values(
-                            balance=User.balance + voter_reward,
-                            votes_count=User.votes_count + 1
-                        )
-                    )
-                else:
-                    await db.execute(
-                        update(User)
-                        .where(User.telegram_id == telegram_id)
-                        .values(votes_count=User.votes_count + 1)
-                    )
-
-                # 2. Referal mukofoti (agar foydalanuvchi do'sti orqali kelgan bo'lsa)
-                user_obj = await crud.get_user(db, telegram_id)
-                if user_obj and user_obj.invited_by and referral_price > 0:
-                    await db.execute(
-                        update(User)
-                        .where(User.telegram_id == user_obj.invited_by)
-                        .values(
-                            balance=User.balance + referral_price,
-                            total_referrals=User.total_referrals + 1
-                        )
-                    )
-                    try:
-                        await message.bot.send_message(
-                            chat_id=user_obj.invited_by,
-                            text=(
-                                f"🎉 <b>Yangi referal mukofoti!</b>\n\n"
-                                f"Siz taklif qilgan foydalanuvchi ({html.escape(str(message.from_user.username or telegram_id))}) ovoz berdi!\n"
-                                f"💵 Balansingizga <b>+{referral_price:,.0f} so'm</b> qo'shildi!"
-                            ),
-                            parse_mode="HTML"
-                        )
-                    except Exception as e:
-                        logger.warning(f"Referrerga xabar yuborishda xato: {e}")
-
-                await db.commit()
 
                 clean_d = phone_number[-9:] if len(phone_number) >= 9 else phone_number
                 formatted_p = f"+998 ({clean_d[:2]}) {clean_d[2:5]}-{clean_d[5:7]}-{clean_d[7:]}"
                 success_text = (
-                    f"🎉 <b>Tabriklaymiz! Ovozingiz rasman qabul qilindi!</b>\n\n"
-                    f"🏛 <code>{formatted_p}</code> raqami orqali berilgan ovoz Open Budget portalida muvaffaqiyatli ro'yxatga olindi!\n"
-                    f"💰 Balansingizga: <b>+{voter_reward:,.0f} so'm</b> qo'shildi!\n\n"
-                    f"💡 <i>Balansingizni «💎 Mening hisobim» bo'limida ko'rishingiz va pulingizni yechib olishingiz mumkin.</i>"
+                    f"🎉 <b>Tabriklaymiz! Ovoz berish qabul qilindi!</b>\n\n"
+                    f"🏛 <code>{formatted_p}</code> raqamingiz orqali so'rov Open Budget portaliga yuborildi.\n"
+                    f"⏳ <i>Open Budget rasmiy sahifada ovozlar ro'yxatida ko'rinishi bilan (1-3 daqiqada), balansingizga avtomatik ravishda <b>+{voter_reward:,.0f} so'm</b> qo'shiladi va sizga bu yerda tasdiq xabari keladi!</i>\n\n"
+                    f"💡 <i>Holatni «💎 Mening hisobim» bo'limida kuzatishingiz mumkin.</i>"
                 )
                 await message.answer(success_text, reply_markup=reply.get_user_menu(), parse_mode="HTML")
+
+                # Fon xizmatini darhol tekshirishga uyg'otamiz
+                try:
+                    from services.vote_verifier import verify_pending_votes_step
+                    asyncio.create_task(verify_pending_votes_step(message.bot))
+                except Exception:
+                    pass
+
                 await state.clear()
-                return True, "success"
+                return True, "pending_verify"
+
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Ovoz yozish tranzaksiyasida xatolik: {e}", exc_info=True)
+                await message.answer(
+                    "❌ Ovoz qabul qilindi, lekin ma'lumotlarni saqlashda xatolik yuz berdi.\n"
+                    "Iltimos, adminlar bilan bog'laning.",
+                    reply_markup=reply.get_user_menu()
+                )
+                await state.clear()
+                return False, "db_error"
 
             except Exception as e:
                 await db.rollback()
@@ -638,78 +613,41 @@ async def process_sms_code(message: Message, state: FSMContext):
     if result_msg == "mvc_voted":
         async with async_session() as db:
             try:
-                # 1. Ovoz tarixini SUCCESS holatida bazaga yozamiz
+                # 1. Ovoz tarixini PENDING_VERIFY holatida bazaga yozamiz
                 await crud.add_vote_history(
                     db=db,
                     telegram_id=telegram_id,
                     phone_number=phone_number,
                     project_id=project_id,
-                    status=VoteStatus.SUCCESS,
-                    commit=False
+                    status=VoteStatus.PENDING_VERIFY,
+                    commit=True
                 )
                 
                 project_settings = await crud.get_project_settings(db)
                 voter_reward = project_settings.voter_reward
-                referral_price = project_settings.referral_price
-
-                # 2. Ovoz beruvchining balansi va ovozlar sonini atomik yangilaymiz
-                if voter_reward > 0:
-                    await db.execute(
-                        update(User)
-                        .where(User.telegram_id == telegram_id)
-                        .values(
-                            balance=User.balance + voter_reward,
-                            votes_count=User.votes_count + 1
-                        )
-                    )
-                else:
-                    await db.execute(
-                        update(User)
-                        .where(User.telegram_id == telegram_id)
-                        .values(votes_count=User.votes_count + 1)
-                    )
-
-                # 3. Referal mukofoti (agar foydalanuvchi do'sti orqali kelgan bo'lsa)
-                user_obj = await crud.get_user(db, telegram_id)
-                if user_obj and user_obj.invited_by and referral_price > 0:
-                    await db.execute(
-                        update(User)
-                        .where(User.telegram_id == user_obj.invited_by)
-                        .values(
-                            balance=User.balance + referral_price,
-                            total_referrals=User.total_referrals + 1
-                        )
-                    )
-                    try:
-                        await message.bot.send_message(
-                            chat_id=user_obj.invited_by,
-                            text=(
-                                f"🎉 <b>Yangi referal mukofoti!</b>\n\n"
-                                f"Siz taklif qilgan foydalanuvchi ({html.escape(str(message.from_user.username or telegram_id))}) ovoz berdi!\n"
-                                f"💵 Balansingizga <b>+{referral_price:,.0f} so'm</b> qo'shildi!"
-                            ),
-                            parse_mode="HTML"
-                        )
-                    except Exception as e:
-                        logger.warning(f"Referrerga xabar yuborishda xato: {e}")
-
-                await db.commit()
 
                 clean_d = phone_number[-9:] if len(phone_number) >= 9 else phone_number
                 formatted_p = f"+998 ({clean_d[:2]}) {clean_d[2:5]}-{clean_d[5:7]}-{clean_d[7:]}"
                 success_text = (
-                    f"🎉 <b>Tabriklaymiz! Ovoz berish muvaffaqiyatli qabul qilindi!</b>\n\n"
-                    f"🏛 <code>{formatted_p}</code> raqami orqali berilgan ovoz Open Budget portalida muvaffaqiyatli ro'yxatga olindi!\n"
-                    f"💰 Balansingizga: <b>+{voter_reward:,.0f} so'm</b> qo'shildi!\n\n"
-                    f"💡 <i>Balansingizni «💎 Mening hisobim» bo'limida ko'rishingiz va pulingizni yechib olishingiz mumkin.</i>"
+                    f"🎉 <b>Tabriklaymiz! Ovoz berish qabul qilindi!</b>\n\n"
+                    f"🏛 <code>{formatted_p}</code> raqamingiz orqali so'rov Open Budget portaliga yuborildi.\n"
+                    f"⏳ <i>Open Budget rasmiy sahifada ovozlar ro'yxatida ko'rinishi bilan (1-3 daqiqada), balansingizga avtomatik ravishda <b>+{voter_reward:,.0f} so'm</b> qo'shiladi va sizga bu yerda tasdiq xabari keladi!</i>\n\n"
+                    f"💡 <i>Holatni «💎 Mening hisobim» bo'limida kuzatishingiz mumkin.</i>"
                 )
                 await message.answer(success_text, reply_markup=reply.get_user_menu(), parse_mode="HTML")
             except Exception as e:
-                await db.rollback()
                 logger.error(f"MVC vote save error: {e}", exc_info=True)
                 await message.answer("✅ Ovoz qabul qilindi!", reply_markup=reply.get_user_menu())
-            await state.clear()
-            return
+
+        # Fon xizmatini darhol tekshirishga uyg'otamiz
+        try:
+            from services.vote_verifier import verify_pending_votes_step
+            asyncio.create_task(verify_pending_votes_step(message.bot))
+        except Exception:
+            pass
+
+        await state.clear()
+        return
 
     # SMS kod tasdiqlandi, endi final captcha yuklaymiz
     access_token = result_msg  # verify_sms_code muvaffaqiyatli bo'lsa token qaytaradi

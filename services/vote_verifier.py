@@ -18,7 +18,7 @@ _baseline_counts: dict[str, int] = {}
 def match_phone_mask(real_phone: str, portal_masked: str) -> bool:
     """
     real_phone: '998901234567' yoki '+998 90 123-45-67'
-    portal_masked: '**-*23-45-67' yoki '**-*34-31-00'
+    portal_masked: '**-*96-99-20' yoki '**-*36-07-50' yoki '+99899***6030'
     """
     if not real_phone or not portal_masked:
         return False
@@ -27,6 +27,13 @@ def match_phone_mask(real_phone: str, portal_masked: str) -> bool:
     
     if len(clean_masked) >= 4 and clean_real.endswith(clean_masked):
         return True
+        
+    if "*" in str(portal_masked):
+        parts = [p for p in str(portal_masked).split("*") if p]
+        if parts:
+            last_part = "".join(filter(str.isdigit, parts[-1]))
+            if len(last_part) >= 4 and clean_real.endswith(last_part):
+                return True
     return False
 
 
@@ -45,12 +52,21 @@ async def confirm_single_vote(db, bot: Bot, vote: VotesHistory):
     voter_reward = settings.voter_reward
     referral_price = settings.referral_price
 
-    # 2. Ovoz bergan foydalanuvchi hisobiga pul o'tkazamiz
+    # 2. Ovoz bergan foydalanuvchi hisobiga pul o'tkazamiz va ovozlar sonini oshiramiz
     if voter_reward > 0:
         await db.execute(
             update(User)
             .where(User.telegram_id == vote.telegram_id)
-            .values(balance=User.balance + voter_reward)
+            .values(
+                balance=User.balance + voter_reward,
+                votes_count=User.votes_count + 1
+            )
+        )
+    else:
+        await db.execute(
+            update(User)
+            .where(User.telegram_id == vote.telegram_id)
+            .values(votes_count=User.votes_count + 1)
         )
 
     # 3. Agar referal orqali kelgan bo'lsa, taklif qilganga ham pul o'tkazamiz
@@ -80,14 +96,16 @@ async def confirm_single_vote(db, bot: Bot, vote: VotesHistory):
     await db.commit()
 
     # 4. Foydalanuvchiga muvaffaqiyatli tasdiq xabarini yuboramiz
+    clean_d = clean_phone[-9:] if len(clean_phone) >= 9 else clean_phone
+    formatted_p = f"+998 ({clean_d[:2]}) {clean_d[2:5]}-{clean_d[5:7]}-{clean_d[7:]}"
     try:
         await bot.send_message(
             chat_id=vote.telegram_id,
             text=(
                 f"✅ <b>TABRIKLAYMIZ! Ovozingiz rasman tasdiqlandi!</b>\n\n"
-                f"🏛 <code>+{clean_phone}</code> raqamingiz Open Budget rasmiy <b>«Ovozlar ro'yxati»</b>da muvaffaqiyatli aniqlandi.\n"
+                f"🏛 <code>{formatted_p}</code> raqamingiz Open Budget rasmiy <b>«Ovozlar ro'yxati»</b>da muvaffaqiyatli aniqlandi.\n"
                 f"💰 Balansingizga: <b>+{voter_reward:,.0f} so'm</b> qo'shildi!\n\n"
-                f"Do'stlaringizni taklif qiling va ko'proq daromad oling! 👥"
+                f"💡 <i>Balansingizni «💎 Mening hisobim» bo'limida ko'rishingiz mumkin.</i>"
             ),
             parse_mode="HTML"
         )
@@ -131,7 +149,7 @@ async def verify_pending_votes_step(bot: Bot):
                 for vote in v_list:
                     clean_phone = "".join(filter(str.isdigit, vote.phone_number))
                     for row in official_votes:
-                        portal_phone = row.get("phone_number") or row.get("phone") or ""
+                        portal_phone = row.get("phoneNumber") or row.get("phone_number") or row.get("phone") or ""
                         if match_phone_mask(clean_phone, portal_phone):
                             logger.info(f"🎯 100% MOS KELDI: {clean_phone} -> {portal_phone} (Open Budget Ovozlar ro'yxatida aniqlandi!)")
                             confirmed_set.add(vote.id)
@@ -139,7 +157,7 @@ async def verify_pending_votes_step(bot: Bot):
                                 await confirm_single_vote(db, bot, vote)
                             break
 
-            # 2. Zaxira tekshiruvi: Agar saytda umumiy ovozlar soni oshgan bo'lsa yoki vaqt o'tgan bo'lsa
+            # 2. Zaxira tekshiruvi: Agar saytda umumiy ovozlar soni oshgan bo'lsa
             initiative = await OpenBudgetService.find_initiative(project_id)
             current_count = int(initiative.get("voteCount") or 0) if initiative else 0
             
@@ -176,7 +194,7 @@ async def verify_pending_votes_step(bot: Bot):
 async def start_vote_verifier_background_task(bot: Bot):
     """Orqa fonda rasmiy 'Ovozlar ro'yxati'dan qidirib boruvchi doimiy xizmat"""
     logger.info("Open Budget rasmiy 'Ovozlar ro'yxati' orqali tekshirish xizmati ishga tushdi...")
-    await asyncio.sleep(20)
+    await asyncio.sleep(5)
     
     while True:
         try:
@@ -187,5 +205,5 @@ async def start_vote_verifier_background_task(bot: Bot):
         except Exception as e:
             logger.error(f"Vote verifier asosiy tsiklida xatolik: {e}")
         
-        # Har 1 daqiqada tekshirib turadi
-        await asyncio.sleep(60)
+        # Har 15 soniyada tekshirib turadi
+        await asyncio.sleep(15)
