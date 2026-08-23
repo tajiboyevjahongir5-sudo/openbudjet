@@ -538,7 +538,7 @@ class OpenBudgetService:
             verify_headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
                 "Content-Type": "application/x-www-form-urlencoded",
-                "Referer": f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}",
+                "Referer": "https://openbudget.uz/api/v2/vote/mvc/captcha",
                 "Origin": "https://openbudget.uz",
             }
             verify_data = {
@@ -548,7 +548,7 @@ class OpenBudgetService:
             
             jar = aiohttp.CookieJar(unsafe=True)
             if cookies:
-                jar.update_cookies(cookies, response_url=URL("https://openbudget.uz"))
+                jar.update_cookies(cookies, response_url=URL("https://openbudget.uz/"))
                 verify_headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in cookies.items())
                 
             proxy = settings.PROXY_URL or None
@@ -559,27 +559,20 @@ class OpenBudgetService:
                         v_html = await resp.text()
                         v_lower = v_html.lower()
                         
-                        error_markers = [
-                            "хато", "нотўғри", "топилмади", "тугаган", "муддати", "яроқсиз",
-                            "xato", "noto'g'ri", "muddati", "error", "not found", "invalid"
-                        ]
-                        success_markers = (
-                            "муваффақият", "muvaffaqiyat", "қабул қилинди", "qabul qilindi",
-                            "успеш", "rahmat", "раҳмат", "ovoz qabul", "tabriklaymiz", "табриклаймиз", "thanks"
-                        )
+                        logger.info(f"MVC Verify raw response: status={resp.status}, HTML_preview={v_html[:300]}")
                         
-                        is_success = any(m in v_lower for m in success_markers)
-                        is_error = any(e in v_lower for e in error_markers)
+                        has_otp_form = bool("<form" in v_lower and ("otpcode" in v_lower or "verify" in v_lower))
+                        has_danger = bool("text-danger" in v_lower or "error" in v_lower or "хато" in v_lower or "нотўғри" in v_lower or "код хато" in v_lower)
                         
-                        if is_success and not is_error:
+                        success_markers = ["табриклаймиз", "муваффақият", "қабул қилинди", "раҳмат", "рахмат", "success"]
+                        is_real_success = (not has_otp_form and not has_danger and any(w in v_lower for w in success_markers))
+                        
+                        if is_real_success:
                             logger.info(f"Rasmiy MVC Ovoz muvaffaqiyatli qabul qilindi: {clean_phone} -> {target_uuid}")
                             return True, "mvc_voted"
-                        elif resp.status == 200 and not is_error and not ("<form" in v_html and "otpcode" in v_lower):
-                            logger.info(f"Rasmiy MVC Ovoz status 200: {clean_phone} -> {target_uuid}")
-                            return True, "mvc_voted"
                         else:
-                            logger.warning(f"MVC Verify rad etildi: status={resp.status}, HTML={v_html[:250]}")
-                            err_match = re.search(r'<(?:p|div|span|h2)[^>]*class="[^"]*error[^"]*"[^>]*>(.*?)</', v_html, re.I)
+                            logger.warning(f"MVC Verify rad etildi: status={resp.status}, has_form={has_otp_form}, has_danger={has_danger}, HTML={v_html[:250]}")
+                            err_match = re.search(r'<(?:p|div|span|h2)[^>]*class="[^"]*(?:text-danger|error)[^"]*"[^>]*>(.*?)</', v_html, re.I)
                             if err_match:
                                 return False, re.sub(r'<[^>]+>', '', err_match.group(1)).strip()
                             return False, "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
