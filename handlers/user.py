@@ -499,3 +499,22 @@ async def view_payouts_channel(message: Message):
         parse_mode="HTML"
     )
 
+@router.message(Command("admin"), StateFilter("*"))
+async def cmd_admin_user_handler(message: Message, state: FSMContext):
+    await state.clear()
+    admin_ids = settings.ADMIN_IDS
+    if message.from_user.id in admin_ids:
+        await message.answer(
+            "🛠️ <b>Admin boshqaruv paneliga xush kelibsiz!</b>\n\n"
+            "Quyidagi tugmalar orqali bot sozlamalarini boshqarishingiz mumkin:",
+            reply_markup=reply.get_admin_menu(message.from_user.id),
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer(
+            f"⛔ <b>Kirish taqiqlangan!</b>\n\n"
+            f"Siz bot adminlari ro'yxatida yo'qsiz.\n"
+            f"Sizning Telegram ID: <code>{message.from_user.id}</code>",
+            parse_mode="HTML"
+        )
+

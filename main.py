@@ -66,9 +66,9 @@ bot = Bot(
 dp = Dispatcher(storage=PostgresStorage())
 
 # Routerlarni ulash
+dp.include_router(admin.router)
 dp.include_router(user.router)
 dp.include_router(vote.router)
-dp.include_router(admin.router)
 dp.include_router(partnership.router)
 
 
