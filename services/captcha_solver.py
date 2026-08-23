@@ -370,6 +370,27 @@ async def solve_captcha(image_base64: str) -> Optional[int]:
     return res
 
 
+def _solve_mvc_sync(api_key: str, prompt: str, part_a, part_b) -> list | None:
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=[prompt, part_a, part_b]
+        )
+        if response and response.text:
+            match = re.search(r"\[\s*\{.*?\}\s*\]", response.text, re.DOTALL)
+            if match:
+                coords = json.loads(match.group(0))
+                points = [{"id": f"{int(pt['x'])}{int(pt['y'])}", "x": int(pt["x"]), "y": int(pt["y"])} for pt in coords]
+                if len(points) >= 2:
+                    return points
+    except Exception as e:
+        if "429" in str(e) or "quota" in str(e).lower():
+            block_key(api_key, 120.0)
+    return None
+
+
 async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
     """
     Open Budget MVC Initiative rasmiy captchasini yechadi (2 ta harf koordinatasi).
@@ -378,7 +399,7 @@ async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
     """
     from config import settings
     
-    # 1. Tezkor Gemini Vision AI (Barcha 9 ta kalit bo'yicha navbati bilan tekshiriladi)
+    # 1. Tezkor Gemini Vision AI (Parallel ravishda barcha kalitlar bilan uriniladi)
     try:
         from google import genai
         raw_keys = getattr(settings, "GEMINI_API_KEYS", "") or ""
@@ -396,24 +417,21 @@ async def solve_mvc_visual_captcha(imgA_b64: str, imgB_b64: str) -> list[dict]:
         part_a = genai.types.Part.from_bytes(data=base64.b64decode(imgA_b64), mime_type="image/png")
         part_b = genai.types.Part.from_bytes(data=base64.b64decode(imgB_b64), mime_type="image/png")
 
-        for key in gemini_keys:
-            try:
-                client = genai.Client(api_key=key)
-                response = client.models.generate_content(
-                    model="gemini-3.6-flash",
-                    contents=[prompt, part_a, part_b]
-                )
-                if response and response.text:
-                    match = re.search(r"\[\s*\{.*?\}\s*\]", response.text, re.DOTALL)
-                    if match:
-                        coords = json.loads(match.group(0))
-                        points = [{"id": f"{int(pt['x'])}{int(pt['y'])}", "x": int(pt["x"]), "y": int(pt["y"])} for pt in coords]
-                        if len(points) >= 2:
-                            logger.info(f"Gemini Vision MVC points tezkor topdi ({key[:8]}...): {points}")
-                            return points
-            except Exception as e:
-                logger.warning(f"Gemini kalit {key[:8]}... xatosi: {e}")
-                continue
+        global _keys
+        if not _keys:
+            _keys = gemini_keys
+
+        available_keys = get_available_keys()
+        if available_keys:
+            tasks = [
+                asyncio.to_thread(_solve_mvc_sync, key, prompt, part_a, part_b)
+                for key in available_keys[:5]
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for res in results:
+                if isinstance(res, list) and len(res) >= 2:
+                    logger.info("Gemini Vision MVC points parallel tarzda tezkor topdi!")
+                    return res
     except Exception as e:
         logger.warning(f"Gemini MVC visual solve umumiy xatosi: {e}")
 
@@ -503,8 +521,8 @@ async def solve_recaptcha_v3(sitekey: str, pageurl: str, action: str = "submit")
                 
             logger.info(f"reCAPTCHA v3 task created: {task_id}, polling for solution...")
             
-            for attempt in range(15):
-                await asyncio.sleep(3)
+            for attempt in range(25):
+                await asyncio.sleep(2)
                 params = {
                     "key": api_key,
                     "action": "get",

@@ -35,6 +35,23 @@ class OpenBudgetService:
     """
     _session: aiohttp.ClientSession | None = None
     _mvc_sessions: dict[str, aiohttp.ClientSession] = {}
+    _uuid_cache: dict[str, str] = {}
+
+    @classmethod
+    async def resolve_project_uuid(cls, project_id: str) -> str:
+        if not project_id:
+            return project_id
+        if "-" in str(project_id):
+            return str(project_id)
+        if project_id in cls._uuid_cache:
+            return cls._uuid_cache[project_id]
+        
+        info = await cls.find_initiative(project_id)
+        if info and info.get("id"):
+            uuid = str(info.get("id"))
+            cls._uuid_cache[project_id] = uuid
+            return uuid
+        return project_id
 
     @classmethod
     async def _get_session(cls) -> aiohttp.ClientSession:
@@ -256,11 +273,7 @@ class OpenBudgetService:
         if clean_phone.startswith("998"):
             clean_phone = clean_phone[3:]
             
-        target_uuid = project_id
-        if "-" not in str(target_uuid):
-            info = await cls.find_initiative(str(project_id))
-            if info and info.get("id"):
-                target_uuid = info.get("id")
+        target_uuid = await cls.resolve_project_uuid(project_id)
                 
         formatted_phone = f"{clean_phone[:2]} {clean_phone[2:5]}-{clean_phone[5:7]}-{clean_phone[7:]}"
         mvc_url = f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}"
@@ -586,15 +599,7 @@ class OpenBudgetService:
             "Authorization": access_token
         }
         
-        target_uuid = project_id
-        if len(str(project_id)) == 12 and str(project_id).isdigit():
-            try:
-                init_info = await cls.find_initiative(str(project_id))
-                if init_info and init_info.get("id"):
-                    target_uuid = str(init_info.get("id"))
-                    logger.info(f"Public ID {project_id} -> UUID {target_uuid} ga o'girildi")
-            except Exception as e:
-                logger.warning(f"Initiative UUID topishda xato: {e}")
+        target_uuid = await cls.resolve_project_uuid(project_id)
 
         vote_payload = {
             "initiativeId": target_uuid,
@@ -685,11 +690,7 @@ class OpenBudgetService:
         if settings.MOCK_OPENBUDGET:
             return []
 
-        target_uuid = project_id
-        if len(str(project_id)) == 12 and str(project_id).isdigit():
-            init_info = await cls.find_initiative(str(project_id))
-            if init_info and init_info.get("id"):
-                target_uuid = str(init_info.get("id"))
+        target_uuid = await cls.resolve_project_uuid(project_id)
 
         success_cap, cap_msg, cap_data = await cls.get_captcha()
         if not success_cap or not cap_data:
