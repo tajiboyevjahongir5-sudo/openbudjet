@@ -551,28 +551,32 @@ class OpenBudgetService:
             if cookies:
                 verify_headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in cookies.items())
             
-            # Birinchi to'g'ridan-to'g'ri (proxysiz), keyin proxy bilan urinib ko'ramiz
+            # Proxy bilan urinish kerak (chunki cookielar proxy orqali olingan + Railway IP bloklangan)
             proxy_url = settings.PROXY_URL or None
-            attempts = [None]  # Birinchi proxysiz
-            if proxy_url:
-                attempts.append(proxy_url)  # Keyin proxy bilan
-                
-            for attempt_proxy in attempts:
+            
+            for attempt_num in range(2):
                 try:
                     jar = aiohttp.CookieJar(unsafe=True)
                     if cookies:
                         jar.update_cookies(cookies, response_url=URL("https://openbudget.uz/"))
                     
                     timeout = aiohttp.ClientTimeout(total=20)
+                    # TLS-in-TLS muammosini hal qilish uchun ssl=False ishlatiladi
+                    use_ssl = False if attempt_num == 1 else None
+                    
                     async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as sess:
-                        proxy_label = "proxy" if attempt_proxy else "direct"
-                        logger.info(f"MVC Verify so'rov yuborilmoqda ({proxy_label}): {verify_url}, cookies={list(cookies.keys()) if cookies else 'none'}")
+                        logger.info(f"MVC Verify so'rov #{attempt_num+1}: proxy={'yes' if proxy_url else 'no'}, ssl={use_ssl}, cookies={list(cookies.keys()) if cookies else 'none'}")
                         
-                        async with sess.post(verify_url, data=verify_data, headers=verify_headers, proxy=attempt_proxy, allow_redirects=True) as resp:
+                        async with sess.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy_url, ssl=use_ssl, allow_redirects=True) as resp:
                             v_html = await resp.text()
                             v_lower = v_html.lower()
                             
-                            logger.info(f"MVC Verify javob ({proxy_label}): status={resp.status}, len={len(v_html)}, preview={v_html[:200]}")
+                            logger.info(f"MVC Verify javob #{attempt_num+1}: status={resp.status}, len={len(v_html)}, preview={v_html[:300]}")
+                            
+                            # Body bo'sh bo'lsa — TLS-in-TLS muammosi, keyingi urinishda ssl=False bilan
+                            if len(v_html.strip()) == 0:
+                                logger.warning(f"⚠️ MVC Verify bo'sh javob #{attempt_num+1}, TLS muammosi bo'lishi mumkin")
+                                continue
                             
                             # Qat'iy tekshiruv: OTP formasi yoki xato xabari bormi?
                             has_otp_form = bool("<form" in v_lower and ("otpcode" in v_lower or "verify" in v_lower))
@@ -586,20 +590,17 @@ class OpenBudgetService:
                                 logger.info(f"✅ MVC Ovoz RASMAN qabul qilindi: {clean_phone} -> {target_uuid}")
                                 return True, "mvc_voted"
                             elif has_danger or has_otp_form:
-                                # Aniq rad etildi — boshqa proxy bilan urinmaslik kerak
                                 err_text = ""
                                 err_match = re.search(r'<p[^>]*class="[^"]*text-danger[^"]*"[^>]*>(.*?)</p>', v_html, re.I)
                                 if err_match:
                                     err_text = re.sub(r'<[^>]+>', '', err_match.group(1)).strip()
-                                logger.warning(f"❌ MVC Verify RAD ETILDI ({proxy_label}): {err_text or 'form/danger detected'}, status={resp.status}")
+                                logger.warning(f"❌ MVC Verify RAD ETILDI: {err_text or 'form/danger detected'}, status={resp.status}")
                                 return False, err_text or "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
                             else:
-                                # Noma'lum javob — keyingi urinish (proxy) bilan sinab ko'ramiz
-                                logger.warning(f"⚠️ MVC Verify noaniq javob ({proxy_label}): status={resp.status}, has_success={has_success}, HTML={v_html[:150]}")
+                                logger.warning(f"⚠️ MVC Verify noaniq javob #{attempt_num+1}: status={resp.status}, HTML={v_html[:200]}")
                                 continue
                 except Exception as e:
-                    proxy_label = "proxy" if attempt_proxy else "direct"
-                    logger.error(f"MVC Verify tarmoq xatosi ({proxy_label}): {e}")
+                    logger.error(f"MVC Verify xatosi #{attempt_num+1}: {e}")
                     continue
             
             return False, "SMS tasdiqlashda tarmoq xatoligi yuz berdi. Iltimos qaytadan urinib ko'ring."
