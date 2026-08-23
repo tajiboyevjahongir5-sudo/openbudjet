@@ -158,6 +158,26 @@ async def get_captcha(
     return {"status": "success", "captcha": data}
 
 
+@router.get("/check-phone")
+async def check_phone_status(
+    phone_number: str,
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    api_key: APIKey = Depends(get_api_key)
+):
+    """
+    Telefon raqami muayyan loyihaga bazada ovoz bergan-bermaganini tekshiradi.
+    """
+    clean_phone = "".join(filter(str.isdigit, phone_number))
+    already_voted = await crud.check_phone_voted(db, clean_phone, project_id)
+    return {
+        "status": "success",
+        "phone_number": clean_phone,
+        "project_id": project_id,
+        "already_voted": already_voted
+    }
+
+
 @router.post("/send-otp")
 async def send_otp(
     req: OTPRequest,
