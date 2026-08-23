@@ -540,45 +540,69 @@ class OpenBudgetService:
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Referer": "https://openbudget.uz/api/v2/vote/mvc/captcha",
                 "Origin": "https://openbudget.uz",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             }
             verify_data = {
                 "otpCode": str(code).strip(),
                 "grToken": ""
             }
             
-            jar = aiohttp.CookieJar(unsafe=True)
+            # Cookie headerini har doim qo'shamiz
             if cookies:
-                jar.update_cookies(cookies, response_url=URL("https://openbudget.uz/"))
                 verify_headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in cookies.items())
+            
+            # Birinchi to'g'ridan-to'g'ri (proxysiz), keyin proxy bilan urinib ko'ramiz
+            proxy_url = settings.PROXY_URL or None
+            attempts = [None]  # Birinchi proxysiz
+            if proxy_url:
+                attempts.append(proxy_url)  # Keyin proxy bilan
                 
-            proxy = settings.PROXY_URL or None
-            try:
-                timeout = aiohttp.ClientTimeout(total=25)
-                async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
-                    async with session.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy, allow_redirects=True) as resp:
-                        v_html = await resp.text()
-                        v_lower = v_html.lower()
+            for attempt_proxy in attempts:
+                try:
+                    jar = aiohttp.CookieJar(unsafe=True)
+                    if cookies:
+                        jar.update_cookies(cookies, response_url=URL("https://openbudget.uz/"))
+                    
+                    timeout = aiohttp.ClientTimeout(total=20)
+                    async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as sess:
+                        proxy_label = "proxy" if attempt_proxy else "direct"
+                        logger.info(f"MVC Verify so'rov yuborilmoqda ({proxy_label}): {verify_url}, cookies={list(cookies.keys()) if cookies else 'none'}")
                         
-                        logger.info(f"MVC Verify raw response: status={resp.status}, HTML_preview={v_html[:300]}")
-                        
-                        has_otp_form = bool("<form" in v_lower and ("otpcode" in v_lower or "verify" in v_lower))
-                        has_danger = bool("text-danger" in v_lower or "error" in v_lower or "хато" in v_lower or "нотўғри" in v_lower or "код хато" in v_lower)
-                        
-                        success_markers = ["табриклаймиз", "муваффақият", "қабул қилинди", "раҳмат", "рахмат", "success"]
-                        is_real_success = (not has_otp_form and not has_danger and any(w in v_lower for w in success_markers))
-                        
-                        if is_real_success:
-                            logger.info(f"Rasmiy MVC Ovoz muvaffaqiyatli qabul qilindi: {clean_phone} -> {target_uuid}")
-                            return True, "mvc_voted"
-                        else:
-                            logger.warning(f"MVC Verify rad etildi: status={resp.status}, has_form={has_otp_form}, has_danger={has_danger}, HTML={v_html[:250]}")
-                            err_match = re.search(r'<(?:p|div|span|h2)[^>]*class="[^"]*(?:text-danger|error)[^"]*"[^>]*>(.*?)</', v_html, re.I)
-                            if err_match:
-                                return False, re.sub(r'<[^>]+>', '', err_match.group(1)).strip()
-                            return False, "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
-            except Exception as e:
-                logger.error(f"MVC Verify xatosi: {e}")
-                return False, "SMS tasdiqlashda tarmoq xatoligi yuz berdi. Iltimos qaytadan urinib ko'ring."
+                        async with sess.post(verify_url, data=verify_data, headers=verify_headers, proxy=attempt_proxy, allow_redirects=True) as resp:
+                            v_html = await resp.text()
+                            v_lower = v_html.lower()
+                            
+                            logger.info(f"MVC Verify javob ({proxy_label}): status={resp.status}, len={len(v_html)}, preview={v_html[:200]}")
+                            
+                            # Qat'iy tekshiruv: OTP formasi yoki xato xabari bormi?
+                            has_otp_form = bool("<form" in v_lower and ("otpcode" in v_lower or "verify" in v_lower))
+                            has_danger = bool(re.search(r'class="[^"]*text-danger[^"]*"', v_html, re.I)) or "код хато" in v_lower
+                            
+                            # Muvaffaqiyat belgilari
+                            success_words = ["табриклаймиз", "муваффақият", "қабул қилинди", "раҳмат"]
+                            has_success = any(w in v_lower for w in success_words)
+                            
+                            if has_success and not has_otp_form and not has_danger:
+                                logger.info(f"✅ MVC Ovoz RASMAN qabul qilindi: {clean_phone} -> {target_uuid}")
+                                return True, "mvc_voted"
+                            elif has_danger or has_otp_form:
+                                # Aniq rad etildi — boshqa proxy bilan urinmaslik kerak
+                                err_text = ""
+                                err_match = re.search(r'<p[^>]*class="[^"]*text-danger[^"]*"[^>]*>(.*?)</p>', v_html, re.I)
+                                if err_match:
+                                    err_text = re.sub(r'<[^>]+>', '', err_match.group(1)).strip()
+                                logger.warning(f"❌ MVC Verify RAD ETILDI ({proxy_label}): {err_text or 'form/danger detected'}, status={resp.status}")
+                                return False, err_text or "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
+                            else:
+                                # Noma'lum javob — keyingi urinish (proxy) bilan sinab ko'ramiz
+                                logger.warning(f"⚠️ MVC Verify noaniq javob ({proxy_label}): status={resp.status}, has_success={has_success}, HTML={v_html[:150]}")
+                                continue
+                except Exception as e:
+                    proxy_label = "proxy" if attempt_proxy else "direct"
+                    logger.error(f"MVC Verify tarmoq xatosi ({proxy_label}): {e}")
+                    continue
+            
+            return False, "SMS tasdiqlashda tarmoq xatoligi yuz berdi. Iltimos qaytadan urinib ko'ring."
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
