@@ -2839,9 +2839,26 @@ async def vote_sms(msg: Message, state: FSMContext):
         await checking.delete()
         return await msg.answer(f"❌ {err}", reply_markup=kb_main())
 
-    await state.update_data(access_token=res.get("access_token"))
+    access_token = res.get("access_token", "")
+    await state.update_data(access_token=access_token)
 
-    # 2-captcha
+    # MVC flow da ovoz verify paytida beriladi, cast-vote kerak emas
+    if access_token == "mvc_voted":
+        reward = int(await get_setting("voter_reward") or 1000)
+        await add_vote(msg.from_user.id, data["phone"], reward)
+        u = await get_user(msg.from_user.id)
+        new_bal = u[3] if u else reward
+        await checking.delete()
+        return await msg.answer(
+            f"✨ <b>TABRIKLAYMIZ! Ovoz muvaffaqiyatli qabul qilindi!</b> 🔥\n\n"
+            f"💰 Sizga berilgan mukofot: <b>+{reward:,} UZS</b>\n"
+            f"💎 Yangi hamyon balansi: <b>{new_bal:,} UZS</b>\n\n"
+            "Davom eting — qancha ko'p ovoz, shuncha ko'p daromad! 🚀",
+            reply_markup=kb_main(), parse_mode="HTML"
+        )
+
+    # 2-captcha (login flow uchun)
+
     await checking.edit_text("🔄 <b>Ovozni tasdiqlash uchun captcha yuklanmoqda...</b>", parse_mode="HTML")
     res2, status2 = await call_api("/captcha", "POST")
 
