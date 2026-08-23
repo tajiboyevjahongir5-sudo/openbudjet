@@ -128,7 +128,7 @@ async def init_db():
     
     async with async_session() as db:
         await db.execute(text("DELETE FROM votes_history;"))
-        await db.execute(text("UPDATE users SET balance = 0, votes_count = 0;"))
+        await db.execute(text("UPDATE users SET balance = 0;"))
         await db.commit()
         await crud.get_project_settings(db)
         await crud.seed_default_tariffs(db)
@@ -217,7 +217,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 async def dev_clear_votes():
     async with async_session() as db:
         await db.execute(text("DELETE FROM votes_history;"))
-        await db.execute(text("UPDATE users SET balance = 0, votes_count = 0;"))
+        await db.execute(text("UPDATE users SET balance = 0;"))
         await db.commit()
     return {"status": "success", "message": "All votes cleared"}
 

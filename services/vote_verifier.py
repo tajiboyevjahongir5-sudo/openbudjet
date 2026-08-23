@@ -52,21 +52,12 @@ async def confirm_single_vote(db, bot: Bot, vote: VotesHistory):
     voter_reward = settings.voter_reward
     referral_price = settings.referral_price
 
-    # 2. Ovoz bergan foydalanuvchi hisobiga pul o'tkazamiz va ovozlar sonini oshiramiz
+    # 2. Ovoz bergan foydalanuvchi hisobiga pul o'tkazamiz
     if voter_reward > 0:
         await db.execute(
             update(User)
             .where(User.telegram_id == vote.telegram_id)
-            .values(
-                balance=User.balance + voter_reward,
-                votes_count=User.votes_count + 1
-            )
-        )
-    else:
-        await db.execute(
-            update(User)
-            .where(User.telegram_id == vote.telegram_id)
-            .values(votes_count=User.votes_count + 1)
+            .values(balance=User.balance + voter_reward)
         )
 
     # 3. Agar referal orqali kelgan bo'lsa, taklif qilganga ham pul o'tkazamiz
