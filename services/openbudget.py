@@ -503,10 +503,13 @@ class OpenBudgetService:
             if not session or session.closed:
                 return False, "Seans eskirgan. Iltimos jarayonni bekor qilib, qaytadan SMS so'rang."
 
+            target_uuid = session_data.get("target_uuid") or session_data.get("project_id")
+            page_url = f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}"
+
             from services.captcha_solver import solve_recaptcha_v3
             recaptcha_token = await solve_recaptcha_v3(
                 sitekey="6Ld3Cq8pAAAAAMdF062c3e5G05mB9jN7J3v5-b-H",
-                pageurl="https://openbudget.uz/api/v2/vote/mvc/captcha",
+                pageurl=page_url,
                 action="submit"
             ) or ""
 
@@ -518,7 +521,7 @@ class OpenBudgetService:
             verify_headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
                 "Content-Type": "application/x-www-form-urlencoded",
-                "Referer": "https://openbudget.uz/api/v2/vote/mvc/captcha",
+                "Referer": page_url,
                 "Origin": "https://openbudget.uz",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             }
