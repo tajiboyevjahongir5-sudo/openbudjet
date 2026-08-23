@@ -289,6 +289,7 @@ async def register_verify_otp(
 
 
 @router.post("/verify-otp")
+@router.post("/vote")
 async def verify_otp(
     req: VerifyRequest,
     api_key: APIKey = Depends(get_api_key)
