@@ -36,6 +36,124 @@ class OpenBudgetService:
     _session: aiohttp.ClientSession | None = None
     _mvc_sessions: dict[str, aiohttp.ClientSession] = {}
     _uuid_cache: dict[str, str] = {}
+    _mvc_pool: list[dict] = []
+    _last_activity_time: float = 0.0
+
+    @classmethod
+    def update_activity(cls):
+        cls._last_activity_time = time.time()
+
+    @classmethod
+    async def _preload_and_solve_mvc(cls, project_id: str) -> tuple[bool, str, dict | None]:
+        """
+        OpenBudgetdan mvc captcha sahifasini yuklaydi, visual kapchasini yechadi
+        va cookies bilan birga tayyor seans ma'lumotlarini qaytaradi.
+        """
+        from services.captcha_solver import solve_mvc_visual_captcha
+        
+        target_uuid = await cls.resolve_project_uuid(project_id)
+        if not target_uuid:
+            return False, "Project UUID topilmadi", None
+            
+        formatted_phone = "90 000-00-00"
+        mvc_url = f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}"
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Origin": "https://openbudget.uz",
+            "Referer": f"https://openbudget.uz/initiative/{project_id}",
+        }
+        
+        proxy = settings.PROXY_URL or None
+        
+        try:
+            jar = aiohttp.CookieJar(unsafe=True)
+            timeout = aiohttp.ClientTimeout(total=20)
+            async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
+                async with session.get(mvc_url, headers=headers, proxy=proxy) as resp:
+                    if resp.status != 200:
+                        return False, f"MVC sahifa yuklanmadi (status {resp.status})", None
+                    html = await resp.text()
+                    
+                srcs = re.findall(r'<img[^>]+src="(data:image/[^"]+)"', html)
+                if len(srcs) < 2:
+                    srcs = re.findall(r"src='(data:image/[^']+)'", html)
+                if len(srcs) < 2:
+                    return False, "Captcha rasmlari topilmadi", None
+                    
+                img_a_b64 = srcs[0].split(",")[-1]
+                img_b_b64 = srcs[1].split(",")[-1]
+                
+                points = await solve_mvc_visual_captcha(img_a_b64, img_b_b64)
+                if not points or len(points) < 2:
+                    return False, "Visual captcha yechilmadi", None
+                    
+                # Cookies dict
+                cookies_dict = {}
+                for cookie in jar:
+                    cookies_dict[cookie.key] = cookie.value
+                    
+                return True, "Success", {
+                    "flow": "mvc",
+                    "project_id": project_id,
+                    "target_uuid": str(target_uuid),
+                    "points": points,
+                    "cookies": cookies_dict
+                }
+        except Exception as e:
+            return False, f"MVC preload xatosi: {e}", None
+
+    @classmethod
+    async def start_mvc_pool_worker(cls):
+        """
+        Dinamik MVC Seanslar Hovuzi (Dynamic Session Pool) ishchisi.
+        Orqa fonda OpenBudget MVC captcha va session cookies-ni tayyorlab, hovuzni to'ldiradi.
+        Faol foydalanuvchilar bo'lmasa, avtomatik ravishda uyqu rejimiga o'tadi (0 xarajat).
+        """
+        logger.info("MVC Captcha hovuzi ishga tushdi.")
+        
+        while True:
+            try:
+                now = time.time()
+                # Foydalanuvchilar faolligini tekshirish (10 daqiqa)
+                is_active = (now - cls._last_activity_time) < 600
+                
+                # Active loyiha ID-ni DB dan olish
+                project_id = ""
+                try:
+                    from database.session import async_session
+                    from database.crud import get_project_settings
+                    async with async_session() as db:
+                        p_settings = await get_project_settings(db)
+                        if p_settings:
+                            project_id = p_settings.project_id
+                except Exception as db_err:
+                    logger.debug(f"DB dan project_id olishda xato: {db_err}")
+                
+                # Seanslarni tozalash (3 daqiqadan eskilari o'chiriladi)
+                cls._mvc_pool = [
+                    s for s in cls._mvc_pool 
+                    if (now - s.get("created_at", 0)) < 180
+                ]
+                
+                # Faollik bo'lsa va hovuz to'lmagan bo'lsa (Maks hovuz hajmi: 2 ta seans)
+                if is_active and project_id and len(cls._mvc_pool) < 2:
+                    logger.info(f"Fonda MVC seansi yechilmoqda (hovuz hajmi: {len(cls._mvc_pool)}/2)...")
+                    success, msg, session_data = await cls._preload_and_solve_mvc(project_id)
+                    if success and session_data:
+                        session_data["created_at"] = time.time()
+                        cls._mvc_pool.append(session_data)
+                        logger.info(f"✅ Yangi MVC seansi hovuzga qo'shildi! Jami: {len(cls._mvc_pool)}")
+                    else:
+                        logger.warning(f"Fonda MVC seansini tayyorlashda xatolik: {msg}")
+                        await asyncio.sleep(10)
+                        continue
+                
+            except Exception as e:
+                logger.error(f"MVC pool worker tsiklida xatolik: {e}")
+                
+            await asyncio.sleep(8)
 
     @classmethod
     async def resolve_project_uuid(cls, project_id: str) -> str:
@@ -188,6 +306,7 @@ class OpenBudgetService:
         captcha_key: str | None = None,
         captcha_result: int | None = None
     ) -> tuple[bool, str, dict | None]:
+        cls.update_activity()
         clean_phone = "".join(filter(str.isdigit, phone_number))
         if clean_phone.startswith("998"):
             clean_phone = clean_phone[3:]
@@ -262,12 +381,98 @@ class OpenBudgetService:
         phone_number: str,
         project_id: str
     ) -> tuple[bool, str, dict | None]:
-        from services.captcha_solver import solve_mvc_visual_captcha
+        # 1. Hovuzdan tayyor seansni qidiramiz
+        now = time.time()
+        cls._mvc_pool = [s for s in cls._mvc_pool if (now - s.get("created_at", 0)) < 180]
+        
+        preloaded_session = None
+        for i, s in enumerate(cls._mvc_pool):
+            if s.get("project_id") == project_id:
+                preloaded_session = cls._mvc_pool.pop(i)
+                break
+                
         clean_phone = "".join(filter(str.isdigit, phone_number))
         if clean_phone.startswith("998"):
             clean_phone = clean_phone[3:]
             
         target_uuid = await cls.resolve_project_uuid(project_id)
+        
+        if preloaded_session:
+            logger.info("🎯 MVC Ovoz berish uchun hovuzdan tayyor seans olindi!")
+            cookies = preloaded_session["cookies"]
+            points = preloaded_session["points"]
+            
+            formatted_phone = f"{clean_phone[:2]} {clean_phone[2:5]}-{clean_phone[5:7]}-{clean_phone[7:]}"
+            post_url = "https://openbudget.uz/api/v2/vote/mvc/captcha"
+            post_data = {
+                "phoneNumber": formatted_phone,
+                "points": json.dumps(points, separators=(",", ":")),
+            }
+            post_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Origin": "https://openbudget.uz",
+                "Referer": f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+            
+            jar = aiohttp.CookieJar(unsafe=True)
+            for k, v in cookies.items():
+                jar.update_cookies({k: v}, URL("https://openbudget.uz/"))
+                
+            proxy = settings.PROXY_URL or None
+            
+            try:
+                timeout = aiohttp.ClientTimeout(total=20)
+                async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
+                    async with session.post(post_url, data=post_data, headers=post_headers, proxy=proxy, allow_redirects=True) as post_resp:
+                        post_html = await post_resp.text()
+                        logger.info(f"MVC preloaded POST response: status={post_resp.status}, len={len(post_html)}")
+                        
+                        form_m = re.search(r"<form[^>]*action=\"([^\"]+)\"[^>]*>([\s\S]*?)</form>", post_html, re.I)
+                        inputs = re.findall(r'<input[^>]+name=["\']([^"\']+)["\'][^>]*>', post_html, re.I)
+                        
+                        has_otp_input = any(i.lower() in ["otpcode", "smscode"] for i in inputs)
+                        has_verify_action = form_m and "verify" in form_m.group(1).lower()
+
+                        if (has_otp_input or has_verify_action) and post_resp.status in (200, 201, 302):
+                            session_key = f"998{clean_phone}"
+                            cls._mvc_sessions[session_key] = session
+                            
+                            cookies_dict = {}
+                            for cookie in jar:
+                                cookies_dict[cookie.key] = cookie.value
+                                
+                            return True, "SMS tasdiqlash kodi yuborildi.", {
+                                "flow": "mvc",
+                                "phone": "998" + clean_phone,
+                                "project_id": project_id,
+                                "target_uuid": str(target_uuid),
+                                "session_key": session_key,
+                                "cookies": cookies_dict
+                            }
+                        else:
+                            h2_match = re.search(r'<h2>(.*?)</h2>', post_html, re.DOTALL | re.I)
+                            p_match = re.search(r'<p>(.*?)</p>', post_html, re.DOTALL | re.I)
+                            raw_msg = ""
+                            if h2_match:
+                                raw_msg = re.sub(r'<[^>]+>', '', h2_match.group(1)).strip()
+                            elif p_match:
+                                raw_msg = re.sub(r'<[^>]+>', '', p_match.group(1)).strip()
+                                
+                            err_text = raw_msg or "Ovoz berish xizmati band."
+                            err_alert = re.search(r'id="error-alert"[^>]*>(.*?)</div>', post_html, re.S | re.I)
+                            if err_alert:
+                                err_text = re.sub(r'<[^>]+>', '', err_alert.group(1)).strip() or err_text
+                            
+                            logger.warning(f"MVC preloaded POST failed: {err_text}")
+                            
+                            already_voted_terms = ["аввал овоз берилган", "ovoz qabul qilingan", "allaqachon", "аввал берилган", "овоз берилган"]
+                            limit_terms = ["bugungi urinishlar soni tugadi", "limit", "soni tugadi"]
+                            if any(k in err_text.lower() for k in already_voted_terms + limit_terms):
+                                return False, err_text, None
+            except Exception as e:
+                logger.warning(f"MVC preloaded POST exception: {e}")
                 
         formatted_phone = f"{clean_phone[:2]} {clean_phone[2:5]}-{clean_phone[5:7]}-{clean_phone[7:]}"
         mvc_url = f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}"

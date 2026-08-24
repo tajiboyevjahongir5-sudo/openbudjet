@@ -2401,6 +2401,11 @@ async def start_vote(msg: Message, state: FSMContext):
     await state.clear()
     uid = msg.from_user.id
 
+    try:
+        await call_api("/update-activity", "POST")
+    except Exception:
+        pass
+
     # ── Tekshiruvlar ──
     if await user_is_blocked(uid):
         return await msg.answer("⛔ <b>Sizning hisobingiz bloklangan.</b>", parse_mode="HTML")

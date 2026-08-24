@@ -219,6 +219,14 @@ async def send_otp(
         "flow": session_data.get("flow") if session_data else None,
         "session_data": session_data
     }
+@router.post("/update-activity")
+async def update_activity_endpoint():
+    """
+    Foydalanuvchi faolligini bildiradi, fondagi MVC hovuzi ishchisini uyg'otadi.
+    """
+    OpenBudgetService.update_activity()
+    return {"status": "success"}
+
 
 
 @router.get("/regions")

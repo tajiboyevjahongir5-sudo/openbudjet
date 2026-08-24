@@ -148,6 +148,9 @@ async def lifespan(app: FastAPI):
     from services.vote_verifier import start_vote_verifier_background_task
     app.state.verifier_task = asyncio.create_task(start_vote_verifier_background_task(bot))
     
+    from services.openbudget import OpenBudgetService
+    app.state.mvc_pool_task = asyncio.create_task(OpenBudgetService.start_mvc_pool_worker())
+
     if settings.WEBHOOK_URL:
         # Webhook rejimi
         webhook_url = f"{settings.WEBHOOK_URL.rstrip('/')}/webhook"
