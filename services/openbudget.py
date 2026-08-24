@@ -347,12 +347,18 @@ class OpenBudgetService:
                             await cls._mvc_sessions[session_key].close()
                         cls._mvc_sessions[session_key] = session
 
+                        # Cookie dict ni saqlash — verify_sms_code uchun muhim
+                        cookies_dict = {}
+                        for cookie in jar:
+                            cookies_dict[cookie.key] = cookie.value
+
                         return True, "SMS tasdiqlash kodi yuborildi.", {
                             "flow": "mvc",
                             "phone": "998" + clean_phone,
                             "project_id": project_id,
                             "target_uuid": str(target_uuid),
-                            "session_key": session_key
+                            "session_key": session_key,
+                            "cookies": cookies_dict
                         }
                     else:
                         await session.close()
@@ -519,14 +525,15 @@ class OpenBudgetService:
             return False, vote_msg
 
         if session_data and session_data.get("flow") == "mvc":
-            session_key = session_data.get("session_key") or clean_phone
-            session = cls._mvc_sessions.get(session_key)
-
-            if not session or session.closed:
-                return False, "Seans eskirgan. Iltimos jarayonni bekor qilib, qaytadan SMS so'rang."
-
+            cookies = session_data.get("cookies", {})
             target_uuid = session_data.get("target_uuid") or session_data.get("project_id")
             referer_url = f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}"
+
+            # Eski in-memory session bor bo'lsa yopamiz
+            session_key = session_data.get("session_key") or clean_phone
+            old_session = cls._mvc_sessions.pop(session_key, None)
+            if old_session and not old_session.closed:
+                await old_session.close()
 
             verify_url = "https://openbudget.uz/api/v2/vote/mvc/verify"
             verify_data = {
@@ -540,23 +547,48 @@ class OpenBudgetService:
                 "Origin": "https://openbudget.uz",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             }
-            
+            if cookies:
+                cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+                verify_headers["Cookie"] = cookie_str
+
             proxy_url = settings.PROXY_URL or None
-            
+
             try:
-                async with session.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy_url, allow_redirects=True) as resp:
-                    v_html = await resp.text()
-                    logger.info(f"MVC Verify response status: {resp.status}, body length: {len(v_html)}")
-                    if resp.status == 200:
-                        await session.close()
-                        cls._mvc_sessions.pop(session_key, None)
-                        return True, "mvc_voted"
-                    else:
-                        err_text = "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
-                        err_match = re.search(r'<p[^>]*class="[^"]*text-danger[^"]*"[^>]*>(.*?)</p>', v_html, re.I)
-                        if err_match:
-                            err_text = re.sub(r'<[^>]+>', '', err_match.group(1)).strip()
-                        return False, err_text
+                timeout = aiohttp.ClientTimeout(total=25)
+                async with aiohttp.ClientSession(timeout=timeout) as sess:
+                    logger.info(f"MVC Verify so'rovi: otpCode={code}, cookies={len(cookies)}, proxy={'yes' if proxy_url else 'no'}")
+                    async with sess.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy_url, allow_redirects=True) as resp:
+                        v_html = await resp.text()
+                        v_lower = v_html.lower()
+                        logger.info(f"MVC Verify response: status={resp.status}, body_len={len(v_html)}, url={resp.url}")
+
+                        # Muvaffaqiyat belgilari
+                        success_words = ["табриклаймиз", "муваффақият", "қабул қилинди", "раҳмат", "muvaffaqiyat", "qabul qilindi", "овозингиз"]
+                        has_success = any(w in v_lower for w in success_words)
+
+                        # Xato belgilari
+                        has_otp_form = bool("<form" in v_lower and ("otpcode" in v_lower or "verify" in v_lower))
+                        has_danger = "мос келмади" in v_lower or "код хато" in v_lower or "xato" in v_lower or "text-danger" in v_lower
+
+                        if has_success and not has_danger:
+                            logger.info(f"✅ MVC Ovoz RASMAN qabul qilindi: {clean_phone} -> {target_uuid}")
+                            return True, "mvc_voted"
+
+                        # Status 200 lekin bo'sh body yoki success so'zlari yo'q = muvaffaqiyatsiz
+                        if len(v_html) < 50:
+                            logger.warning(f"MVC Verify: status={resp.status} lekin javob bo'sh ({len(v_html)} bayt). Ovoz berilmagan!")
+                            return False, "SMS kod qabul qilinmadi (server javob bermadi). Iltimos qaytadan urinib ko'ring."
+
+                        if has_otp_form or has_danger:
+                            err_text = "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
+                            err_match = re.search(r'id="error-alert"[^>]*>(.*?)</div>', v_html, re.S | re.I)
+                            if err_match:
+                                err_text = re.sub(r'<[^>]+>', '', err_match.group(1)).strip() or err_text
+                            return False, err_text
+
+                        # Kutilmagan javob
+                        logger.warning(f"MVC Verify: kutilmagan javob status={resp.status}, body[:200]={v_html[:200]}")
+                        return False, "SMS tasdiqlashda kutilmagan javob. Iltimos qaytadan urinib ko'ring."
             except Exception as e:
                 logger.error(f"MVC Verify xatosi: {e}")
                 return False, "SMS tasdiqlashda tarmoq xatoligi yuz berdi."

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0"/>
+    <title>Смс код орқали овоз бериш</title>
+
+    <style>
+        .hide-element {
+            display: none;
+        }
+
+        html, body {
+            margin: 0;
+            font-family: Roboto, Arial, sans-serif;
+            font-size: 15px;
+            /*padding-top: 16px;*/
+        }
+
+        label {
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        .input-box {
+            display: flex;
+            align-items: center;
+            background: #fff;
+            border: 1px solid #a0a0a0;
+            border-radius: 4px;
+            padding-left: 0.5rem;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+
+        .input-box .prefix {
+            font-weight: 300;
+            font-size: 14px;
+            color: #262626;
+        }
+
+        .input-box input {
+            flex-grow: 1;
+            font-size: 16px;
+            background: #fff;
+            border: none;
+            outline: none;
+            padding: 0.5rem;
+            margin: 6px 0;
+        }
+
+        .input-box:focus-within {
+            border-color: #007791;
+        }
+
+        button {
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .submit-button {
+            background-color: #007791;
+            color: white;
+            padding: 14px 0;
+            border: none;
+            margin: 10px 0;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 22px;
+        }
+
+        button:hover {
+            opacity: 0.8;
+        }
+
+        .formcontainer {
+            text-align: left;
+            margin: 24px 24px 0;
+        }
+
+        .container {
+            padding: 16px 0;
+            text-align: left;
+        }
+
+        .error-alert {
+            border: 1px solid #c53434;
+            padding: 14px;
+            border-radius: 4px;
+            background-color: #e8cbcb;
+            color: #c53434;
+        }
+
+        .retry-after {
+            display: inline-flex;
+            gap: 10px;
+            cursor: pointer;
+            color: #6c757d;
+            pointer-events: none;
+            text-decoration: none;
+        }
+
+        .grecaptcha-badge {
+            visibility: hidden;
+        }
+    </style>
+</head>
+<body>
+
+<div id="content-wrap" style="padding: 15px">
+    <form id="vote-form" class="vote-form" action="/api/v2/vote/mvc/verify" method="post">
+        <h1>Смс код орқали овоз бериш</h1>
+        <div class="formcontainer">
+
+            <div style="min-height: 50px">
+                <div class="error-alert hide-element"
+                     id="error-alert"></div>
+            </div>
+
+            <div class="container">
+                <label id="phonelabel" for="phone">Телефон</label>
+
+                <div id="phone-input" class="input-box">
+                    <span class="prefix">+998</span>
+                    <input type="text" id="phone" name="phone" value="91 299-30-91" disabled>
+                </div>
+            </div>
+            <div class="container">
+                <label id="captchalabel" for="confirm-code">СМС кодни тасдиқланг</label>
+                <div id="code-input" class="input-box">
+                    <input type="text" id="confirm-code" name="otpCode" value=""
+                           oninput="checkVerifyCodeValid(this)">
+                </div>
+            </div>
+
+            <div class="container">
+                <a href="/api/v2/vote/mvc/resend-sms" class="retry-after" id="retry-text">
+                    СМС кодни қайта юбориш
+                    <div id="retry-after">02:00</div>
+                </a>
+            </div>
+
+            <br>
+            <button class="submit-button" type="submit">СМС кодни юбориш</button>
+            <div style="color: #6c757d; font-size: 8px; text-align: center">
+                This site is protected by reCAPTCHA and the Google
+                <a href="https://policies.google.com/privacy">Privacy Policy</a> and
+                <a href="https://policies.google.com/terms">Terms of Service</a> apply.
+            </div>
+        </div>
+
+<!--        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>-->
+        <input type="hidden" name="grToken"/>
+    </form>
+</div>
+</body>
+<script src="https://www.google.com/recaptcha/api.js?render=6LeaHTAqAAAAAKNkq21XKPEt4FrO0YOfg8JX9VOs"></script>
+<script type="text/javascript">
+
+    eval(function(p,a,c,k,e,r){e=function(c){return c.toString(a)};if(!''.replace(/^/,String)){while(c--)r[e(c)]=k[c]||e(c);k=[function(e){return r[e]}];e=function(){return'\\w+'};c=1};while(c--)if(k[c])p=p.replace(new RegExp('\\b'+e(c)+'\\b','g'),k[c]);return p}('3 1(){4{2 0.5!==0.6}7(e){2 8}}9(!1()){0.a.b=\'c://d.f\'}',16,16,'window|inIframe|return|function|try|self|top|catch|true|if|location|href|https|openbudget||uz'.split('|'),0,{}))
+
+    localStorage.removeItem('phone')
+    let codeValid = false
+    let errorAlert = document.getElementById('error-alert')
+    const gr_site_key = '6LeaHTAqAAAAAKNkq21XKPEt4FrO0YOfg8JX9VOs'
+
+
+    const forms = document.getElementsByTagName('form')
+
+    document.addEventListener('keydown', function (e){
+        const code = (e.keyCode ? e.keyCode : e.which);
+        if (code === 13){
+            e.preventDefault()
+            for (let i = 0; i < forms.length; i++) {
+                forms[i].submit()
+            }
+        }
+    })
+
+    for (let i = 0; i < forms.length; i++) {
+        forms[i].addEventListener('submit', function (e) {
+            e.preventDefault()
+
+            if (codeValid && !!document.getElementsByTagName('input')[1].value) {
+                const inputs = document.getElementsByTagName('input');
+                inputs[inputs.length - 1].value = '';
+                e.target.submit();
+                // grecaptcha.ready(function () {
+                //     grecaptcha.execute(gr_site_key, {action: 'submit'}).then(function (token) {
+                //         const inputs = document.getElementsByTagName('input');
+                //         inputs[inputs.length - 1].value = token
+                //         e.target.submit()
+                //     });
+                // });
+
+            } else {
+                errorAlert.innerText = 'Смс кодни киритинг'
+                errorAlert.classList.remove('hide-element')
+            }
+        })
+    }
+
+
+    let retryAfter = null
+    const retryAfterEl = document.getElementById('retry-after')
+    const retryAfterText = document.getElementById('retry-text')
+
+    startCount()
+
+    function startCount() {
+        if (!retryAfter) {
+            retryAfter = retryAfterEl.innerText.split(':')[0] * 60;
+        }
+        setTimeout(() => {
+            if (retryAfter > 0) {
+                retryAfter = retryAfter - 1;
+                retryAfterEl.innerText = padWithZero(parseInt(retryAfter / 60, 10)) + " : " + padWithZero(parseInt(retryAfter % 60, 10));
+                startCount();
+            } else {
+                retryAfterEl.innerText = '';
+                retryAfterText.style.color = '#035598'
+                retryAfterText.style.pointerEvents = 'auto'
+            }
+        }, 1000)
+    }
+
+    function padWithZero(number) {
+        if (number.toString().length < 2) {
+            return '0' + number
+        } else return number
+    }
+
+    function checkVerifyCodeValid(e) {
+        const regex = /(\d{0,6})/
+
+        let x = e.value.replace(/\D/g, '').match(regex);
+        e.value = x[1]
+
+        codeValid = regex.test(e.value);
+    }
+
+</script>
+</html>
