@@ -547,16 +547,18 @@ class OpenBudgetService:
                 "Origin": "https://openbudget.uz",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             }
-            if cookies:
-                cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
-                verify_headers["Cookie"] = cookie_str
 
             proxy_url = settings.PROXY_URL or None
 
             try:
+                # CookieJar orqali cookie yuklash — Cookie header ishlamaydi!
+                from yarl import URL
+                jar = aiohttp.CookieJar(unsafe=True)
+                if cookies:
+                    jar.update_cookies(cookies, URL("https://openbudget.uz/"))
                 timeout = aiohttp.ClientTimeout(total=25)
-                async with aiohttp.ClientSession(timeout=timeout) as sess:
-                    logger.info(f"MVC Verify so'rovi: otpCode={code}, cookies={len(cookies)}, proxy={'yes' if proxy_url else 'no'}")
+                async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as sess:
+                    logger.info(f"MVC Verify so'rovi: otpCode={code}, cookies={list(cookies.keys())}, proxy={'yes' if proxy_url else 'no'}")
                     async with sess.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy_url, allow_redirects=True) as resp:
                         v_html = await resp.text()
                         v_lower = v_html.lower()
