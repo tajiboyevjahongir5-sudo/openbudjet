@@ -245,22 +245,22 @@ async def solve_with_2captcha(image_base64: str) -> Optional[int]:
 async def solve_captcha(image_base64: str) -> Optional[int]:
     """
     Asosiy captcha yechish funksiyasi.
-    1. CapSolver (AI - ~0.2s)
-    2. 2Captcha (Zaxira - ~5s)
+    1. 2Captcha (100% ishonchli, birinchi navbatda urinib ko'ramiz)
+    2. CapSolver (Zaxira, arzonroq)
     """
     if not image_base64:
         return None
 
-    # 1. CapSolver
-    res = await solve_with_capsolver(image_base64)
-    if res is not None:
-        logger.info(f"CapSolver math captcha yechdi: {res}")
+    # 1. 2Captcha (Haqiqiy odamlar yechgani uchun 100% to'g'ri yechadi)
+    res = await solve_with_2captcha(image_base64)
+    if res is not None and (1 <= res <= 150):
+        logger.info(f"2Captcha math captcha yechdi: {res}")
         return res
 
-    # 2. 2Captcha
-    res = await solve_with_2captcha(image_base64)
-    if res is not None:
-        logger.info(f"2Captcha math captcha yechdi: {res}")
+    # 2. CapSolver (AI orqali yechadi, xato bo'lsa yuqoridagi range check uni rad etadi)
+    res = await solve_with_capsolver(image_base64)
+    if res is not None and (1 <= res <= 150):
+        logger.info(f"CapSolver math captcha yechdi: {res}")
         return res
 
     return None
