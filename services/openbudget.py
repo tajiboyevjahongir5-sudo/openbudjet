@@ -344,7 +344,10 @@ class OpenBudgetService:
                     form_m = re.search(r"<form[^>]*action=\"([^\"]+)\"[^>]*>([\s\S]*?)</form>", post_html, re.I)
                     inputs = re.findall(r'<input[^>]+name=["\']([^"\']+)["\'][^>]*>', post_html, re.I)
                     
-                    if form_m or any(i.lower() in ["otpcode", "smscode", "code"] for i in inputs) or post_resp.status in (200, 201, 302):
+                    has_otp_input = any(i.lower() in ["otpcode", "smscode"] for i in inputs)
+                    has_verify_action = form_m and "verify" in form_m.group(1).lower()
+
+                    if (has_otp_input or has_verify_action) and post_resp.status in (200, 201, 302):
                         session_key = f"998{clean_phone}"
                         if session_key in cls._mvc_sessions and not cls._mvc_sessions[session_key].closed:
                             await cls._mvc_sessions[session_key].close()
@@ -364,12 +367,17 @@ class OpenBudgetService:
                             "cookies": cookies_dict
                         }
                     else:
-                        logger.warning(f"MVC POST response did not contain OTP form or success: status={post_resp.status}, body={post_html[:200]}")
+                        err_text = raw_msg or "Ovoz berish xizmati band."
+                        err_alert = re.search(r'id="error-alert"[^>]*>(.*?)</div>', post_html, re.S | re.I)
+                        if err_alert:
+                            err_text = re.sub(r'<[^>]+>', '', err_alert.group(1)).strip() or err_text
+                        logger.warning(f"MVC POST response did not contain OTP form: status={post_resp.status}, err={err_text}")
                         await session.close()
+                        return False, err_text, None
             except Exception as e:
                 logger.warning(f"MVC Vote SMS xatosi (urinish {attempt+1}): {e}")
                 
-        return False, "Ovoz berish xizmati band yoki captcha yechilmadi. Iltimos qaytadan urinib ko'ring.", None
+        return False, "Ovoz berish xizmati band. Iltimos keyinroq qaytadan urinib ko'ring.", None
 
     @classmethod
     async def send_registration_otp(
