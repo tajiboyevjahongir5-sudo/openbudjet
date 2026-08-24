@@ -8,6 +8,7 @@ import json
 import urllib.parse
 from yarl import URL
 from config import settings
+from services.captcha_solver import solve_mvc_visual_captcha
 
 logger = logging.getLogger(__name__)
 
