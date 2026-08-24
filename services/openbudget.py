@@ -319,6 +319,7 @@ class OpenBudgetService:
                 
                 async with session.post(post_url, data=post_data, headers=post_headers, proxy=proxy, allow_redirects=True) as post_resp:
                     post_html = await post_resp.text()
+                    logger.info(f"MVC POST response: status={post_resp.status}, len={len(post_html)}")
                     
                     h2_match = re.search(r'<h2>(.*?)</h2>', post_html, re.DOTALL | re.I)
                     p_match = re.search(r'<p>(.*?)</p>', post_html, re.DOTALL | re.I)
@@ -330,11 +331,13 @@ class OpenBudgetService:
 
                     already_voted_terms = ["аввал овоз берилган", "ovoz qabul qilingan", "allaqachon", "аввал берилган", "овоз берилган"]
                     if any(k in post_html.lower() for k in already_voted_terms):
+                        logger.warning(f"MVC POST: number already voted. msg={raw_msg}")
                         await session.close()
                         detail_msg = raw_msg or "Ushbu fuqaro / raqam orqali bu mavsumda allaqachon ovoz berilgan."
                         return False, "already_voted", {"phone": clean_phone, "detail": detail_msg}
                         
                     if any(k in post_html.lower() for k in ["мос келмади", "mos kelmadi", "noto'g'ri"]):
+                        logger.warning("MVC POST: captcha coordinates didn't match (wrong captcha)")
                         await session.close()
                         continue
                         
@@ -361,6 +364,7 @@ class OpenBudgetService:
                             "cookies": cookies_dict
                         }
                     else:
+                        logger.warning(f"MVC POST response did not contain OTP form or success: status={post_resp.status}, body={post_html[:200]}")
                         await session.close()
             except Exception as e:
                 logger.warning(f"MVC Vote SMS xatosi (urinish {attempt+1}): {e}")
