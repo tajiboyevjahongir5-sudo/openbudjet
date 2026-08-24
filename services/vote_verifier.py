@@ -148,35 +148,34 @@ async def verify_pending_votes_step(bot: Bot):
                                 await confirm_single_vote(db, bot, vote)
                             break
 
-            # 2. Zaxira tekshiruvi: Agar saytda umumiy ovozlar soni oshgan bo'lsa
-            initiative = await OpenBudgetService.find_initiative(project_id)
-            current_count = int(initiative.get("voteCount") or 0) if initiative else 0
-            
-            if project_id not in _baseline_counts:
-                _baseline_counts[project_id] = current_count
-                baseline = current_count
-            else:
-                baseline = _baseline_counts[project_id]
-
-            remaining_votes = [v for v in v_list if v.id not in confirmed_set]
-            if current_count > baseline:
-                delta = current_count - baseline
-                to_confirm_delta = remaining_votes[:delta]
-                _baseline_counts[project_id] = current_count
-                for vote in to_confirm_delta:
-                    confirmed_set.add(vote.id)
-                    async with async_session() as db:
-                        await confirm_single_vote(db, bot, vote)
-
-            # 3. 20 daqiqadan oshgan kutilayotgan ovozlar
+            # 2. 40 daqiqadan oshgan va tasdiqlanmagan kutilayotgan ovozlarni rad etamiz (bekor qilamiz)
             for vote in remaining_votes:
                 if vote.id not in confirmed_set and vote.created_at:
                     v_time = vote.created_at
                     if v_time.tzinfo is None:
                         v_time = v_time.replace(tzinfo=timezone.utc)
-                    if (now - v_time).total_seconds() > 1200:
+                    if (now - v_time).total_seconds() > 2400: # 40 daqiqa
+                        logger.warning(f"❌ Ovoz topilmadi (40 daqiqa o'tdi): {vote.phone_number}. Rad etilmoqda.")
                         async with async_session() as db:
-                            await confirm_single_vote(db, bot, vote)
+                            # Bazadagi statusini FAILED ga o'zgartiramiz
+                            db_vote = await db.get(VotesHistory, vote.id)
+                            if db_vote:
+                                db_vote.status = VoteStatus.FAILED
+                                await db.commit()
+                                
+                                # Foydalanuvchiga xabar beramiz
+                                try:
+                                    await bot.send_message(
+                                        chat_id=vote.telegram_id,
+                                        text=(
+                                            f"❌ <b>Ovoz tasdiqlanmadi!</b>\n\n"
+                                            f"Siz kiritgan <code>+{vote.phone_number}</code> raqami Open Budget portalidan "
+                                            f"tasdiqlanmadi (Ovozlar ro'yxatida topilmadi). Pul balansingizga qo'shilmadi."
+                                        ),
+                                        parse_mode="HTML"
+                                    )
+                                except Exception as send_err:
+                                    logger.warning(f"Xabar yuborishda xato: {send_err}")
 
         except Exception as e:
             logger.error(f"Loyiha {project_id} ovozlarini tekshirishda xato: {e}")
