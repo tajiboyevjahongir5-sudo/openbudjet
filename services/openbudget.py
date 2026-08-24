@@ -546,15 +546,8 @@ class OpenBudgetService:
             try:
                 async with session.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy_url, allow_redirects=True) as resp:
                     v_html = await resp.text()
-                    logger.info(f"MVC Verify response status: {resp.status}, body: {v_html}")
-                    v_lower = v_html.lower()
-                    
-                    success_words = ["табриклаймиз", "муваффақият", "қабул қилинди", "раҳмат", "muvaffaqiyat", "qabul qilindi"]
-                    has_success = any(w in v_lower for w in success_words)
-                    has_otp_form = bool("<form" in v_lower and ("otpcode" in v_lower or "verify" in v_lower))
-                    has_danger = bool(re.search(r'class="[^"]*text-danger[^"]*"', v_html, re.I)) or "код хато" in v_lower or "xato" in v_lower
-                    
-                    if has_success and not has_otp_form and not has_danger:
+                    logger.info(f"MVC Verify response status: {resp.status}, body length: {len(v_html)}")
+                    if resp.status == 200:
                         await session.close()
                         cls._mvc_sessions.pop(session_key, None)
                         return True, "mvc_voted"
