@@ -239,61 +239,22 @@ class OpenBudgetService:
 
         # If registration failed because user already exists, we fallback to MVC flow
         reg_msg_lower = reg_msg.lower() if reg_msg else ""
-        if "ro'yxatdan o'tgan" in reg_msg_lower or "mavjud" in reg_msg_lower or "ro‘yxatdan" in reg_msg_lower or "registered" in reg_msg_lower:
+        user_exists_keywords = ["ro'yxatdan o'tgan", "mavjud", "ro'yxatdan", "registered",
+                                "рўйхатдан ўтган", "фойдаланувчи рўйхатдан"]
+        if any(k in reg_msg_lower for k in user_exists_keywords):
             mvc_ok, mvc_msg, mvc_session = await cls.send_mvc_initiative_sms(clean_phone, project_id)
             if mvc_ok:
                 return True, "SMS tasdiqlash kodi yuborildi.", mvc_session
+            # MVC ham ishlamadi — captcha iste'mol qilingan, foydalanuvchiga qayta urinish kerak
+            return False, "Ovoz berish xizmati band. Iltimos qaytadan urinib ko'ring.", None
 
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Referer": "https://openbudget.uz/",
-            "Origin": "https://openbudget.uz",
-        }
-        payload = {
-            "phone_number": "998" + clean_phone,
-            "captcha_key": captcha_key,
-            "captcha_result": int(captcha_result) if captcha_result is not None else 0,
-        }
-        try:
-            status, data, text = await cls._execute_request("POST", cls.send_otp_url(), headers=headers, json_data=payload)
-            logger.info(f"send-otp javob: {status} — {mask_sensitive_data(data)}")
+        # Register boshqa sabab bilan xato berdi (WRONG_CAPTCHA, server_error, ...)
+        # Captcha allaqachon iste'mol qilingan, login bilan qayta ishlatib bo'lmaydi
+        wrong_captcha_keywords = ["каптча", "captcha", "wrong_captcha"]
+        if any(k in reg_msg_lower for k in wrong_captcha_keywords):
+            return False, "Captcha noto'g'ri yechildi. Iltimos qaytadan urinib ko'ring.", None
 
-            if status == 200:
-                return True, "SMS tasdiqlash kodi yuborildi.", {
-                    "flow": "login",
-                    "phone": "998" + clean_phone,
-                    "project_id": project_id,
-                    "otp_key": data.get("otpKey"),
-                }
-            elif status == 429:
-                retry = data.get("retryAfter", 60)
-                return False, f"Juda ko'p urinish. {retry} soniyadan keyin qayta urinib ko'ring.", None
-            elif status in (500, 502, 503, 504):
-                return False, "server_error", None
-            else:
-                msg = (data.get("message") or data.get("detail") or f"Status: {status}").strip()
-                msg_lower = msg.lower()
-
-                unregistered_keywords = [
-                    "ro'yxatdan o'tmagan", "topilmadi", "not found", "not registered", "mavjud emas", "ro‘yxatdan", "foydalanuvchi",
-                    "топилмади", "фойдаланувчи", "рўйхатдан", "маълумотлари топилмади", "топилмаган", "мавжуд эмас", "ҳеч қандай"
-                ]
-                if any(term in msg_lower for term in unregistered_keywords):
-                    return False, "not_registered", {"phone": "998" + clean_phone, "project_id": project_id}
-
-                already_voted_keywords = [
-                    "ovoz bergan", "ovoz berilgan", "already voted", "boshqa raqam",
-                    "овоз берган", "овоз берилган", "бошқа рақам"
-                ]
-                if any(term in msg_lower for term in already_voted_keywords):
-                    return False, "already_voted", {"phone": clean_phone, "detail": msg}
-
-                return False, f"Xatolik: {msg}", None
-        except Exception as e:
-            logger.error(f"Send OTP Error: {e}")
-            return False, "SMS yuborishda tarmoq xatoligi yuz berdi.", None
+        return False, reg_msg or "SMS yuborishda xatolik yuz berdi.", None
 
     @classmethod
     async def send_mvc_initiative_sms(
@@ -553,7 +514,9 @@ class OpenBudgetService:
                 captcha_key=cap_data.get("key"),
                 captcha_result=int(solved_result)
             )
-            return vote_success, vote_msg
+            if vote_success:
+                return True, "mvc_voted"
+            return False, vote_msg
 
         if session_data and session_data.get("flow") == "mvc":
             session_key = session_data.get("session_key") or clean_phone
@@ -564,14 +527,11 @@ class OpenBudgetService:
 
             target_uuid = session_data.get("target_uuid") or session_data.get("project_id")
             referer_url = f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}"
-            page_url = "https://openbudget.uz/"
-
-            recaptcha_token = ""
 
             verify_url = "https://openbudget.uz/api/v2/vote/mvc/verify"
             verify_data = {
                 "otpCode": str(code).strip(),
-                "grToken": recaptcha_token
+                "grToken": ""
             }
             verify_headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
