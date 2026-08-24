@@ -318,7 +318,8 @@ async def register_verify_otp(
 @router.post("/vote")
 async def verify_otp(
     req: VerifyRequest,
-    api_key: APIKey = Depends(get_api_key)
+    api_key: APIKey = Depends(get_api_key),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Kiritilgan SMS kodni tekshiradi va muvaffaqiyatli bo'lsa login tokenini qaytaradi.
@@ -350,6 +351,20 @@ async def verify_otp(
             detail=result_msg
         )
         
+    # Agarda MVC yoki Register flow bo'lsa, ovoz tasdiqlanganda avtomatik yoziladi
+    if result_msg == "mvc_voted":
+        try:
+            clean_phone = "".join(filter(str.isdigit, req.phone_number))
+            await crud.add_vote_history(
+                db=db,
+                telegram_id=api_key.owner_id or 0,
+                phone_number=clean_phone,
+                project_id=session_data.get("project_id") or "",
+                status=VoteStatus.SUCCESS,
+            )
+        except Exception as e:
+            logger.error(f"MVC vote tarixini yozishda xatolik: {e}")
+
     return {
         "status": "success",
         "message": "SMS tasdiqlandi.",
