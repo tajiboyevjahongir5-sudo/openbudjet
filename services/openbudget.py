@@ -783,7 +783,10 @@ class OpenBudgetService:
                         logger.info(f"MVC Verify response: status={resp.status}, body_len={len(v_html)}, url={resp.url}")
 
                         # Muvaffaqiyat belgilari
-                        success_words = ["табриклаймиз", "муваффақият", "қабул қилинди", "раҳмат", "muvaffaqiyat", "qabul qilindi", "овозингиз"]
+                        success_words = [
+                            "табриклаймиз", "муваффақият", "қабул қилинди", "раҳмат", "овозингиз",
+                            "muvaffaqiyat", "qabul qilindi", "ovozingiz", "tasdiqlash", "jarayonida", "qabul"
+                        ]
                         has_success = any(w in v_lower for w in success_words)
 
                         # Xato belgilari
