@@ -148,14 +148,14 @@ async def verify_pending_votes_step(bot: Bot):
                                 await confirm_single_vote(db, bot, vote)
                             break
 
-            # 2. 40 daqiqadan oshgan va tasdiqlanmagan kutilayotgan ovozlarni rad etamiz (bekor qilamiz)
+            # 2. 2 soatdan (120 daqiqadan) oshgan va tasdiqlanmagan kutilayotgan ovozlarni rad etamiz (bekor qilamiz)
             for vote in remaining_votes:
                 if vote.id not in confirmed_set and vote.created_at:
                     v_time = vote.created_at
                     if v_time.tzinfo is None:
                         v_time = v_time.replace(tzinfo=timezone.utc)
-                    if (now - v_time).total_seconds() > 2400: # 40 daqiqa
-                        logger.warning(f"❌ Ovoz topilmadi (40 daqiqa o'tdi): {vote.phone_number}. Rad etilmoqda.")
+                    if (now - v_time).total_seconds() > 7200: # 2 soat
+                        logger.warning(f"❌ Ovoz topilmadi (2 soat o'tdi): {vote.phone_number}. Rad etilmoqda.")
                         async with async_session() as db:
                             # Bazadagi statusini FAILED ga o'zgartiramiz
                             db_vote = await db.get(VotesHistory, vote.id)
