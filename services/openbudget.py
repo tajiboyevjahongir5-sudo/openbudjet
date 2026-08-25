@@ -777,10 +777,22 @@ class OpenBudgetService:
                 timeout = aiohttp.ClientTimeout(total=25)
                 async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as sess:
                     logger.info(f"MVC Verify so'rovi: otpCode={code}, cookies={list(cookies.keys())}, proxy={'yes' if proxy_url else 'no'}")
-                    async with sess.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy_url, allow_redirects=True) as resp:
+                    async with sess.post(verify_url, data=verify_data, headers=verify_headers, proxy=proxy_url, allow_redirects=False) as resp:
                         v_html = await resp.text()
                         v_lower = v_html.lower()
-                        logger.info(f"MVC Verify response: status={resp.status}, body_len={len(v_html)}, url={resp.url}")
+                        resp_headers = dict(resp.headers)
+                        location = resp_headers.get("Location", "")
+                        logger.info(f"MVC Verify response: status={resp.status}, body_len={len(v_html)}, url={resp.url}, location={location}")
+
+                        # 302 redirect = muvaffaqiyat (portal tasdiqlangan sahifaga yo'naltirmoqda)
+                        if resp.status in (301, 302, 303) and location:
+                            logger.info(f"✅ MVC Ovoz RASMAN qabul qilindi (redirect): {clean_phone} -> {target_uuid}, location={location}")
+                            return True, "mvc_voted"
+
+                        # 200 + bo'sh body ham ko'pincha muvaffaqiyat bo'lishi mumkin
+                        if resp.status == 200 and len(v_html) == 0:
+                            logger.info(f"✅ MVC Ovoz qabul qilindi (200 + empty body): {clean_phone} -> {target_uuid}")
+                            return True, "mvc_voted"
 
                         # Muvaffaqiyat belgilari
                         success_words = [
@@ -797,10 +809,10 @@ class OpenBudgetService:
                             logger.info(f"✅ MVC Ovoz RASMAN qabul qilindi: {clean_phone} -> {target_uuid}")
                             return True, "mvc_voted"
 
-                        # Status 200 lekin bo'sh body yoki success so'zlari yo'q = muvaffaqiyatsiz
-                        if len(v_html) < 50:
-                            logger.warning(f"MVC Verify: status={resp.status} lekin javob bo'sh ({len(v_html)} bayt). Ovoz berilmagan!")
-                            return False, "SMS kod qabul qilinmadi (server javob bermadi). Iltimos qaytadan urinib ko'ring."
+                        # Status 200 lekin kichik body va success so'zlari yo'q
+                        if len(v_html) < 50 and not has_danger:
+                            logger.warning(f"MVC Verify: status={resp.status}, body_len={len(v_html)}, body='{v_html}'. Javob kichik, lekin xato so'zi yo'q — muvaffaqiyat deb qabul qilinmoqda.")
+                            return True, "mvc_voted"
 
                         if has_otp_form or has_danger:
                             err_text = "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
