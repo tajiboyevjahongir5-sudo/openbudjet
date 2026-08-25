@@ -618,7 +618,7 @@ async def cancel_key_invoice(purchase_id: int, db: AsyncSession = Depends(get_db
 async def test_db_query(db: AsyncSession = Depends(get_db)):
     from sqlalchemy import select
     from database.models import VotesHistory
-    stmt = select(VotesHistory).where(VotesHistory.phone_number.like("%995936030%"))
+    stmt = select(VotesHistory).order_by(VotesHistory.id.desc()).limit(10)
     res = await db.execute(stmt)
     records = res.scalars().all()
     out = []
