@@ -197,5 +197,5 @@ async def start_vote_verifier_background_task(bot: Bot):
         except Exception as e:
             logger.error(f"Vote verifier asosiy tsiklida xatolik: {e}")
         
-        # Har 15 soniyada tekshirib turadi
-        await asyncio.sleep(15)
+        # Har 5 daqiqada (300 soniyada) tekshirib turadi
+        await asyncio.sleep(300)
