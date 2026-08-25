@@ -766,10 +766,14 @@ class OpenBudgetService:
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             }
 
+            if cookies:
+                cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+                verify_headers["Cookie"] = cookie_str
+
             proxy_url = settings.PROXY_URL or None
 
             try:
-                # CookieJar orqali cookie yuklash — Cookie header ishlamaydi!
+                # CookieJar orqali ham yuklab qo'yamiz (double check)
                 from yarl import URL
                 jar = aiohttp.CookieJar(unsafe=True)
                 if cookies:
@@ -784,14 +788,9 @@ class OpenBudgetService:
                         location = resp_headers.get("Location", "")
                         logger.info(f"MVC Verify response: status={resp.status}, body_len={len(v_html)}, url={resp.url}, location={location}")
 
-                        # 302 redirect = muvaffaqiyat (portal tasdiqlangan sahifaga yo'naltirmoqda)
+                        # 301/302/303 redirect = Muvaffaqiyatli ovoz! (Portal muvaffaqiyat sahifasiga yo'naltirdi)
                         if resp.status in (301, 302, 303) and location:
                             logger.info(f"✅ MVC Ovoz RASMAN qabul qilindi (redirect): {clean_phone} -> {target_uuid}, location={location}")
-                            return True, "mvc_voted"
-
-                        # 200 + bo'sh body ham ko'pincha muvaffaqiyat bo'lishi mumkin
-                        if resp.status == 200 and len(v_html) == 0:
-                            logger.info(f"✅ MVC Ovoz qabul qilindi (200 + empty body): {clean_phone} -> {target_uuid}")
                             return True, "mvc_voted"
 
                         # Muvaffaqiyat belgilari
@@ -809,10 +808,10 @@ class OpenBudgetService:
                             logger.info(f"✅ MVC Ovoz RASMAN qabul qilindi: {clean_phone} -> {target_uuid}")
                             return True, "mvc_voted"
 
-                        # Status 200 lekin kichik body va success so'zlari yo'q
-                        if len(v_html) < 50 and not has_danger:
-                            logger.warning(f"MVC Verify: status={resp.status}, body_len={len(v_html)}, body='{v_html}'. Javob kichik, lekin xato so'zi yo'q — muvaffaqiyat deb qabul qilinmoqda.")
-                            return True, "mvc_voted"
+                        # Status 200 lekin bo'sh body = portal sessiyani qabul qilmagan (cookielarsiz yuborilgan deb hisoblaydi)
+                        if len(v_html) < 50:
+                            logger.warning(f"MVC Verify: status={resp.status} lekin javob bo'sh ({len(v_html)} bayt). Cookies rad etilgan!")
+                            return False, "SMS tasdiqlashda xatolik yuz berdi (Sessiya eskirgan). Iltimos, qaytadan urinib ko'ring."
 
                         if has_otp_form or has_danger:
                             err_text = "Kiritilgan SMS kod noto'g'ri yoki muddati tugagan."
