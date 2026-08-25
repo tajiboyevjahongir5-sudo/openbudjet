@@ -148,6 +148,8 @@ async def verify_pending_votes_step(bot: Bot):
                                 await confirm_single_vote(db, bot, vote)
                             break
 
+            remaining_votes = [v for v in v_list if v.id not in confirmed_set]
+
             # 2. 2 soatdan (120 daqiqadan) oshgan va tasdiqlanmagan kutilayotgan ovozlarni rad etamiz (bekor qilamiz)
             for vote in remaining_votes:
                 if vote.id not in confirmed_set and vote.created_at:
