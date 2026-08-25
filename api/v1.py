@@ -612,21 +612,3 @@ async def cancel_key_invoice(purchase_id: int, db: AsyncSession = Depends(get_db
     if purchase and purchase.status == "PENDING":
         purchase.status = "CANCELLED"
     return {"status": "success"}
-
-
-@router.get("/test-db-query")
-async def test_db_query(db: AsyncSession = Depends(get_db)):
-    from sqlalchemy import select
-    from database.models import VotesHistory
-    stmt = select(VotesHistory).order_by(VotesHistory.id.desc()).limit(10)
-    res = await db.execute(stmt)
-    records = res.scalars().all()
-    out = []
-    for r in records:
-        out.append({
-            "id": r.id,
-            "phone": r.phone_number,
-            "status": r.status,
-            "created_at": str(r.created_at)
-        })
-    return out
