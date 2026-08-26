@@ -23,17 +23,15 @@ def match_phone_mask(real_phone: str, portal_masked: str) -> bool:
     if not real_phone or not portal_masked:
         return False
     clean_real = "".join(filter(str.isdigit, str(real_phone)))
+    if clean_real.startswith("998") and len(clean_real) == 12:
+        clean_real = clean_real[3:]
+        
     clean_masked = "".join(filter(str.isdigit, str(portal_masked)))
     
+    # OpenBudget odatda **-*XX-XX-XX formatida qaytaradi, ya'ni oxirgi 6 raqam ko'rinadi
     if len(clean_masked) >= 4 and clean_real.endswith(clean_masked):
         return True
         
-    if "*" in str(portal_masked):
-        parts = [p for p in str(portal_masked).split("*") if p]
-        if parts:
-            last_part = "".join(filter(str.isdigit, parts[-1]))
-            if len(last_part) >= 4 and clean_real.endswith(last_part):
-                return True
     return False
 
 
@@ -60,48 +58,48 @@ async def confirm_single_vote(db, bot: Bot, vote: VotesHistory):
             .values(balance=User.balance + voter_reward)
         )
 
-    # 3. Agar referal orqali kelgan bo'lsa, taklif qilganga ham pul o'tkazamiz
-    user = await crud.get_user(db, vote.telegram_id)
-    if user and user.invited_by and referral_price > 0:
-        await db.execute(
-            update(User)
-            .where(User.telegram_id == user.invited_by)
-            .values(
-                balance=User.balance + referral_price,
-                total_referrals=User.total_referrals + 1
+    # 3. Agar referal bo'lsa, taklif qilgan odamga ham referal mukofotini beramiz
+    user_rec = await db.get(User, vote.telegram_id)
+    if user_rec and user_rec.username:
+        # Taklif qilgan foydalanuvchini (referrer) aniqlaymiz
+        referrer = await crud.get_referrer_by_ref_username(db, user_rec.username)
+        if referrer and referral_price > 0:
+            await db.execute(
+                update(User)
+                .where(User.telegram_id == referrer.telegram_id)
+                .values(balance=User.balance + referral_price)
             )
-        )
-        try:
-            await bot.send_message(
-                chat_id=user.invited_by,
-                text=(
-                    f"🎉 <b>Yangi referal mukofoti!</b>\n\n"
-                    f"Siz taklif qilgan foydalanuvchi ({html.escape(str(user.username or vote.telegram_id))}) ovozi Open Budget portalida rasman tasdiqlandi!\n"
-                    f"💵 Balansingizga <b>+{referral_price:,.0f} so'm</b> qo'shildi!"
-                ),
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logger.warning(f"Referrerga xabar yuborishda xato: {e}")
+            # Referrerga xabar beramiz
+            try:
+                await bot.send_message(
+                    chat_id=referrer.telegram_id,
+                    text=(
+                        f"💰 <b>Hamkorlik mukofoti!</b>\n\n"
+                        f"Siz taklif qilgan do'stingiz muvaffaqiyatli ovoz berdi. "
+                        f"Balansingizga <b>+{referral_price:,.0f} so'm</b> qo'shildi! 🚀"
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.warning(f"Referrerga xabar yuborishda xato: {e}")
 
     await db.commit()
 
-    # 4. Foydalanuvchiga muvaffaqiyatli tasdiq xabarini yuboramiz
-    clean_d = clean_phone[-9:] if len(clean_phone) >= 9 else clean_phone
-    formatted_p = f"+998 ({clean_d[:2]}) {clean_d[2:5]}-{clean_d[5:7]}-{clean_d[7:]}"
+    # 4. Foydalanuvchiga Telegramda xabar beramiz
     try:
+        clean_d = clean_phone[-9:] if len(clean_phone) >= 9 else clean_phone
+        formatted_p = f"+998 ({clean_d[:2]}) {clean_d[2:5]}-{clean_d[5:7]}-{clean_d[7:]}"
         await bot.send_message(
             chat_id=vote.telegram_id,
             text=(
-                f"✅ <b>TABRIKLAYMIZ! Ovozingiz rasman tasdiqlandi!</b>\n\n"
-                f"🏛 <code>{formatted_p}</code> raqamingiz Open Budget rasmiy <b>«Ovozlar ro'yxati»</b>da muvaffaqiyatli aniqlandi.\n"
-                f"💰 Balansingizga: <b>+{voter_reward:,.0f} so'm</b> qo'shildi!\n\n"
-                f"💡 <i>Balansingizni «💎 Mening hisobim» bo'limida ko'rishingiz mumkin.</i>"
+                f"✨ <b>TABRIKLAYMIZ! Ovozingiz rasman tasdiqlandi!</b> 🔥\n\n"
+                f"🏛 <code>{formatted_p}</code> raqami uchun ovoz Open Budget portalida tasdiqlandi.\n"
+                f"💰 Mukofotingiz balansingizga qo'shildi. Davom eting! 🚀"
             ),
             parse_mode="HTML"
         )
     except Exception as e:
-        logger.warning(f"Ovoz beruvchiga xabar yuborishda xato: {e}")
+        logger.warning(f"Foydalanuvchiga muvaffaqiyat xabari yuborishda xato: {e}")
 
 
 async def verify_pending_votes_step(bot: Bot):
@@ -136,17 +134,28 @@ async def verify_pending_votes_step(bot: Bot):
             # 1. 'Ovozlar ro'yxati' jadvalidan raqamlarni olib tekshiramiz
             official_votes = await OpenBudgetService.get_official_votes_list(project_id, page=0, size=50)
             if official_votes:
-                logger.info(f"Loyiha {project_id}: 'Ovozlar ro'yxati'da {len(official_votes)} ta raqam tekshirilmoqda...")
+                # Kopiya qilamiz, undan ishlatilganlarni o'chirib boramiz (double spend/match ning oldini olish uchun)
+                available_portal_votes = list(official_votes)
+                logger.info(f"Loyiha {project_id}: 'Ovozlar ro'yxati'da {len(available_portal_votes)} ta raqam tekshirilmoqda...")
+                
                 for vote in v_list:
                     clean_phone = "".join(filter(str.isdigit, vote.phone_number))
-                    for row in official_votes:
+                    if clean_phone.startswith("998") and len(clean_phone) == 12:
+                        clean_phone = clean_phone[3:]
+                        
+                    matched_row = None
+                    for row in available_portal_votes:
                         portal_phone = row.get("phoneNumber") or row.get("phone_number") or row.get("phone") or ""
                         if match_phone_mask(clean_phone, portal_phone):
-                            logger.info(f"🎯 100% MOS KELDI: {clean_phone} -> {portal_phone} (Open Budget Ovozlar ro'yxatida aniqlandi!)")
-                            confirmed_set.add(vote.id)
-                            async with async_session() as db:
-                                await confirm_single_vote(db, bot, vote)
+                            matched_row = row
                             break
+                            
+                    if matched_row:
+                        logger.info(f"🎯 100% MOS KELDI: {clean_phone} -> {matched_row.get('phoneNumber', '')} (Open Budget Ovozlar ro'yxatida aniqlandi!)")
+                        confirmed_set.add(vote.id)
+                        available_portal_votes.remove(matched_row) # Ushbu portal qatorini band qilamiz
+                        async with async_session() as db:
+                            await confirm_single_vote(db, bot, vote)
 
             remaining_votes = [v for v in v_list if v.id not in confirmed_set]
 
