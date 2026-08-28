@@ -324,6 +324,41 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
         )
         return
 
+    if mvc_msg == "captcha_required":
+        try:
+            await waiting_msg.delete()
+        except Exception:
+            pass
+
+        web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
+        session_id = str(telegram_id)
+        
+        from utils.security import generate_session_signature
+        sign = generate_session_signature(session_id, settings.BOT_TOKEN)
+        
+        url_with_params = f"{web_url.rstrip('/')}/captcha?session_id={session_id}&sign={sign}"
+        
+        await state.update_data(
+            phone_number=clean_phone,
+            project_id=project_id,
+            flow="mvc"
+        )
+        await state.set_state(VoteStates.WAITING_FOR_CAPTCHA)
+        
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🤖 Tasdiqlash (Men robot emasman)", web_app=WebAppInfo(url=url_with_params))],
+            [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="cancel_vote")]
+        ])
+        
+        await message.answer(
+            "🔒 <b>Xavfsizlik tekshiruvi:</b>\n\n"
+            "Ovoz berishni davom ettirish uchun quyidagi tugmani bosing va <b>\"Men robot emasman\"</b> chekboxini tasdiqlang 👇",
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+        return
+
     if mvc_msg == "already_voted":
         detail = (mvc_session or {}).get("detail") or f"Ushbu (+998{clean_phone}) raqam orqali bu mavsumda allaqachon ovoz berilgan!"
         async with async_session() as db:
@@ -382,22 +417,59 @@ async def process_captcha_result(message: Message, state: FSMContext):
         state_data = await state.get_data()
         phone_number = state_data.get("phone_number")
         project_id = state_data.get("project_id")
+        flow = state_data.get("flow")
         telegram_id = message.from_user.id
 
         waiting_msg = await message.answer("⏳ <b>Tasdiqlash:</b> SMS kod so'ralmoqda...", parse_mode="HTML")
 
-        success, error_msg, session_data = await OpenBudgetService.check_and_send_sms(
-            phone_number=phone_number,
-            project_id=project_id,
-            captcha_key=captcha_key,
-            captcha_result=captcha_result
-        )
+        if flow == "mvc":
+            success, error_msg, session_data = await OpenBudgetService.send_mvc_initiative_sms(
+                phone_number=phone_number,
+                project_id=project_id,
+                captcha_key=captcha_key
+            )
+        else:
+            success, error_msg, session_data = await OpenBudgetService.check_and_send_sms(
+                phone_number=phone_number,
+                project_id=project_id,
+                captcha_key=captcha_key,
+                captcha_result=captcha_result
+            )
         
         if not success:
             try:
                 await waiting_msg.delete()
             except Exception:
                 pass
+            if error_msg == "captcha_required":
+                web_url = settings.WEB_APP_URL or settings.WEBHOOK_URL or "http://localhost:8000"
+                session_id = str(telegram_id)
+                
+                from utils.security import generate_session_signature
+                sign = generate_session_signature(session_id, settings.BOT_TOKEN)
+                url_with_params = f"{web_url.rstrip('/')}/captcha?session_id={session_id}&sign={sign}"
+                
+                await state.update_data(
+                    phone_number=phone_number,
+                    project_id=project_id,
+                    flow="mvc"
+                )
+                await state.set_state(VoteStates.WAITING_FOR_CAPTCHA)
+                
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🤖 Tasdiqlash (Men robot emasman)", web_app=WebAppInfo(url=url_with_params))],
+                    [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="cancel_vote")]
+                ])
+                
+                await message.answer(
+                    "🔒 <b>Tizim aniqladi:</b> Siz portalda ro'yxatdan o'tgansiz.\n\n"
+                    "Ovoz berishni davom ettirish uchun quyidagi tugmani bosing va <b>\"Men robot emasman\"</b> chekboxini tasdiqlang 👇",
+                    reply_markup=kb,
+                    parse_mode="HTML"
+                )
+                return
+
             if error_msg == "server_error":
                 await message.answer(
                     "⚠️ <b>Portal vaqtincha ishlamayapti.</b>\n\n"

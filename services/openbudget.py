@@ -365,8 +365,9 @@ class OpenBudgetService:
             mvc_ok, mvc_msg, mvc_session = await cls.send_mvc_initiative_sms(clean_phone, project_id)
             if mvc_ok:
                 return True, "SMS tasdiqlash kodi yuborildi.", mvc_session
-            # MVC ham ishlamadi — captcha iste'mol qilingan, foydalanuvchiga qayta urinish kerak
-            return False, "Ovoz berish xizmati band. Iltimos qaytadan urinib ko'ring.", None
+            if mvc_msg == "captcha_required":
+                return False, "captcha_required", mvc_session
+            return False, mvc_msg or "Ovoz berish xizmati band. Iltimos qaytadan urinib ko'ring.", None
 
         # Register boshqa sabab bilan xato berdi (WRONG_CAPTCHA, server_error, ...)
         # Captcha allaqachon iste'mol qilingan, login bilan qayta ishlatib bo'lmaydi
@@ -380,210 +381,110 @@ class OpenBudgetService:
     async def send_mvc_initiative_sms(
         cls,
         phone_number: str,
-        project_id: str
+        project_id: str,
+        captcha_key: str | None = None
     ) -> tuple[bool, str, dict | None]:
-        # 1. Hovuzdan tayyor seansni qidiramiz
-        now = time.time()
-        cls._mvc_pool = [s for s in cls._mvc_pool if (now - s.get("created_at", 0)) < 180]
-        
-        preloaded_session = None
-        for i, s in enumerate(cls._mvc_pool):
-            if s.get("project_id") == project_id:
-                preloaded_session = cls._mvc_pool.pop(i)
-                break
-                
         clean_phone = "".join(filter(str.isdigit, phone_number))
         if clean_phone.startswith("998"):
             clean_phone = clean_phone[3:]
             
         target_uuid = await cls.resolve_project_uuid(project_id)
-        
-        if preloaded_session:
-            logger.info("🎯 MVC Ovoz berish uchun hovuzdan tayyor seans olindi!")
-            cookies = preloaded_session["cookies"]
-            points = preloaded_session["points"]
-            
-            formatted_phone = f"{clean_phone[:2]} {clean_phone[2:5]}-{clean_phone[5:7]}-{clean_phone[7:]}"
-            post_url = "https://openbudget.uz/api/v2/vote/mvc/captcha"
-            post_data = {
-                "phoneNumber": formatted_phone,
-                "points": json.dumps(points, separators=(",", ":")),
-            }
-            post_headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Origin": "https://openbudget.uz",
-                "Referer": f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}",
-                "Content-Type": "application/x-www-form-urlencoded"
-            }
-            
-            jar = aiohttp.CookieJar(unsafe=True)
-            for k, v in cookies.items():
-                jar.update_cookies({k: v}, URL("https://openbudget.uz/"))
-                
-            proxy = settings.PROXY_URL or None
-            
-            try:
-                timeout = aiohttp.ClientTimeout(total=20)
-                async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout) as session:
-                    async with session.post(post_url, data=post_data, headers=post_headers, proxy=proxy, allow_redirects=True) as post_resp:
-                        post_html = await post_resp.text()
-                        logger.info(f"MVC preloaded POST response: status={post_resp.status}, len={len(post_html)}")
-                        
-                        form_m = re.search(r"<form[^>]*action=\"([^\"]+)\"[^>]*>([\s\S]*?)</form>", post_html, re.I)
-                        inputs = re.findall(r'<input[^>]+name=["\']([^"\']+)["\'][^>]*>', post_html, re.I)
-                        
-                        has_otp_input = any(i.lower() in ["otpcode", "smscode"] for i in inputs)
-                        has_verify_action = form_m and "verify" in form_m.group(1).lower()
+        if not target_uuid:
+            return False, "Loyiha UUID aniqlanmadi", None
 
-                        if (has_otp_input or has_verify_action) and post_resp.status in (200, 201, 302):
-                            session_key = f"998{clean_phone}"
-                            cls._mvc_sessions[session_key] = session
-                            
-                            cookies_dict = {}
-                            for cookie in jar:
-                                cookies_dict[cookie.key] = cookie.value
-                                
-                            return True, "SMS tasdiqlash kodi yuborildi.", {
-                                "flow": "mvc",
-                                "phone": "998" + clean_phone,
-                                "project_id": project_id,
-                                "target_uuid": str(target_uuid),
-                                "session_key": session_key,
-                                "cookies": cookies_dict
-                            }
-                        else:
-                            h2_match = re.search(r'<h2>(.*?)</h2>', post_html, re.DOTALL | re.I)
-                            p_match = re.search(r'<p>(.*?)</p>', post_html, re.DOTALL | re.I)
-                            raw_msg = ""
-                            if h2_match:
-                                raw_msg = re.sub(r'<[^>]+>', '', h2_match.group(1)).strip()
-                            elif p_match:
-                                raw_msg = re.sub(r'<[^>]+>', '', p_match.group(1)).strip()
-                                
-                            err_text = raw_msg or "Ovoz berish xizmati band."
-                            err_alert = re.search(r'id="error-alert"[^>]*>(.*?)</div>', post_html, re.S | re.I)
-                            if err_alert:
-                                err_text = re.sub(r'<[^>]+>', '', err_alert.group(1)).strip() or err_text
-                            
-                            logger.warning(f"MVC preloaded POST failed: {err_text}")
-                            
-                            already_voted_terms = ["аввал овоз берилган", "ovoz qabul qilingan", "allaqachon", "аввал берилган", "овоз берилган"]
-                            limit_terms = ["bugungi urinishlar soni tugadi", "limit", "soni tugadi"]
-                            if any(k in err_text.lower() for k in already_voted_terms + limit_terms):
-                                return False, err_text, None
-            except Exception as e:
-                logger.warning(f"MVC preloaded POST exception: {e}")
-                
+        if not captcha_key:
+            return False, "captcha_required", {
+                "flow": "mvc",
+                "phone": "998" + clean_phone,
+                "project_id": project_id,
+                "target_uuid": str(target_uuid),
+            }
+
         formatted_phone = f"{clean_phone[:2]} {clean_phone[2:5]}-{clean_phone[5:7]}-{clean_phone[7:]}"
         mvc_url = f"https://openbudget.uz/api/v2/vote/mvc/captcha/{target_uuid}"
-        
+        post_url = "https://openbudget.uz/api/v2/vote/mvc/captcha"
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Origin": "https://openbudget.uz",
-            "Referer": f"https://openbudget.uz/initiative/{project_id}",
+            "Referer": mvc_url,
         }
         
         proxy = settings.PROXY_URL or None
         
-        for attempt in range(2):
-            try:
-                jar = aiohttp.CookieJar(unsafe=True)
-                timeout = aiohttp.ClientTimeout(total=30)
-                session = aiohttp.ClientSession(cookie_jar=jar, timeout=timeout)
-                
-                async with session.get(mvc_url, headers=headers, proxy=proxy) as resp:
-                    if resp.status != 200:
-                        await session.close()
-                        continue
-                    html = await resp.text()
-                    
-                srcs = re.findall(r'<img[^>]+src="(data:image/[^"]+)"', html)
-                if len(srcs) < 2:
-                    srcs = re.findall(r"src='(data:image/[^']+)'", html)
-                if len(srcs) < 2:
+        try:
+            jar = aiohttp.CookieJar(unsafe=True)
+            timeout = aiohttp.ClientTimeout(total=30)
+            session = aiohttp.ClientSession(cookie_jar=jar, timeout=timeout)
+            
+            async with session.get(mvc_url, headers=headers, proxy=proxy) as resp:
+                if resp.status != 200:
                     await session.close()
-                    continue
-                    
-                img_a_b64 = srcs[0].split(",")[-1]
-                img_b_b64 = srcs[1].split(",")[-1]
+                    return False, f"Portaldan ulanish xatosi (status {resp.status})", None
+                await resp.text()
+
+            post_data = {
+                "phoneNumber": formatted_phone,
+                "altcha": captcha_key,
+            }
+            post_headers = dict(headers)
+            post_headers["Content-Type"] = "application/x-www-form-urlencoded"
+            
+            async with session.post(post_url, data=post_data, headers=post_headers, proxy=proxy, allow_redirects=True) as post_resp:
+                post_html = await post_resp.text()
+                logger.info(f"Altcha MVC POST response: status={post_resp.status}, len={len(post_html)}")
                 
-                points = await solve_mvc_visual_captcha(img_a_b64, img_b_b64)
-                if not points or len(points) < 2:
+                h2_match = re.search(r'<h2>(.*?)</h2>', post_html, re.DOTALL | re.I)
+                p_match = re.search(r'<p>(.*?)</p>', post_html, re.DOTALL | re.I)
+                raw_msg = ""
+                if h2_match:
+                    raw_msg = re.sub(r'<[^>]+>', '', h2_match.group(1)).strip()
+                elif p_match:
+                    raw_msg = re.sub(r'<[^>]+>', '', p_match.group(1)).strip()
+
+                already_voted_terms = ["аввал овоз берилган", "ovoz qabul qilingan", "allaqachon", "аввал берилган", "овоз берилgan", "овоз берилган"]
+                if any(k in post_html.lower() for k in already_voted_terms):
+                    logger.warning(f"MVC POST: number already voted. msg={raw_msg}")
                     await session.close()
-                    continue
+                    detail_msg = raw_msg or "Ushbu fuqaro / raqam orqali bu mavsumda allaqachon ovoz berilgan."
+                    return False, "already_voted", {"phone": clean_phone, "detail": detail_msg}
                     
-                post_url = "https://openbudget.uz/api/v2/vote/mvc/captcha"
-                post_data = {
-                    "phoneNumber": formatted_phone,
-                    "points": json.dumps(points, separators=(",", ":")),
-                }
-                post_headers = dict(headers)
-                post_headers["Referer"] = mvc_url
-                post_headers["Content-Type"] = "application/x-www-form-urlencoded"
+                form_m = re.search(r"<form[^>]*action=\"([^\"]+)\"[^>]*>([\s\S]*?)</form>", post_html, re.I)
+                inputs = re.findall(r'<input[^>]+name=["\']([^"\']+)["\'][^>]*>', post_html, re.I)
                 
-                async with session.post(post_url, data=post_data, headers=post_headers, proxy=proxy, allow_redirects=True) as post_resp:
-                    post_html = await post_resp.text()
-                    logger.info(f"MVC POST response: status={post_resp.status}, len={len(post_html)}")
-                    
-                    h2_match = re.search(r'<h2>(.*?)</h2>', post_html, re.DOTALL | re.I)
-                    p_match = re.search(r'<p>(.*?)</p>', post_html, re.DOTALL | re.I)
-                    raw_msg = ""
-                    if h2_match:
-                        raw_msg = re.sub(r'<[^>]+>', '', h2_match.group(1)).strip()
-                    elif p_match:
-                        raw_msg = re.sub(r'<[^>]+>', '', p_match.group(1)).strip()
+                has_otp_input = any(i.lower() in ["otpcode", "smscode"] for i in inputs)
+                has_verify_action = form_m and "verify" in form_m.group(1).lower()
 
-                    already_voted_terms = ["аввал овоз берилган", "ovoz qabul qilingan", "allaqachon", "аввал берилган", "овоз берилган"]
-                    if any(k in post_html.lower() for k in already_voted_terms):
-                        logger.warning(f"MVC POST: number already voted. msg={raw_msg}")
-                        await session.close()
-                        detail_msg = raw_msg or "Ushbu fuqaro / raqam orqali bu mavsumda allaqachon ovoz berilgan."
-                        return False, "already_voted", {"phone": clean_phone, "detail": detail_msg}
-                        
-                    if any(k in post_html.lower() for k in ["мос келмади", "mos kelmadi", "noto'g'ri"]):
-                        logger.warning("MVC POST: captcha coordinates didn't match (wrong captcha)")
-                        await session.close()
-                        continue
-                        
-                    form_m = re.search(r"<form[^>]*action=\"([^\"]+)\"[^>]*>([\s\S]*?)</form>", post_html, re.I)
-                    inputs = re.findall(r'<input[^>]+name=["\']([^"\']+)["\'][^>]*>', post_html, re.I)
-                    
-                    has_otp_input = any(i.lower() in ["otpcode", "smscode"] for i in inputs)
-                    has_verify_action = form_m and "verify" in form_m.group(1).lower()
+                if (has_otp_input or has_verify_action) and post_resp.status in (200, 201, 302):
+                    session_key = f"998{clean_phone}"
+                    if session_key in cls._mvc_sessions and not cls._mvc_sessions[session_key].closed:
+                        await cls._mvc_sessions[session_key].close()
+                    cls._mvc_sessions[session_key] = session
 
-                    if (has_otp_input or has_verify_action) and post_resp.status in (200, 201, 302):
-                        session_key = f"998{clean_phone}"
-                        if session_key in cls._mvc_sessions and not cls._mvc_sessions[session_key].closed:
-                            await cls._mvc_sessions[session_key].close()
-                        cls._mvc_sessions[session_key] = session
+                    cookies_dict = {}
+                    for cookie in jar:
+                        cookies_dict[cookie.key] = cookie.value
 
-                        # Cookie dict ni saqlash — verify_sms_code uchun muhim
-                        cookies_dict = {}
-                        for cookie in jar:
-                            cookies_dict[cookie.key] = cookie.value
-
-                        return True, "SMS tasdiqlash kodi yuborildi.", {
-                            "flow": "mvc",
-                            "phone": "998" + clean_phone,
-                            "project_id": project_id,
-                            "target_uuid": str(target_uuid),
-                            "session_key": session_key,
-                            "cookies": cookies_dict
-                        }
-                    else:
-                        err_text = raw_msg or "Ovoz berish xizmati band."
-                        err_alert = re.search(r'id="error-alert"[^>]*>(.*?)</div>', post_html, re.S | re.I)
-                        if err_alert:
-                            err_text = re.sub(r'<[^>]+>', '', err_alert.group(1)).strip() or err_text
-                        logger.warning(f"MVC POST response did not contain OTP form: status={post_resp.status}, err={err_text}")
-                        await session.close()
-                        return False, err_text, None
-            except Exception as e:
-                logger.warning(f"MVC Vote SMS xatosi (urinish {attempt+1}): {e}")
-                
-        return False, "Ovoz berish xizmati band. Iltimos keyinroq qaytadan urinib ko'ring.", None
+                    return True, "SMS tasdiqlash kodi yuborildi.", {
+                        "flow": "mvc",
+                        "phone": "998" + clean_phone,
+                        "project_id": project_id,
+                        "target_uuid": str(target_uuid),
+                        "session_key": session_key,
+                        "cookies": cookies_dict
+                    }
+                else:
+                    err_text = raw_msg or "Ovoz berish xizmati band."
+                    err_alert = re.search(r'id="error-alert"[^>]*>(.*?)</div>', post_html, re.S | re.I)
+                    if err_alert:
+                        err_text = re.sub(r'<[^>]+>', '', err_alert.group(1)).strip() or err_text
+                    logger.warning(f"Altcha MVC POST failed: {err_text}")
+                    await session.close()
+                    return False, err_text, None
+        except Exception as e:
+            logger.exception(f"MVC Vote SMS xatosi: {e}")
+            return False, "Ovoz berish xizmati band. Iltimos keyinroq qaytadan urinib ko'ring.", None
 
     @classmethod
     async def send_registration_otp(

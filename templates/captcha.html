@@ -6,6 +6,8 @@
     <title>Captcha Tasdiqlash</title>
     <!-- Telegram WebApp JS SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Altcha Captcha JS SDK -->
+    <script async defer src="https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js" type="module"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -311,17 +313,16 @@
         <button type="button" id="submitCaptchaBtn" class="submit-captcha-btn">Tasdiqlash</button>
     </div>
     {% else %}
-    <!-- Mock Slider Captcha -->
-    <div id="mock-captcha-container">
-        <p>Ovoz berishni davom ettirish uchun boshqotirmani yeching. Puzl bo'lagini joyiga siljiting 👇</p>
-        <div class="puzzle-area">
-            <div class="puzzle-slot" id="slot"></div>
-            <div class="puzzle-piece" id="piece"></div>
-        </div>
-        <div class="slider-container">
-            <input type="range" min="0" max="100" value="0" class="slider" id="puzzleSlider">
-            <span class="slider-label" id="sliderLabel">Suring ➡️</span>
-        </div>
+    <!-- Altcha Widget Container -->
+    <div id="altcha-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%;">
+        <p style="margin-bottom: 20px;">Ovoz berish uchun robot emasligingizni tasdiqlang 👇</p>
+        <altcha-widget id="altchaWidget"
+                       type="checkbox"
+                       auto="off"
+                       strings='{"label": "Men robot emasman", "verifying": "Tekshirilmoqda...", "verified": "Tasdiqlandi", "verificationRequired": "Tekshiruvni tasdiqlang", "expired": "Muddati tugadi, qayta urining", "error": "Xatolik yuz berdi", "loading": "Yuklanmoqda...", "verify": "Tasdiqlash", "cancel": "Bekor qilish"}'
+                       challenge="https://altcha.ob.yatm.uz/v1/challenge?apiKey=key_1k0vq8t0a00727nuf2v"
+                       style="margin-bottom: 20px; color: #ffffff;">
+        </altcha-widget>
     </div>
     {% endif %}
     
@@ -468,59 +469,36 @@
         }
     });
     {% else %}
-    // Mock Slider Logic
-    const slider = document.getElementById("puzzleSlider");
-    const piece = document.getElementById("piece");
-    const label = document.getElementById("sliderLabel");
-    
-    const minLeft = 10;
-    const maxLeft = 290;
-    const targetLeft = 210;
+    // Altcha Logic
+    const altchaWidget = document.getElementById("altchaWidget");
 
-    slider.addEventListener("input", () => {
-        const percentage = slider.value / 100;
-        const currentLeft = minLeft + percentage * (maxLeft - minLeft);
-        piece.style.left = currentLeft + 'px';
+    altchaWidget.addEventListener("verified", (e) => {
+        const payload = e.detail.payload;
         
-        label.style.opacity = (1 - percentage * 2);
+        statusMessage.className = "status success";
+        statusMessage.innerText = "✓ Muvaffaqiyatli tasdiqlandi!";
+        
+        if (webapp.HapticFeedback) {
+            webapp.HapticFeedback.notificationOccurred('success');
+        }
+
+        const result = {
+            status: "success",
+            captcha_result: "1", 
+            captcha_key: payload, 
+            session_id: "{{ session_id }}"
+        };
+        
+        setTimeout(() => {
+            webapp.sendData(JSON.stringify(result));
+        }, 800);
     });
 
-    slider.addEventListener("change", () => {
-        const percentage = slider.value / 100;
-        const currentLeft = minLeft + percentage * (maxLeft - minLeft);
-        const difference = Math.abs(currentLeft - targetLeft);
-
-        if (difference <= 6) {
-            statusMessage.className = "status success";
-            statusMessage.innerText = "✓ Muvaffaqiyatli tasdiqlandi!";
-            piece.style.left = targetLeft + 'px';
-            slider.disabled = true;
-            
-            if (webapp.HapticFeedback) {
-                webapp.HapticFeedback.notificationOccurred('success');
-            }
-
-            const result = {
-                status: "success",
-                captcha_result: "1", // Mock captcha key
-                captcha_key: "mock_captcha_key",
-                session_id: "{{ session_id }}"
-            };
-            webapp.sendData(JSON.stringify(result));
-        } else {
-            statusMessage.className = "status error";
-            statusMessage.innerText = "❌ Noto'g'ri joylashtirildi. Qayta urinib ko'ring.";
-            
-            if (webapp.HapticFeedback) {
-                webapp.HapticFeedback.notificationOccurred('error');
-            }
-
-            setTimeout(() => {
-                slider.value = 0;
-                piece.style.left = minLeft + 'px';
-                label.style.opacity = '1';
-                statusMessage.innerText = "";
-            }, 800);
+    altchaWidget.addEventListener("error", (e) => {
+        statusMessage.className = "status error";
+        statusMessage.innerText = "❌ Tasdiqlashda xatolik yuz berdi. Qayta urining.";
+        if (webapp.HapticFeedback) {
+            webapp.HapticFeedback.notificationOccurred('error');
         }
     });
     {% endif %}
