@@ -615,18 +615,19 @@ async def cancel_key_invoice(purchase_id: int, db: AsyncSession = Depends(get_db
 
 
 @router.get("/test-db-query")
-async def test_db_query(phone: str, db: AsyncSession = Depends(get_db)):
+async def test_db_query(db: AsyncSession = Depends(get_db)):
     from sqlalchemy import select
-    from database.models import VotesHistory
-    stmt = select(VotesHistory).where(VotesHistory.phone_number.like(f"%{phone}%"))
+    from database.models import User
+    stmt = select(User).order_by(User.telegram_id.desc()).limit(30)
     res = await db.execute(stmt)
     records = res.scalars().all()
     out = []
     for r in records:
         out.append({
-            "id": r.id,
-            "phone": r.phone_number,
-            "status": r.status,
-            "created_at": str(r.created_at)
+            "telegram_id": r.telegram_id,
+            "username": r.username,
+            "full_name": r.full_name,
+            "balance": r.balance,
+            "joined_at": str(r.joined_at) if hasattr(r, 'joined_at') else None
         })
     return out
