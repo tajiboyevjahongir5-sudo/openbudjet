@@ -517,6 +517,12 @@ async def delete_key_api(
 
     return {"status": "success"}
 
+@app.get("/static/altcha.min.js")
+async def get_altcha_js():
+    from utils.altcha_js import ALTCHA_JS_CONTENT
+    from fastapi import Response
+    return Response(content=ALTCHA_JS_CONTENT, media_type="application/javascript")
+
 @app.get("/captcha", response_class=HTMLResponse)
 async def get_captcha_page(request: Request, session_id: str = "default", sign: str = ""):
     """Foydalanuvchilar captchani yechishi uchun chiroyli HTML sahifasi"""
