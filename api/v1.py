@@ -612,35 +612,3 @@ async def cancel_key_invoice(purchase_id: int, db: AsyncSession = Depends(get_db
     if purchase and purchase.status == "PENDING":
         purchase.status = "CANCELLED"
     return {"status": "success"}
-
-
-@router.get("/test-db-query")
-async def test_db_query(db: AsyncSession = Depends(get_db)):
-    import aiohttp
-    import re
-    from config import settings
-    
-    url = "https://openbudget.uz/api/v2/vote/mvc/captcha/0a70f4e1-0ca3-4407-8ac3-939cfa4a4653"
-    proxy = settings.PROXY_URL or None
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "text/html",
-    }
-    
-    out = {"url": url}
-    try:
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers, proxy=proxy) as resp:
-                text = await resp.text()
-                out["status"] = resp.status
-                
-                title_match = re.search(r'<title>(.*?)</title>', text, re.I)
-                out["title"] = title_match.group(1).strip() if title_match else "No Title"
-                
-                # Check for Cloudflare
-                out["is_cloudflare"] = "cloudflare" in text.lower() or "ddos" in text.lower()
-                out["body_preview"] = text[:300]
-    except Exception as e:
-        out["error"] = str(e)
-    return out
