@@ -617,17 +617,14 @@ async def cancel_key_invoice(purchase_id: int, db: AsyncSession = Depends(get_db
 @router.get("/test-db-query")
 async def test_db_query(db: AsyncSession = Depends(get_db)):
     from sqlalchemy import select
-    from database.models import VotesHistory
-    stmt = select(VotesHistory).order_by(VotesHistory.id.desc()).limit(20)
+    from database.models import ProjectSettings
+    stmt = select(ProjectSettings)
     res = await db.execute(stmt)
-    records = res.scalars().all()
-    out = []
-    for r in records:
-        out.append({
-            "id": r.id,
-            "phone": r.phone_number,
-            "project_id": r.project_id,
-            "status": r.status,
-            "created_at": str(r.created_at)
-        })
+    s = res.scalar_one_or_none()
+    if not s:
+        return {"status": "no_settings"}
+    out = {}
+    for k, v in s.__dict__.items():
+        if not k.startswith("_"):
+            out[k] = str(v)
     return out
