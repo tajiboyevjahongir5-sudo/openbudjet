@@ -616,15 +616,26 @@ async def cancel_key_invoice(purchase_id: int, db: AsyncSession = Depends(get_db
 
 @router.get("/test-db-query")
 async def test_db_query(db: AsyncSession = Depends(get_db)):
-    from sqlalchemy import select
-    from database.models import ProjectSettings
-    stmt = select(ProjectSettings)
-    res = await db.execute(stmt)
-    s = res.scalar_one_or_none()
-    if not s:
-        return {"status": "no_settings"}
-    out = {}
-    for k, v in s.__dict__.items():
-        if not k.startswith("_"):
-            out[k] = str(v)
+    import aiohttp
+    from config import settings
+    
+    url = "https://openbudget.uz/api/v2/vote/mvc/captcha/0a70f4e1-0ca3-4407-8ac3-939cfa4a4653"
+    proxy = settings.PROXY_URL or None
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html",
+    }
+    
+    out = {"url": url, "proxy_configured": bool(proxy)}
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers=headers, proxy=proxy) as resp:
+                text = await resp.text()
+                out["status"] = resp.status
+                out["body_len"] = len(text)
+                out["headers"] = dict(resp.headers)
+                out["preview"] = text[:150]
+    except Exception as e:
+        out["error"] = str(e)
     return out
