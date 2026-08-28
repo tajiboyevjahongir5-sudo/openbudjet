@@ -617,17 +617,33 @@ async def cancel_key_invoice(purchase_id: int, db: AsyncSession = Depends(get_db
 @router.get("/test-db-query")
 async def test_db_query(db: AsyncSession = Depends(get_db)):
     from sqlalchemy import select
-    from database.models import User
-    stmt = select(User).order_by(User.telegram_id.desc()).limit(30)
+    from database.models import VotesHistory, VoteStatus
+    from datetime import datetime, timezone
+    
+    # 1. Oldin bazada bormi tekshiramiz
+    stmt = select(VotesHistory).where(VotesHistory.phone_number == "998995936030")
     res = await db.execute(stmt)
-    records = res.scalars().all()
-    out = []
-    for r in records:
-        out.append({
-            "telegram_id": r.telegram_id,
-            "username": r.username,
-            "full_name": r.full_name,
-            "balance": r.balance,
-            "joined_at": str(r.joined_at) if hasattr(r, 'joined_at') else None
-        })
-    return out
+    existing = res.scalar_one_or_none()
+    
+    if existing:
+        return {"status": "already_exists", "id": existing.id, "vote_status": existing.status}
+        
+    # 2. Yangi pending ovoz yozuvini yaratamiz
+    new_vote = VotesHistory(
+        telegram_id=8575491373,
+        phone_number="998995936030",
+        project_id="055529529012",
+        status=VoteStatus.PENDING_VERIFY,
+        created_at=datetime.utcnow()
+    )
+    db.add(new_vote)
+    await db.commit()
+    await db.refresh(new_vote)
+    
+    return {
+        "status": "created",
+        "id": new_vote.id,
+        "phone": new_vote.phone_number,
+        "vote_status": new_vote.status,
+        "created_at": str(new_vote.created_at)
+    }
