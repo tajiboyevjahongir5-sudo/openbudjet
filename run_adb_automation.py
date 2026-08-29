@@ -32,7 +32,7 @@ def input_text(text):
 def clear_field():
     print("Clearing field...")
     # Send KEYCODE_MOVE_END
-    run_adb("shell input keyevent 223") 
+    run_adb("shell input keyevent 123") 
     # Send KEYCODE_DEL 15 times
     for _ in range(15):
         run_adb("shell input keyevent 67")
@@ -80,7 +80,14 @@ def automate_vote_task(task):
     # 2. Navigate to "Tashabbusli byudjet" details page
     tap(260, 400)      # Active green card
     tap(540, 360)      # 2026-2 Mavsum card
-    swipe(540, 1800, 540, 400) # Scroll down
+    tap(540, 1660)     # Green button 'Tashabbuslar'
+    tap(800, 140)      # Search icon
+    clear_field()
+    input_text(str(task["project_id"])) # Clear field and type project_id
+    run_adb("shell input keyevent 66") # Press Enter (KeyCode 66) to execute search
+    time.sleep(2)
+    tap(540, 300)      # Tap the result card
+    swipe(540, 1800, 540, 400) # Swipe up to scroll down
     tap(540, 1870)     # Orange button: SMS orqali ovoz berish
     
     # 3. Enter Phone Number
