@@ -78,6 +78,24 @@ def get_xml_dump():
         print(f"Error getting XML dump: {e}")
     return ""
 
+def reset_to_dashboard():
+    print("Checking/Resetting to dashboard if needed...")
+    for i in range(4):
+        xml = get_xml_dump()
+        if "Tashabbuslar doskasi" in xml:
+            print("Dashboard ('Tashabbuslar doskasi') detected.")
+            return True
+        print(f"'Tashabbuslar doskasi' not found. Pressing BACK (attempt {i+1}/4)...")
+        run_adb("shell input keyevent 4")
+        time.sleep(1.0)
+    
+    xml = get_xml_dump()
+    if "Tashabbuslar doskasi" in xml:
+        print("Dashboard ('Tashabbuslar doskasi') detected on final check.")
+        return True
+    print("Could not reset to dashboard.")
+    return False
+
 def check_captcha_submission_result():
     xml = get_xml_dump()
     if not xml:
@@ -151,6 +169,7 @@ def prepare_pre_solved_captcha():
     print("Launching OpenBudget for pre-solving...")
     run_adb("shell monkey -p uz.minfin.open_budget -c android.intent.category.LAUNCHER 1")
     time.sleep(2.5)
+    reset_to_dashboard()
     
     # 3. Navigate to "Tashabbusli byudjet" details page
     tap(260, 400)      # Active green card
@@ -285,6 +304,7 @@ def automate_vote_task(task):
         print("Launching OpenBudget...")
         run_adb("shell monkey -p uz.minfin.open_budget -c android.intent.category.LAUNCHER 1")
         time.sleep(2.5)
+        reset_to_dashboard()
         
         # 2. Navigate to "Tashabbusli byudjet" details page
         tap(260, 400)      # Active green card
