@@ -677,7 +677,7 @@ async def phone_report_sms_sent(req: ReportSMSSentRequest, db: AsyncSession = De
     from database.models import VotesHistory
     from main import bot, dp
     from aiogram.fsm.storage.base import StorageKey
-    from states.vote import VoteStates
+    from states.user_states import VoteStates
     
     task = await db.get(VotesHistory, req.task_id)
     if not task:
