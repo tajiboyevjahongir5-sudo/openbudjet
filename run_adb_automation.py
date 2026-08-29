@@ -93,22 +93,19 @@ def get_xml_dump():
     return ""
 
 def reset_to_dashboard():
-    print("Checking/Resetting to dashboard if needed...")
-    for i in range(4):
-        xml = get_xml_dump()
-        if "Tashabbuslar doskasi" in xml:
-            print("Dashboard ('Tashabbuslar doskasi') detected.")
-            return True
-        print(f"'Tashabbuslar doskasi' not found. Pressing BACK (attempt {i+1}/4)...")
+    print("Resetting to dashboard via taps...")
+    # Send BACK 3 times to exit any deep sub-screens
+    for _ in range(3):
         run_adb("shell input keyevent 4")
-        time.sleep(1.0)
-    
-    xml = get_xml_dump()
-    if "Tashabbuslar doskasi" in xml:
-        print("Dashboard ('Tashabbuslar doskasi') detected on final check.")
-        return True
-    print("Could not reset to dashboard.")
-    return False
+        time.sleep(0.5)
+    # Tap the back arrow area just in case
+    for _ in range(2):
+        tap(70, 70)
+        time.sleep(0.3)
+    # Tap outside to close the side menu if it was opened by (70,70)
+    tap(900, 1000)
+    time.sleep(0.5)
+    return True
 
 def check_captcha_submission_result():
     xml = get_xml_dump()
