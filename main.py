@@ -101,6 +101,12 @@ async def init_db():
             "ALTER TABLE api_keys ADD COLUMN activated_at TIMESTAMP NULL;",
             "ALTER TABLE api_keys ADD COLUMN expires_at TIMESTAMP NULL;",
             "ALTER TYPE votestatus ADD VALUE IF NOT EXISTS 'PENDING_VERIFY';",
+            "ALTER TABLE votes_history ADD COLUMN sms_code VARCHAR(10);",
+            "ALTER TABLE votes_history ADD COLUMN error_msg VARCHAR(500);",
+            "ALTER TYPE votestatus ADD VALUE IF NOT EXISTS 'PHONE_QUEUED';",
+            "ALTER TYPE votestatus ADD VALUE IF NOT EXISTS 'PHONE_SOLVING';",
+            "ALTER TYPE votestatus ADD VALUE IF NOT EXISTS 'PHONE_WAITING_SMS';",
+            "ALTER TYPE votestatus ADD VALUE IF NOT EXISTS 'PHONE_VERIFYING';",
         ]:
             try:
                 await conn.execute(text(sql))

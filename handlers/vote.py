@@ -297,6 +297,39 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
 
     waiting_msg = await message.answer("⏳ <b>Bog'lanish:</b> Loyihaga rasmiy SMS so'ralmoqda...", parse_mode="HTML")
 
+    if getattr(settings, "PHONE_AUTOMATION_ENABLED", False):
+        async with async_session() as db:
+            task_rec = await crud.add_vote_history(
+                db=db,
+                telegram_id=telegram_id,
+                phone_number=clean_phone,
+                project_id=project_id,
+                status="PHONE_QUEUED",
+                commit=True
+            )
+        try:
+            await waiting_msg.delete()
+        except Exception:
+            pass
+            
+        await state.update_data(
+            phone_number=clean_phone,
+            project_id=project_id,
+            task_id=task_rec.id,
+            flow="phone_automation"
+        )
+        await state.set_state(VoteStates.WAITING_FOR_CAPTCHA)
+        
+        await message.answer(
+            "⏳ <b>So'rov qabul qilindi!</b>\n\n"
+            "Ovoz berish jarayoni navbatga qo'shildi. "
+            "Operator telefoni orqali SMS so'ralishi kutilmoqda. "
+            "Telefoningizga SMS kod kelishi bilan shu yerda sizga xabar beramiz 📩",
+            reply_markup=reply.get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
     mvc_success, mvc_msg, mvc_session = await OpenBudgetService.send_mvc_initiative_sms(
         phone_number=clean_phone,
         project_id=project_id
@@ -630,6 +663,24 @@ async def process_sms_code(message: Message, state: FSMContext):
         return
 
     data = await state.get_data()
+    if data.get("flow") == "phone_automation":
+        task_id = data.get("task_id")
+        async with async_session() as db:
+            from database.models import VotesHistory
+            task = await db.get(VotesHistory, task_id)
+            if task:
+                task.sms_code = code
+                await db.commit()
+                
+        await message.answer(
+            "🔄 <b>SMS kod qabul qilindi!</b>\n\n"
+            "Tasdiqlash kodi operator telefoni orqali portalga yuborilmoqda. "
+            "Iltimos, yakuniy natija chiqquncha biroz kuting... ⏳",
+            reply_markup=reply.get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
     phone_number = data.get("phone_number")
     project_id = data.get("project_id")
     session_data = data.get("session_data")

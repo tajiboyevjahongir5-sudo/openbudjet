@@ -612,3 +612,195 @@ async def cancel_key_invoice(purchase_id: int, db: AsyncSession = Depends(get_db
     if purchase and purchase.status == "PENDING":
         purchase.status = "CANCELLED"
     return {"status": "success"}
+
+
+class ReportSMSSentRequest(BaseModel):
+    task_id: int
+
+class ReportResultRequest(BaseModel):
+    task_id: int
+    success: bool
+    error_msg: str | None = None
+
+class SolveCaptchaRequest(BaseModel):
+    image_base64: str
+
+@router.post("/phone-automation/solve-captcha")
+async def phone_solve_captcha(req: SolveCaptchaRequest):
+    """Local Python skript uchun kesib olingan matematik captchani yechib beradi"""
+    from services.captcha_solver import solve_captcha
+    
+    result = await solve_captcha(req.image_base64)
+    if result is not None:
+        return {"status": "success", "result": result}
+        
+    from services.captcha_solver import solve_captcha_with_gemini
+    result_gemini = await solve_captcha_with_gemini(req.image_base64)
+    if result_gemini is not None:
+        return {"status": "success", "result": result_gemini}
+        
+    raise HTTPException(status_code=400, detail="Captchani yechib bo'lmadi.")
+
+@router.get("/phone-automation/get-task")
+async def phone_get_task(db: AsyncSession = Depends(get_db)):
+    """Local Python skript uchun navbatdagi ovoz berish vazifasini qaytaradi"""
+    from database.models import VotesHistory
+    from sqlalchemy import select
+    
+    stmt = (
+        select(VotesHistory)
+        .where(VotesHistory.status == "PHONE_QUEUED")
+        .order_by(VotesHistory.id.asc())
+        .limit(1)
+    )
+    res = await db.execute(stmt)
+    task = res.scalar_one_or_none()
+    
+    if not task:
+        return {"status": "no_tasks"}
+        
+    task.status = "PHONE_SOLVING"
+    await db.commit()
+    
+    return {
+        "status": "success",
+        "task": {
+            "id": task.id,
+            "phone_number": task.phone_number,
+            "project_id": task.project_id
+        }
+    }
+
+@router.post("/phone-automation/report-sms-sent")
+async def phone_report_sms_sent(req: ReportSMSSentRequest, db: AsyncSession = Depends(get_db)):
+    """Telefon app SMS yuborganini bildiradi va Telegram foydalanuvchidan kod so'raydi"""
+    from database.models import VotesHistory
+    from main import bot, dp
+    from aiogram.fsm.storage.base import StorageKey
+    from states.vote import VoteStates
+    
+    task = await db.get(VotesHistory, req.task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task topilmadi.")
+        
+    task.status = "PHONE_WAITING_SMS"
+    await db.commit()
+    
+    try:
+        key = StorageKey(bot_id=bot.id, chat_id=task.telegram_id, user_id=task.telegram_id)
+        # FSM ma'lumotlarini yangilaymiz va holatni o'zgartiramiz
+        await dp.storage.set_state(key, VoteStates.WAITING_FOR_SMS)
+        
+        # FSM data ga phone_number, project_id, task_id ni saqlaymiz (handlers/vote.py da ishlatish uchun)
+        await dp.storage.set_data(key, {
+            "phone_number": task.phone_number,
+            "project_id": task.project_id,
+            "task_id": task.id,
+            "flow": "phone_automation"
+        })
+        
+        # Telefon raqamini chiroyli formatlaymiz
+        clean_d = task.phone_number[-9:] if len(task.phone_number) >= 9 else task.phone_number
+        formatted_p = f"+998 ({clean_d[:2]}) {clean_d[2:5]}-{clean_d[5:7]}-{clean_d[7:]}"
+        
+        from keyboards import reply
+        await bot.send_message(
+            chat_id=task.telegram_id,
+            text=(
+                f"📩 <b>SMS yuborildi!</b>\n\n"
+                f"<code>{formatted_p}</code> raqamiga yuborilgan 6 xonali SMS tasdiqlash kodini kiriting:"
+            ),
+            reply_markup=reply.get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Foydalanuvchiga SMS xabar yuborishda xatolik: {e}")
+        
+    return {"status": "success"}
+
+@router.get("/phone-automation/get-sms-code")
+async def phone_get_sms_code(task_id: int, db: AsyncSession = Depends(get_db)):
+    """Local Python skript foydalanuvchi kiritgan SMS kodni olishi uchun"""
+    from database.models import VotesHistory
+    task = await db.get(VotesHistory, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task topilmadi.")
+        
+    if task.status == "PHONE_WAITING_SMS" and task.sms_code:
+        task.status = "PHONE_VERIFYING"
+        await db.commit()
+        return {
+            "status": "success",
+            "sms_code": task.sms_code
+        }
+        
+    return {"status": "waiting"}
+
+@router.post("/phone-automation/report-result")
+async def phone_report_result(req: ReportResultRequest, db: AsyncSession = Depends(get_db)):
+    """Ovoz berish natijasini qayd etadi"""
+    from database.models import VotesHistory, VoteStatus
+    from services.vote_verifier import confirm_single_vote
+    from main import bot
+    
+    task = await db.get(VotesHistory, req.task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task topilmadi.")
+        
+    if req.success:
+        try:
+            await confirm_single_vote(db, bot, task)
+        except Exception as e:
+            logger.error(f"Ovozni tasdiqlashda xato: {e}", exc_info=True)
+            task.status = VoteStatus.SUCCESS
+            await db.commit()
+    else:
+        err = req.error_msg or "noma'lum xatolik"
+        err_lower = err.lower()
+        
+        voted_terms = ["already_voted", "allaqachon", "ovoz berilgan", "овоз берилган", "овоз берган", "бошқа рақам"]
+        if any(t in err_lower for t in voted_terms):
+            task.status = VoteStatus.ALREADY_VOTED
+            task.error_msg = err
+            await db.commit()
+            try:
+                from keyboards import reply
+                await bot.send_message(
+                    chat_id=task.telegram_id,
+                    text=(
+                        f"❌ Ushbu telefon raqami orqali Open Budget portalida allaqachon ovoz berilgan.\n"
+                        f"Qonun bo'yicha har bir fuqaro faqat 1 marta ovoz bera oladi."
+                    ),
+                    reply_markup=reply.get_user_menu()
+                )
+            except Exception:
+                pass
+        else:
+            task.status = VoteStatus.FAILED
+            task.error_msg = err
+            await db.commit()
+            try:
+                from keyboards import reply
+                await bot.send_message(
+                    chat_id=task.telegram_id,
+                    text=(
+                        f"❌ Ovoz berish jarayonida xatolik yuz berdi:\n<b>{err}</b>\n\n"
+                        f"Iltimos, qayta urinib ko'ring."
+                    ),
+                    reply_markup=reply.get_user_menu(),
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+                
+    # FSM ni tozalaymiz
+    from main import dp
+    from aiogram.fsm.storage.base import StorageKey
+    try:
+        key = StorageKey(bot_id=bot.id, chat_id=task.telegram_id, user_id=task.telegram_id)
+        await dp.storage.set_state(key, None)
+        await dp.storage.set_data(key, {})
+    except Exception:
+        pass
+        
+    return {"status": "success"}

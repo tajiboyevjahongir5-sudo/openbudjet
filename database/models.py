@@ -11,6 +11,10 @@ class VoteStatus(str, enum.Enum):
     SUCCESS = "SUCCESS"
     ALREADY_VOTED = "ALREADY_VOTED"
     FAILED = "FAILED"
+    PHONE_QUEUED = "PHONE_QUEUED"
+    PHONE_SOLVING = "PHONE_SOLVING"
+    PHONE_WAITING_SMS = "PHONE_WAITING_SMS"
+    PHONE_VERIFYING = "PHONE_VERIFYING"
 
 class WithdrawalStatus(str, enum.Enum):
     PENDING = "PENDING"
@@ -58,6 +62,8 @@ class VotesHistory(Base):
     phone_number: Mapped[str] = mapped_column(String(20), nullable=False)
     project_id: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[VoteStatus] = mapped_column(SQLEnum(VoteStatus), default=VoteStatus.SUCCESS)
+    sms_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    error_msg: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 class Withdrawals(Base):
