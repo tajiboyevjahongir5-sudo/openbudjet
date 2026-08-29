@@ -641,6 +641,15 @@ async def phone_solve_captcha(req: SolveCaptchaRequest):
         
     raise HTTPException(status_code=400, detail="Captchani yechib bo'lmadi.")
 
+@router.get("/phone-automation/active-project")
+async def phone_active_project(db: AsyncSession = Depends(get_db)):
+    """Local Python skript uchun faol loyiha ID raqamini qaytaradi"""
+    from database.crud import get_active_project
+    project = await get_active_project(db)
+    if project:
+        return {"status": "success", "project_id": project.project_id}
+    return {"status": "error", "message": "No active project"}
+
 @router.get("/phone-automation/get-task")
 async def phone_get_task(db: AsyncSession = Depends(get_db)):
     """Local Python skript uchun navbatdagi ovoz berish vazifasini qaytaradi"""
