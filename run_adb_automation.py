@@ -15,8 +15,15 @@ CURRENT_PRE_SOLVED_PROJECT_ID = None
 
 def run_adb(cmd):
     full_cmd = f'"{ADB_PATH}" {cmd}'
-    res = os.popen(full_cmd).read().strip()
-    return res
+    try:
+        res = subprocess.run(full_cmd, shell=True, capture_output=True, text=True, timeout=15)
+        return res.stdout.strip()
+    except subprocess.TimeoutExpired:
+        print(f"ADB command timed out: {full_cmd}")
+        return ""
+    except Exception as e:
+        print(f"ADB command error: {cmd} - {e}")
+        return ""
 
 def tap(x, y):
     print(f"Tapping: ({x}, {y})")
@@ -43,7 +50,7 @@ def clear_field():
     time.sleep(0.2)
 
 def press_back():
-    print("Pressing Back button")
+    print("Pressing BACK...")
     run_adb("shell input keyevent 4")
     time.sleep(0.5)
 
@@ -63,17 +70,23 @@ def solve_captcha_remote(crop_path):
 
 def get_xml_dump():
     try:
+        # Delete old dump from device to avoid cache issues
+        run_adb("shell rm -f /sdcard/window_dump.xml")
         run_adb("shell uiautomator dump /sdcard/window_dump.xml")
         temp_path = "window_dump_temp.xml"
-        run_adb(f"pull /sdcard/window_dump.xml {temp_path}")
-        if os.path.exists(temp_path):
-            with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
-                xml_content = f.read()
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
-            return xml_content
+        
+        # Pull the file if it exists
+        res = run_adb(f"pull /sdcard/window_dump.xml {temp_path}")
+        if "error" in res.lower() or "not found" in res.lower() or not os.path.exists(temp_path):
+            return ""
+            
+        with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
+            xml_content = f.read()
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+        return xml_content
     except Exception as e:
         print(f"Error getting XML dump: {e}")
     return ""
