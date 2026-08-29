@@ -645,16 +645,21 @@ async def phone_solve_captcha(req: SolveCaptchaRequest):
 async def phone_active_project(db: AsyncSession = Depends(get_db)):
     """Local Python skript uchun faol loyiha ID raqamini qaytaradi"""
     from database.crud import get_active_project
+    import re
     project = await get_active_project(db)
     if project:
-        return {"status": "success", "project_id": project.project_id}
+        # project_url dan 12 xonali raqamli IDni ajratib olamiz
+        digits = re.findall(r'\d+', project.project_url)
+        numeric_id = digits[-1] if digits else project.project_id
+        return {"status": "success", "project_id": numeric_id}
     return {"status": "error", "message": "No active project"}
 
 @router.get("/phone-automation/get-task")
 async def phone_get_task(db: AsyncSession = Depends(get_db)):
     """Local Python skript uchun navbatdagi ovoz berish vazifasini qaytaradi"""
-    from database.models import VotesHistory
+    from database.models import VotesHistory, OpenBudgetProject
     from sqlalchemy import select
+    import re
     
     stmt = (
         select(VotesHistory)
@@ -671,12 +676,22 @@ async def phone_get_task(db: AsyncSession = Depends(get_db)):
     task.status = "PHONE_SOLVING"
     await db.commit()
     
+    # Loyihaning haqiqiy raqamli ID raqamini aniqlaymiz
+    numeric_id = task.project_id
+    proj_stmt = select(OpenBudgetProject).where(OpenBudgetProject.project_id == task.project_id)
+    proj_res = await db.execute(proj_stmt)
+    proj = proj_res.scalar_one_or_none()
+    if proj:
+        digits = re.findall(r'\d+', proj.project_url)
+        if digits:
+            numeric_id = digits[-1]
+    
     return {
         "status": "success",
         "task": {
             "id": task.id,
             "phone_number": task.phone_number,
-            "project_id": task.project_id
+            "project_id": numeric_id
         }
     }
 
