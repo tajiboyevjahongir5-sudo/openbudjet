@@ -183,6 +183,9 @@ def automate_vote_task(task):
                     sms_code = data.get("sms_code")
                     print(f"SMS code received: {sms_code}")
                     break
+                elif data.get("status") == "aborted":
+                    print("Task was cancelled or aborted by server.")
+                    return
         except Exception as e:
             print(f"Error checking SMS code: {e}")
             

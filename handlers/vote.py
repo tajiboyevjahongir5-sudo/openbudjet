@@ -428,6 +428,36 @@ async def handle_phone_submission(message: Message, state: FSMContext, phone: st
     await state.clear()
     return
 
+@router.message(VoteStates.WAITING_FOR_CAPTCHA, F.text)
+async def process_captcha_text_cancel(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if text == "❌ Jarayonni bekor qilish":
+        data = await state.get_data()
+        if data.get("flow") == "phone_automation":
+            task_id = data.get("task_id")
+            async with async_session() as db:
+                from database.models import VotesHistory, VoteStatus
+                task = await db.get(VotesHistory, task_id)
+                if task:
+                    task.status = VoteStatus.FAILED
+                    task.error_msg = "Foydalanuvchi bekor qildi"
+                    await db.commit()
+        await state.clear()
+        await message.answer("Jarayon bekor qilindi.", reply_markup=reply.get_user_menu())
+        return
+    else:
+        data = await state.get_data()
+        if data.get("flow") == "phone_automation":
+            await message.answer(
+                "⏳ <b>Operator telefoni orqali SMS so'ralishi kutilmoqda.</b>\n\n"
+                "Iltimos, telefoningizga SMS kod kelishini kuting. "
+                "Jarayonni bekor qilish uchun pastdagi tugmani bosing.",
+                reply_markup=reply.get_cancel_keyboard(),
+                parse_mode="HTML"
+            )
+        else:
+            await message.answer("Iltimos, pastdagi tugma orqali xavfsizlik tekshiruvidan o'ting 👇")
+
 @router.message(VoteStates.WAITING_FOR_CAPTCHA, F.web_app_data)
 async def process_captcha_result(message: Message, state: FSMContext):
     """Foydalanuvchi Web App orqali captchani yechganida ishlaydi"""
@@ -650,6 +680,16 @@ async def process_sms_code(message: Message, state: FSMContext):
     code = message.text.strip()
     
     if code == "❌ Jarayonni bekor qilish":
+        data = await state.get_data()
+        if data.get("flow") == "phone_automation":
+            task_id = data.get("task_id")
+            async with async_session() as db:
+                from database.models import VotesHistory, VoteStatus
+                task = await db.get(VotesHistory, task_id)
+                if task:
+                    task.status = VoteStatus.FAILED
+                    task.error_msg = "Foydalanuvchi bekor qildi"
+                    await db.commit()
         await state.clear()
         await message.answer("Jarayon bekor qilindi.", reply_markup=reply.get_user_menu())
         return

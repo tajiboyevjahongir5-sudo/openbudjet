@@ -726,7 +726,15 @@ async def phone_get_sms_code(task_id: int, db: AsyncSession = Depends(get_db)):
     if not task:
         raise HTTPException(status_code=404, detail="Task topilmadi.")
         
-    if task.status == "PHONE_WAITING_SMS" and task.sms_code:
+    if task.status != "PHONE_WAITING_SMS":
+        if task.sms_code and task.status == "PHONE_VERIFYING":
+            return {
+                "status": "success",
+                "sms_code": task.sms_code
+            }
+        return {"status": "aborted", "message": f"Task status is {task.status}"}
+        
+    if task.sms_code:
         task.status = "PHONE_VERIFYING"
         await db.commit()
         return {
