@@ -17,17 +17,17 @@ def run_adb(cmd):
 def tap(x, y):
     print(f"Tapping: ({x}, {y})")
     run_adb(f"shell input tap {x} {y}")
-    time.sleep(1.5)
+    time.sleep(0.5)
 
 def swipe(x1, y1, x2, y2, duration=300):
     print(f"Swiping: ({x1}, {y1}) -> ({x2}, {y2})")
     run_adb(f"shell input swipe {x1} {y1} {x2} {y2} {duration}")
-    time.sleep(1.5)
+    time.sleep(0.6)
 
 def input_text(text):
     print(f"Typing text: {text}")
     run_adb(f'shell input text "{text}"')
-    time.sleep(0.5)
+    time.sleep(0.2)
 
 def clear_field():
     print("Clearing field...")
@@ -36,12 +36,12 @@ def clear_field():
     # Send KEYCODE_DEL 15 times
     for _ in range(15):
         run_adb("shell input keyevent 67")
-    time.sleep(0.5)
+    time.sleep(0.2)
 
 def press_back():
     print("Pressing Back button")
     run_adb("shell input keyevent 4")
-    time.sleep(1)
+    time.sleep(0.5)
 
 def solve_captcha_remote(crop_path):
     with open(crop_path, "rb") as f:
@@ -68,14 +68,21 @@ def automate_vote_task(task):
     print(f"STARTING VOTE FOR TASK {task_id}: {phone}")
     print(f"==========================================")
     
+    # Wake up screen and unlock
+    print("Waking up screen and unlocking...")
+    run_adb("shell input keyevent KEYCODE_WAKEUP")
+    time.sleep(0.3)
+    run_adb("shell input swipe 540 2000 540 500 200") # Unlock swipe lock
+    time.sleep(0.5)
+    
     # 1. Reset state (go home, open app)
     run_adb("shell input keyevent 3") # Home
-    time.sleep(1)
+    time.sleep(0.5)
     
     # Launch OpenBudget
     print("Launching OpenBudget...")
     run_adb("shell monkey -p uz.minfin.open_budget -c android.intent.category.LAUNCHER 1")
-    time.sleep(4)
+    time.sleep(2.5)
     
     # 2. Navigate to "Tashabbusli byudjet" details page
     tap(260, 400)      # Active green card
@@ -85,7 +92,7 @@ def automate_vote_task(task):
     clear_field()
     input_text(str(task["project_id"])) # Clear field and type project_id
     run_adb("shell input keyevent 66") # Press Enter (KeyCode 66) to execute search
-    time.sleep(2)
+    time.sleep(1.0)
     tap(540, 300)      # Tap the result card
     swipe(540, 1800, 540, 400) # Swipe up to scroll down
     tap(540, 1870)     # Orange button: SMS orqali ovoz berish
