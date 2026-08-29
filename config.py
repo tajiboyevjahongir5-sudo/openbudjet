@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Open Budget Mock rejimi (test qilish uchun True, real sayt bilan ishlashda False qilinadi)
     MOCK_OPENBUDGET: bool = True
 
+    # Telefon orqali avtomatlashtirish rejimi (USB/ADB)
+    PHONE_AUTOMATION_ENABLED: bool = False
+
     # Cloudflare Workers reverse proxy URL (proksisiz bepul IP rotatsiya qilish uchun)
     CLOUDFLARE_PROXY_URL: str = ""
 
